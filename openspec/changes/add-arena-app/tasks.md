@@ -43,6 +43,6 @@
 - [x] 5.2 `loading.tsx` com Skeleton do shadcn (espelha o card, sem CLS)
 - [x] 5.3 `error.tsx` amigável e seguro (`unstable_retry`, só `digest`, sem vazar detalhes)
 - [x] 5.4 `.env.example` final (público + secreto + URL canônica do site)
-- [ ] 5.5 Análise de qualidade via workflows adversariais (feito); testes de integração PENDENTES (sem infra de teste e Supabase não provisionado — depende de 2.4)
+- [x] 5.5 Análise de qualidade (workflows adversariais) + testes (vitest): action `updateMatchScore`, schema e `getActiveMatches` cobertos (24 testes). Validação live no browser fica como follow-up (depende de schema aplicado + seed)
 - [x] 5.6 Documentação de deploy na Vercel (`docs/deploy-vercel.md` — envs + schema manual + logs)
 - [ ] 5.7 Commits convencionais por entrega (Fase 5 commitada); encerramento/archive pendente (handoff 2.4)
