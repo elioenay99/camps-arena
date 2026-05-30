@@ -1,7 +1,16 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  images: {
+    // Escudos de clube servidos pelo CDN da API-Football.
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "media.api-sports.io",
+        pathname: "/football/teams/**",
+      },
+    ],
+  },
 };
 
 export default nextConfig;

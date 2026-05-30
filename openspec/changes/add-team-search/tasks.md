@@ -16,10 +16,10 @@
 
 ## 3. UI — autocomplete e escudo
 
-- [ ] 3.1 `src/features/team/components/TeamSearchInput.tsx` (Client): autocomplete com debounce ~350ms chamando `searchTeams`, lista de resultados com escudo
-- [ ] 3.2 `src/features/team/components/TeamCrest.tsx`: `next/image` do escudo + fallback placeholder (iniciais + cor) em ausência/erro de carregamento
-- [ ] 3.3 `next.config.ts`: `images.remotePatterns` para `media.api-sports.io`
-- [ ] 3.4 a11y/pt-BR: rótulos, estados de carregamento/erro, navegação por teclado no autocomplete
+- [x] 3.1 `src/features/team/components/TeamSearchInput.tsx` (Client): combobox com debounce ~350ms + guarda de corrida chamando `searchTeams`, lista com escudo; retorna o clube via `onSelect`
+- [x] 3.2 `src/features/team/components/TeamCrest.tsx`: `next/image` do escudo + placeholder (iniciais + cor estável) em ausência/erro
+- [x] 3.3 `next.config.ts`: `images.remotePatterns` para `media.api-sports.io/football/teams/**`
+- [x] 3.4 a11y/pt-BR: combobox ARIA (role/aria-expanded/activedescendant/listbox/option), navegação por teclado (↑/↓/Enter/Esc), estados Buscando…/erro/vazio
 
 ## 4. Integração no fluxo
 
