@@ -16,6 +16,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  // URL canônica do site: base para URLs absolutas de metadados/OG.
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"
+  ),
   title: "Arena",
   description: "Gestão de torneios e partidas — placar ao vivo entre participantes.",
 };

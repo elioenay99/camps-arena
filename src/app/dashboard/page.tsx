@@ -1,15 +1,16 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { logout } from "@/actions/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { getActiveMatches } from "@/features/match/data/getActiveMatches";
+import { MatchCard } from "@/features/match/components/MatchCard";
+import { EmptyActiveMatches } from "@/features/match/components/EmptyActiveMatches";
+
+export const metadata: Metadata = {
+  title: "Painel · Arena",
+};
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -21,6 +22,8 @@ export default async function DashboardPage() {
   if (!user) {
     redirect("/login?redirectTo=/dashboard");
   }
+
+  const partidas = await getActiveMatches();
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
@@ -35,17 +38,21 @@ export default async function DashboardPage() {
         </form>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-2xl">Painel</CardTitle>
-          <CardDescription>Sessão ativa: {user.email}</CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          A listagem de partidas ativas chega na Fase 5. Por ora, a área
-          autenticada está protegida pelo proxy e pela verificação de sessão na
-          própria página.
-        </CardContent>
-      </Card>
+      <section aria-labelledby="partidas-ativas-titulo" className="flex flex-col gap-4">
+        <h1 id="partidas-ativas-titulo" className="text-2xl font-semibold">
+          Partidas ativas
+        </h1>
+
+        {partidas.length === 0 ? (
+          <EmptyActiveMatches />
+        ) : (
+          <ul className="flex list-none flex-col gap-4 p-0">
+            {partidas.map((partida) => (
+              <MatchCard key={partida.id} partida={partida} />
+            ))}
+          </ul>
+        )}
+      </section>
     </main>
   );
 }

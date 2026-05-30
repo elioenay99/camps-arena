@@ -39,10 +39,10 @@
 
 ## 5. Páginas, Listagens e Otimização (Fase 5)
 
-- [ ] 5.1 Página protegida `src/app/(dashboard)` (RSC) listando partidas ativas
-- [ ] 5.2 `loading.tsx` com Skeleton do shadcn
-- [ ] 5.3 `error.tsx` amigável e seguro
-- [ ] 5.4 `.env.example` final (público + secreto + propriedades do site)
-- [ ] 5.5 `/sc:analyze` qualidade + `/sc:test` integração
-- [ ] 5.6 Documentação de deploy na Vercel (envs + logs)
-- [ ] 5.7 Commits convencionais por entrega + encerramento de sessão
+- [x] 5.1 Página protegida `/dashboard` (RSC) listando partidas ativas (query com embed, MatchCard, estado vazio)
+- [x] 5.2 `loading.tsx` com Skeleton do shadcn (espelha o card, sem CLS)
+- [x] 5.3 `error.tsx` amigável e seguro (`unstable_retry`, só `digest`, sem vazar detalhes)
+- [x] 5.4 `.env.example` final (público + secreto + URL canônica do site)
+- [ ] 5.5 Análise de qualidade via workflows adversariais (feito); testes de integração PENDENTES (sem infra de teste e Supabase não provisionado — depende de 2.4)
+- [x] 5.6 Documentação de deploy na Vercel (`docs/deploy-vercel.md` — envs + schema manual + logs)
+- [ ] 5.7 Commits convencionais por entrega (Fase 5 commitada); encerramento/archive pendente (handoff 2.4)
