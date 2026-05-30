@@ -1,0 +1,23 @@
+# Imagem de desenvolvimento — hot reload do Next.js 16 (Turbopack)
+FROM node:22-slim
+
+# pnpm via corepack, pinado pela versão do package.json ("packageManager").
+# COREPACK_ENABLE_DOWNLOAD_PROMPT=0 evita prompt que abortaria build não-interativo.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
+
+WORKDIR /app
+
+# Instala dependências em camada cacheável.
+# pnpm-workspace.yaml é necessário: carrega ignoredBuiltDependencies (sharp, unrs-resolver),
+# sem ele o install diverge do host / pode disparar erro de build script.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# Código-fonte (em dev é sobreposto pelo bind mount do compose)
+COPY . .
+
+EXPOSE 3000
+
+# Liga o dev server em 0.0.0.0 para ser acessível fora do container
+CMD ["pnpm", "exec", "next", "dev", "-H", "0.0.0.0", "-p", "3000"]

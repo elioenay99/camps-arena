@@ -1,0 +1,28 @@
+# Ambiente de desenvolvimento local — `docker compose up`
+# Sobe o Next.js 16 em modo dev com hot reload no http://localhost:3000
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: arena-web-dev
+    # Comando vem do CMD do Dockerfile.dev (next dev -H 0.0.0.0 -p 3000)
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      # Fallback de polling para watchers baseados em chokidar/webpack.
+      # (No Turbopack o reload vem do inotify do bind mount no Linux.)
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    # .env.local é opcional: não quebra o up se ainda não existir
+    env_file:
+      - path: .env.local
+        required: false
+    volumes:
+      # Código vivo para hot reload
+      - .:/app
+      # Preserva node_modules e .next do container (não polui o host)
+      - /app/node_modules
+      - /app/.next
+    restart: unless-stopped
