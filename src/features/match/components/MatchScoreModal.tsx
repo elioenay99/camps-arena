@@ -120,7 +120,7 @@ function Stepper({
 }: {
   label: string
   value: number
-  onChange: (proximo: number) => void
+  onChange: (atualizar: (atual: number) => number) => void
   max?: number
 }) {
   const noMinimo = value <= 0
@@ -137,7 +137,9 @@ function Stepper({
         className="aria-disabled:opacity-50"
         onClick={() => {
           if (noMinimo) return
-          onChange(value - 1)
+          // Updater funcional: cliques rápidos no mesmo tick acumulam (não lê
+          // `value` obsoleto do closure); o clamp protege o piso.
+          onChange((atual) => Math.max(0, atual - 1))
         }}
       >
         <Minus aria-hidden="true" />
@@ -162,7 +164,7 @@ function Stepper({
         className="aria-disabled:opacity-50"
         onClick={() => {
           if (noMaximo) return
-          onChange(value + 1)
+          onChange((atual) => Math.min(max, atual + 1))
         }}
       >
         <Plus aria-hidden="true" />
@@ -181,7 +183,7 @@ function ColunaParticipante({
   participante: ParticipantePartida
   lado: 1 | 2
   value: number
-  onChange: (proximo: number) => void
+  onChange: (atualizar: (atual: number) => number) => void
   onSelecionarClube?: (lado: 1 | 2, team: TeamResult) => Promise<void> | void
 }) {
   const wa = linkWhatsApp(participante.celular)
