@@ -30,12 +30,12 @@
 
 ## 4. Server Actions e Mutações (Fase 4)
 
-- [ ] 4.1 `updateMatchScore` em `src/actions/match.ts`
-- [ ] 4.2 Verificar identidade e rejeitar se não for dono da partida
-- [ ] 4.3 UPDATE em `matches` + `revalidatePath('/dashboard')`
-- [ ] 4.4 Conectar ao botão "SALVAR PLACAR" com `useTransition`
-- [ ] 4.5 Toast de sucesso (sonner)
-- [ ] 4.6 Auditoria `@agent-security-engineer` da checagem de propriedade
+- [x] 4.1 `updateMatchScore` em `src/actions/match.ts`
+- [x] 4.2 Verificar identidade (`getUser`) e rejeitar se não for dono da partida
+- [x] 4.3 UPDATE em `matches` (só placares) + `.select()` de confirmação + `revalidatePath('/dashboard')`
+- [x] 4.4 Conectar "SALVAR PLACAR" via `useTransition` no modal + wrapper client `MatchScoreModalConnected`
+- [x] 4.5 Toast de sucesso (sonner) no salvamento real
+- [x] 4.6 Auditoria de segurança (workflow adversarial multi-agente) da checagem de propriedade
 
 ## 5. Páginas, Listagens e Otimização (Fase 5)
 

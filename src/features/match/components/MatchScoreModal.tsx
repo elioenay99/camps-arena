@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { PLACAR_MAX } from "@/schema/matchSchema"
 
 export interface ParticipantePartida {
   nome: string
@@ -105,12 +106,15 @@ function Stepper({
   label,
   value,
   onChange,
+  max = PLACAR_MAX,
 }: {
   label: string
   value: number
   onChange: (proximo: number) => void
+  max?: number
 }) {
   const noMinimo = value <= 0
+  const noMaximo = value >= max
 
   return (
     <div className="flex items-center justify-center gap-3">
@@ -144,7 +148,12 @@ function Stepper({
         variant="outline"
         size="icon"
         aria-label={`Aumentar placar de ${label}`}
-        onClick={() => onChange(value + 1)}
+        aria-disabled={noMaximo}
+        className="aria-disabled:opacity-50"
+        onClick={() => {
+          if (noMaximo) return
+          onChange(value + 1)
+        }}
       >
         <Plus aria-hidden="true" />
       </Button>
@@ -205,10 +214,12 @@ export function MatchScoreModal({
   const [open, setOpen] = React.useState(false)
   const [placar1, setPlacar1] = React.useState(placarInicial1)
   const [placar2, setPlacar2] = React.useState(placarInicial2)
-  const [salvando, setSalvando] = React.useState(false)
+  const [salvando, startSalvar] = React.useTransition()
 
   // Ressincroniza o estado otimista ao (re)abrir o modal — no handler, sem efeito.
   function handleOpenChange(proximo: boolean) {
+    // Não fecha enquanto a Server Action está em voo (evita perder o resultado).
+    if (!proximo && salvando) return
     if (proximo) {
       setPlacar1(placarInicial1)
       setPlacar2(placarInicial2)
@@ -216,26 +227,26 @@ export function MatchScoreModal({
     setOpen(proximo)
   }
 
-  async function handleSalvar() {
+  function handleSalvar() {
     const normalizar = (n: number) => Math.max(0, Math.trunc(n))
-    try {
-      setSalvando(true)
-      if (onSave) {
-        await onSave({
-          matchId,
-          placar_1: normalizar(placar1),
-          placar_2: normalizar(placar2),
-        })
-      } else {
-        toast.success("Placar salvo (demonstração).")
+    startSalvar(async () => {
+      try {
+        if (onSave) {
+          await onSave({
+            matchId,
+            placar_1: normalizar(placar1),
+            placar_2: normalizar(placar2),
+          })
+          toast.success("Placar salvo.")
+        } else {
+          toast.success("Placar salvo (demonstração).")
+        }
+        setOpen(false)
+      } catch (erro) {
+        console.error("Falha ao salvar placar", erro)
+        toast.error("Não foi possível salvar o placar. Tente novamente.")
       }
-      setOpen(false)
-    } catch (erro) {
-      console.error("Falha ao salvar placar", erro)
-      toast.error("Não foi possível salvar o placar. Tente novamente.")
-    } finally {
-      setSalvando(false)
-    }
+    })
   }
 
   return (
@@ -286,6 +297,12 @@ export function MatchScoreModal({
         </div>
 
         <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+          {/* Anuncia o estado em voo a leitores de tela: o botão fica
+              `disabled` (sai da árvore de a11y), então o feedback precisa
+              vir de uma região live independente. */}
+          <span className="sr-only" role="status" aria-live="polite">
+            {salvando ? "Salvando placar…" : ""}
+          </span>
           <Button
             type="button"
             onClick={handleSalvar}
@@ -298,6 +315,7 @@ export function MatchScoreModal({
             <Button
               type="button"
               variant="outline"
+              disabled={salvando}
               className="w-full rounded-full"
             >
               FECHAR
