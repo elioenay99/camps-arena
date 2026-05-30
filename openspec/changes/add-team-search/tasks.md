@@ -9,10 +9,10 @@
 
 ## 2. Server Action de busca + validação
 
-- [ ] 2.1 `src/schema/teamSchema.ts` (Zod): termo de busca (mín. 3 chars) e shape do clube (nome, escudo_url, external_id)
-- [ ] 2.2 `src/actions/teams.ts` → `searchTeams(query)`: `fetch` à API-Football com `API_FOOTBALL_KEY` (header), só server-side; mapeia resposta para `{ externalId, nome, escudoUrl }[]`; trata erro/timeout sem vazar detalhes
-- [ ] 2.3 `selectTeam(...)`: upsert do clube em `teams` (cache por `provider+external_id`), retornando o `team.id` local
-- [ ] 2.4 Cache do resultado de busca (Next 16 `use cache`/`cacheLife` ou Runtime Cache) para aliviar o limite grátis
+- [x] 2.1 `src/schema/teamSchema.ts` (Zod): `teamSearchSchema` (mín. 3 chars) + `teamResultSchema` (externalId, nome, escudoUrl)
+- [x] 2.2 `src/actions/teams.ts` → `searchTeams(query)`: `fetch` à API-Football com `API_FOOTBALL_KEY` (header `x-apisports-key`), só server-side; normaliza `response[].team` → `{ externalId, nome, escudoUrl }[]`; trata erro/timeout/quota sem vazar detalhes
+- [x] 2.3 `selectTeam(...)`: cache idempotente em `teams` por `provider+external_id` (select-then-insert com fallback de corrida), retorna `teamId` local; exige sessão
+- [x] 2.4 Cache best-effort via `next.revalidate` (24h) na busca; defesas principais = debounce (Fase 3) + cache em `teams`
 
 ## 3. UI — autocomplete e escudo
 
