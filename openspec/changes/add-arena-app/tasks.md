@@ -11,14 +11,14 @@
 
 ## 2. Dados, Supabase e Autenticação (Fase 2)
 
-- [ ] 2.1 Schemas Zod em `src/schema/` (matchSchema, authSchema) com formato BR (celular)
-- [ ] 2.2 `supabase/schema.sql`: tabelas `users`, `tournaments`, `matches`
-- [ ] 2.3 Ativar RLS e políticas (SELECT público, UPDATE restrito ao dono)
-- [ ] 2.4 Provisionar Supabase via Marketplace da Vercel + envs
-- [ ] 2.5 Clientes Supabase server/client em `src/lib/supabase/` (`@supabase/ssr`)
-- [ ] 2.6 `src/middleware.ts` protegendo rotas administrativas
-- [ ] 2.7 Login minimalista com Server Actions (Supabase Auth)
-- [ ] 2.8 Revisão `@agent-backend-architect` (schema) e `@agent-security-engineer` (RLS)
+- [x] 2.1 Schemas Zod em `src/schema/` (matchSchema, authSchema) com formato BR (celular)
+- [x] 2.2 `supabase/schema.sql`: tabelas `users`, `tournaments`, `matches` (+ enums, triggers, view users_public)
+- [x] 2.3 Ativar RLS e políticas (SELECT público em matches, UPDATE restrito ao participante + trava de reatribuição; users só logado + view pública sem PII)
+- [ ] 2.4 Provisionar Supabase via Marketplace da Vercel + envs (handoff guiado ao usuário)
+- [x] 2.5 Clientes Supabase server/client em `src/lib/supabase/` (`@supabase/ssr`)
+- [x] 2.6 `src/proxy.ts` (convenção Next 16; ex-middleware) protegendo `/dashboard`
+- [x] 2.7 Login minimalista com Server Actions (Supabase Auth) + stub `/dashboard` com logout
+- [x] 2.8 Revisão `@agent-backend-architect` (schema) e `@agent-security-engineer` (RLS) via workflow
 
 ## 3. Modal "Menu da Partida" (Fase 3)
 
