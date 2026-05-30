@@ -29,8 +29,8 @@
 
 ## 5. Validação e qualidade
 
-- [ ] 5.1 Testes (vitest) da `searchTeams`/`selectTeam` com `fetch` e Supabase mockados (sucesso, termo curto, erro de API, upsert idempotente)
-- [ ] 5.2 Auditoria via workflow adversarial (segurança da key server-side, RLS de `teams`, não regressão da Fase 4)
-- [ ] 5.3 Quality gates: `tsc` · `lint` · `test` · `build`
-- [ ] 5.4 Validação live (browser): buscar clube → selecionar → ver escudo no card/modal; placeholder em clube sem escudo
-- [ ] 5.5 Commits convencionais por entrega + archive do change
+- [x] 5.1 Testes (vitest) de `searchTeams`/`selectTeam`/`updateMatchTeams` (fetch + Supabase mockados) — 44 testes
+- [x] 5.2 Auditoria via workflow adversarial (segurança limpa: key server-side, RLS de `teams`, sem regressão da Fase 4); achados low/info aplicados (a11y do combobox + reforço de testes) + timeout no fetch
+- [x] 5.3 Quality gates: `tsc` · `lint` · `test` · `build` verdes
+- [x] 5.4 Validação live (browser): login → modal → busca "Flamengo" retornou 27 clubes reais com escudos renderizando (next/image); falha graciosa com timeout
+- [x] 5.5 Commits convencionais por entrega + archive do change
