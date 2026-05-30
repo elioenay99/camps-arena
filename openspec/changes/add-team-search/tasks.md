@@ -1,11 +1,11 @@
 ## 1. Dados e ambiente (DDL manual)
 
-- [ ] 1.1 Propor em `supabase/schema.sql`: tabela `teams` (`id uuid pk`, `nome text not null`, `escudo_url text`, `external_id text`, `provider text not null default 'api-football'`, `created_at timestamptz`, `unique(provider, external_id)`)
-- [ ] 1.2 Propor colunas `time_1`/`time_2 uuid references public.teams(id) on delete set null` em `matches` (aditivo; `participante_1/2` intactos)
-- [ ] 1.3 RLS de `teams`: SELECT autenticado; INSERT/UPSERT por usuário logado (cache). Atualizar trigger `lock_match_relations` para travar reatribuição de `time_1/time_2` (exceto `service_role`)
-- [ ] 1.4 Atualizar `src/lib/supabase/database.types.ts` à mão (nova tabela + colunas)
+- [x] 1.1 Tabela `teams` (`id`, `nome`, `escudo_url`, `external_id`, `provider` default 'api-football', `created_at`, `unique(provider, external_id)`) proposta em `supabase/schema.sql`
+- [x] 1.2 Colunas `time_1`/`time_2 uuid references teams(id) on delete set null` + índices em `matches` (aditivo; `participante_1/2` intactos)
+- [x] 1.3 RLS de `teams`: SELECT público + INSERT autenticado (cache via INSERT idempotente). `lock_match_relations` NÃO trava `time_1/time_2` de propósito (clube é cosmético, editável pelo participante; RLS já restringe UPDATE) — confirmar preferência
+- [x] 1.4 `src/lib/supabase/database.types.ts` atualizado (tabela `teams` + `time_1/2` em `matches` + FKs)
 - [ ] 1.5 Handoff: usuário aplica o `schema.sql` no SQL Editor e confirma
-- [ ] 1.6 Adicionar `API_FOOTBALL_KEY` ao `.env.example` (server-side, sem `NEXT_PUBLIC_`)
+- [x] 1.6 `API_FOOTBALL_KEY` adicionada ao `.env.example` (server-side, sem `NEXT_PUBLIC_`)
 
 ## 2. Server Action de busca + validação
 

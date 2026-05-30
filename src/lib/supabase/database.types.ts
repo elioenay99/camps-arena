@@ -52,12 +52,41 @@ export interface Database {
         }
         Relationships: []
       }
+      teams: {
+        Row: {
+          id: string
+          nome: string
+          escudo_url: string | null
+          external_id: string | null
+          provider: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          nome: string
+          escudo_url?: string | null
+          external_id?: string | null
+          provider?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          nome?: string
+          escudo_url?: string | null
+          external_id?: string | null
+          provider?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       matches: {
         Row: {
           id: string
           tournament_id: string
           participante_1: string | null
           participante_2: string | null
+          time_1: string | null
+          time_2: string | null
           placar_1: number
           placar_2: number
           status: MatchStatus
@@ -69,6 +98,8 @@ export interface Database {
           tournament_id: string
           participante_1?: string | null
           participante_2?: string | null
+          time_1?: string | null
+          time_2?: string | null
           placar_1?: number
           placar_2?: number
           status?: MatchStatus
@@ -80,6 +111,8 @@ export interface Database {
           tournament_id?: string
           participante_1?: string | null
           participante_2?: string | null
+          time_1?: string | null
+          time_2?: string | null
           placar_1?: number
           placar_2?: number
           status?: MatchStatus
@@ -103,6 +136,18 @@ export interface Database {
             foreignKeyName: "matches_participante_2_fkey"
             columns: ["participante_2"]
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_time_1_fkey"
+            columns: ["time_1"]
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_time_2_fkey"
+            columns: ["time_2"]
+            referencedRelation: "teams"
             referencedColumns: ["id"]
           },
         ]

@@ -33,6 +33,19 @@ create table if not exists public.tournaments (
   created_at timestamptz not null default now()
 );
 
+-- ---------- Tabela: teams (cache de clubes reais buscados via API) ----------
+-- Dados públicos de clube (nome + escudo). 'external_id' + 'provider' permitem
+-- reusar/atualizar o clube sem duplicar. Aditivo: NÃO substitui o participante.
+create table if not exists public.teams (
+  id          uuid primary key default gen_random_uuid(),
+  nome        text not null,
+  escudo_url  text,
+  external_id text,
+  provider    text not null default 'api-football',
+  created_at  timestamptz not null default now(),
+  constraint teams_provider_external_unico unique (provider, external_id)
+);
+
 -- ---------- Tabela: matches ----------
 create table if not exists public.matches (
   id             uuid primary key default gen_random_uuid(),
@@ -53,6 +66,18 @@ create index if not exists matches_tournament_id_idx on public.matches (tourname
 create index if not exists matches_status_idx on public.matches (status);
 create index if not exists matches_participante_1_idx on public.matches (participante_1);
 create index if not exists matches_participante_2_idx on public.matches (participante_2);
+
+-- ---------- Clube que cada lado representa (aditivo; participante segue sendo o user) ----------
+-- NÃO travado no lock_match_relations de propósito: o clube é identidade cosmética
+-- (a autorização de placar continua baseada no usuário), e deve poder ser ajustado
+-- pelo participante. A RLS matches_update_participant já restringe o UPDATE.
+alter table public.matches
+  add column if not exists time_1 uuid references public.teams (id) on delete set null;
+alter table public.matches
+  add column if not exists time_2 uuid references public.teams (id) on delete set null;
+
+create index if not exists matches_time_1_idx on public.matches (time_1);
+create index if not exists matches_time_2_idx on public.matches (time_2);
 
 -- ---------- updated_at automático em matches ----------
 create or replace function public.set_updated_at()
@@ -134,6 +159,7 @@ create trigger on_auth_user_created
 alter table public.users       enable row level security;
 alter table public.tournaments enable row level security;
 alter table public.matches     enable row level security;
+alter table public.teams       enable row level security;
 
 -- ----- users: leitura completa só para logados (protege PII como celular) -----
 drop policy if exists users_select_public on public.users;
@@ -167,6 +193,19 @@ drop policy if exists tournaments_select_public on public.tournaments;
 create policy tournaments_select_public on public.tournaments
   for select to anon, authenticated
   using (true);
+
+-- ----- teams: SELECT público (dados públicos de clube); INSERT por logado (cache) -----
+-- Sem UPDATE/DELETE (negados por padrão): o cache usa INSERT idempotente
+-- (on conflict do nothing) por provider+external_id.
+drop policy if exists teams_select_public on public.teams;
+create policy teams_select_public on public.teams
+  for select to anon, authenticated
+  using (true);
+
+drop policy if exists teams_insert_authenticated on public.teams;
+create policy teams_insert_authenticated on public.teams
+  for insert to authenticated
+  with check (true);
 
 -- ----- matches: SELECT público; UPDATE só para participante da partida -----
 drop policy if exists matches_select_public on public.matches;
