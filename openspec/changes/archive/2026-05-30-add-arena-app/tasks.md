@@ -14,7 +14,7 @@
 - [x] 2.1 Schemas Zod em `src/schema/` (matchSchema, authSchema) com formato BR (celular)
 - [x] 2.2 `supabase/schema.sql`: tabelas `users`, `tournaments`, `matches` (+ enums, triggers, view users_public)
 - [x] 2.3 Ativar RLS e políticas (SELECT público em matches, UPDATE restrito ao participante + trava de reatribuição; users só logado + view pública sem PII)
-- [ ] 2.4 Provisionar Supabase via Marketplace da Vercel + envs (handoff guiado ao usuário)
+- [x] 2.4 Supabase provisionado via Marketplace da Vercel + envs (`.env.local`); schema aplicado e validado live
 - [x] 2.5 Clientes Supabase server/client em `src/lib/supabase/` (`@supabase/ssr`)
 - [x] 2.6 `src/proxy.ts` (convenção Next 16; ex-middleware) protegendo `/dashboard`
 - [x] 2.7 Login minimalista com Server Actions (Supabase Auth) + stub `/dashboard` com logout
@@ -45,4 +45,4 @@
 - [x] 5.4 `.env.example` final (público + secreto + URL canônica do site)
 - [x] 5.5 Análise de qualidade (workflows adversariais) + testes (vitest): action `updateMatchScore`, schema e `getActiveMatches` cobertos (24 testes). Validação live no browser fica como follow-up (depende de schema aplicado + seed)
 - [x] 5.6 Documentação de deploy na Vercel (`docs/deploy-vercel.md` — envs + schema manual + logs)
-- [ ] 5.7 Commits convencionais por entrega (Fase 5 commitada); encerramento/archive pendente (handoff 2.4)
+- [x] 5.7 Commits convencionais por entrega (F4/F5/testes) + validação live e2e + archive do change
