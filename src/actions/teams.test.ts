@@ -80,6 +80,45 @@ describe("searchTeams", () => {
     const r = await searchTeams("flamengo")
     expect(r.ok).toBe(false)
   })
+
+  it("não falha quando a API responde 200 com errors (cota/chave) — lista vazia", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ errors: { requests: "limite diário" }, response: [] }),
+    })
+    const r = await searchTeams("flamengo")
+    expect(r).toEqual({ ok: true, teams: [] })
+  })
+
+  it("retorna erro quando o JSON da resposta é inválido", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => {
+        throw new Error("bad json")
+      },
+    })
+    const r = await searchTeams("flamengo")
+    expect(r.ok).toBe(false)
+  })
+
+  it("descarta itens malformados do payload (filtragem defensiva)", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        response: [
+          {},
+          { team: { id: 1 } }, // sem name
+          { team: { name: "Sem ID" } }, // sem id
+          { team: { id: 99, name: "Válido", logo: null } },
+        ],
+      }),
+    })
+    const r = await searchTeams("flamengo")
+    expect(r).toEqual({
+      ok: true,
+      teams: [{ externalId: "99", nome: "Válido", escudoUrl: null }],
+    })
+  })
 })
 
 // ----------------------------- selectTeam ------------------------------
@@ -163,5 +202,17 @@ describe("selectTeam", () => {
     client.single.mockResolvedValue({ data: null, error: { message: "duplicate key" } })
     const r = await selectTeam(CLUBE)
     expect(r).toEqual({ ok: true, teamId: "t-corrida" })
+    expect(client.insertSpy).toHaveBeenCalled() // a corrida pressupõe tentativa de insert
+  })
+
+  it("falha quando o insert dá erro e a releitura não acha (erro de persistência)", async () => {
+    const client = montarTeamsClient({ user: { id: "u1" } })
+    client.maybeSingle
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: null, error: null })
+    client.single.mockResolvedValue({ data: null, error: { message: "rls" } })
+    const r = await selectTeam(CLUBE)
+    expect(r.ok).toBe(false)
+    expect(client.insertSpy).toHaveBeenCalled()
   })
 })

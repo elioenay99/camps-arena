@@ -79,6 +79,13 @@ export function TeamSearchInput({
     return () => clearTimeout(t)
   }, [query])
 
+  // Cancela o timer de blur pendente ao desmontar (evita setState fora da árvore).
+  React.useEffect(() => {
+    return () => {
+      if (blurTimer.current) clearTimeout(blurTimer.current)
+    }
+  }, [])
+
   function escolher(team: TeamResult) {
     skipSearch.current = true
     onSelect(team)
@@ -103,7 +110,12 @@ export function TeamSearchInput({
         escolher(results[highlight])
       }
     } else if (e.key === "Escape") {
-      setOpen(false)
+      if (open) {
+        // Fecha só o autocomplete; não deixa o Escape fechar o Dialog pai.
+        e.preventDefault()
+        e.stopPropagation()
+        setOpen(false)
+      }
     }
   }
 
@@ -115,7 +127,7 @@ export function TeamSearchInput({
       <Input
         id={baseId}
         role="combobox"
-        aria-expanded={mostrarLista}
+        aria-expanded={open && results.length > 0}
         aria-controls={listboxId}
         aria-autocomplete="list"
         aria-activedescendant={
@@ -138,10 +150,7 @@ export function TeamSearchInput({
       />
 
       {mostrarLista ? (
-        <ul
-          id={listboxId}
-          role="listbox"
-          aria-label="Clubes encontrados"
+        <div
           className="absolute top-full z-10 mt-1 max-h-72 w-full overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
           onMouseDown={(e) => {
             // impede o blur do input antes do clique na opção
@@ -150,37 +159,52 @@ export function TeamSearchInput({
           }}
         >
           {loading ? (
-            <li className="px-2 py-2 text-sm text-muted-foreground" role="status">
+            <p
+              className="px-2 py-2 text-sm text-muted-foreground"
+              role="status"
+              aria-live="polite"
+            >
               Buscando…
-            </li>
+            </p>
           ) : erro ? (
-            <li className="px-2 py-2 text-sm text-destructive" role="alert">
+            <p className="px-2 py-2 text-sm text-destructive" role="alert">
               {erro}
-            </li>
+            </p>
           ) : results.length === 0 ? (
-            <li className="px-2 py-2 text-sm text-muted-foreground">
+            <p
+              className="px-2 py-2 text-sm text-muted-foreground"
+              aria-live="polite"
+            >
               Nenhum clube encontrado.
-            </li>
+            </p>
           ) : (
-            results.map((team, i) => (
-              <li
-                key={team.externalId}
-                id={`${baseId}-opt-${i}`}
-                role="option"
-                aria-selected={i === highlight}
-                className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm",
-                  i === highlight ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
-                )}
-                onMouseEnter={() => setHighlight(i)}
-                onClick={() => escolher(team)}
-              >
-                <TeamCrest nome={team.nome} escudoUrl={team.escudoUrl} size={20} />
-                <span className="truncate">{team.nome}</span>
-              </li>
-            ))
+            // role=listbox só contém role=option (estados ficam fora).
+            <ul
+              id={listboxId}
+              role="listbox"
+              aria-label="Clubes encontrados"
+              className="contents"
+            >
+              {results.map((team, i) => (
+                <li
+                  key={team.externalId}
+                  id={`${baseId}-opt-${i}`}
+                  role="option"
+                  aria-selected={i === highlight}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm",
+                    i === highlight ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                  )}
+                  onMouseEnter={() => setHighlight(i)}
+                  onClick={() => escolher(team)}
+                >
+                  <TeamCrest nome={team.nome} escudoUrl={team.escudoUrl} size={20} />
+                  <span className="truncate">{team.nome}</span>
+                </li>
+              ))}
+            </ul>
           )}
-        </ul>
+        </div>
       ) : null}
     </div>
   )
