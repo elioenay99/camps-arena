@@ -1,4 +1,5 @@
 import { ModeToggle } from "@/components/mode-toggle";
+import { MatchScoreModal } from "@/features/match/components/MatchScoreModal";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -8,6 +9,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+
+const partidaDemo = {
+  matchId: "00000000-0000-0000-0000-000000000000",
+  tituloPartida: "Grêmio x São Paulo",
+  subtitulo: "Rodada 6 • Sem prazo",
+  descricao: "Jhonathan enfrenta Danilo",
+  participante1: { nome: "Jhonathan", celular: "(11) 91234-5678" },
+  participante2: { nome: "Danilo", celular: "(11) 99876-5432" },
+  placarInicial1: 0,
+  placarInicial2: 2,
+} as const;
 
 export default function Home() {
   return (
@@ -32,8 +44,10 @@ export default function Home() {
           lançamento de placar das partidas.
         </CardContent>
         <CardFooter className="gap-3">
-          <Button>Começar</Button>
-          <Button variant="outline">Documentação</Button>
+          <MatchScoreModal
+            {...partidaDemo}
+            trigger={<Button>Abrir Menu da Partida (demo)</Button>}
+          />
         </CardFooter>
       </Card>
     </main>
