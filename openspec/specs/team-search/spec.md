@@ -1,7 +1,7 @@
 # team-search Specification
 
 ## Purpose
-TBD - created by archiving change add-team-search. Update Purpose after archive.
+Buscar clubes reais de futebol por nome (autocomplete via API-Football), associar o clube a cada lado da partida e exibir o escudo, com a chave da API protegida no servidor e cache local dos clubes selecionados. Modelagem aditiva: o participante continua sendo o usuário, preservando a autorização de placar.
 ## Requirements
 ### Requirement: Busca de clube por nome
 O sistema SHALL fornecer uma Server Action que recebe um termo de busca e retorna uma lista de clubes reais (nome + URL do escudo) obtidos de uma API de futebol, com a chave da API mantida exclusivamente no servidor.
