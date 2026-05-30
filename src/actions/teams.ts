@@ -70,6 +70,8 @@ export async function searchTeams(query: string): Promise<SearchTeamsResult> {
       {
         headers: { "x-apisports-key": apiKey },
         next: { revalidate: 60 * 60 * 24 },
+        // Falha graciosa em vez de travar a UI se a API pendurar.
+        signal: AbortSignal.timeout(8000),
       }
     )
   } catch (erro) {
