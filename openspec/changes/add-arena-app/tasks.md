@@ -22,11 +22,11 @@
 
 ## 3. Modal "Menu da Partida" (Fase 3)
 
-- [ ] 3.1 `MatchScoreModal` (Client Component) com Dialog do shadcn
-- [ ] 3.2 Cabeçalho estático + subtítulos dinâmicos via props
-- [ ] 3.3 Colunas por participante com incremento/decremento (useState otimista)
-- [ ] 3.4 Botões WhatsApp (`wa.me/`) com telefones via props
-- [ ] 3.5 Botões "SALVAR PLACAR" e "FECHAR" com contraste no dark mode
+- [x] 3.1 `MatchScoreModal` (Client Component) com Dialog do shadcn
+- [x] 3.2 Cabeçalho estático + subtítulos dinâmicos via props (título acessível = a partida)
+- [x] 3.3 Colunas por participante com incremento/decremento (useState otimista, a11y)
+- [x] 3.4 Botões WhatsApp (`wa.me/`) com telefones via props (DDI BR por comprimento)
+- [x] 3.5 Botões "SALVAR PLACAR" e "FECHAR" com contraste WCAG AA no dark mode
 
 ## 4. Server Actions e Mutações (Fase 4)
 
