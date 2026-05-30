@@ -6,7 +6,9 @@ import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import {
   updateMatchScoreSchema,
+  updateMatchTeamsSchema,
   type UpdateMatchScoreInput,
+  type UpdateMatchTeamsInput,
 } from "@/schema/matchSchema"
 
 export type UpdateMatchScoreResult =
@@ -94,6 +96,74 @@ export async function updateMatchScore(
       ok: false,
       error: "Não foi possível salvar o placar. A partida pode ter sido alterada. Tente novamente.",
     }
+  }
+
+  revalidatePath("/dashboard")
+  return { ok: true }
+}
+
+export type UpdateMatchTeamsResult =
+  | { ok: true }
+  | { ok: false; error: string }
+
+/**
+ * Associa o clube de um (ou ambos) os lados da partida. Mesma autorização por
+ * propriedade da `updateMatchScore` (o participante é o usuário). Não dispara o
+ * trigger `lock_match_relations`, que só trava participantes/torneio — `time_1/2`
+ * são identidade cosmética e editáveis pelo participante.
+ */
+export async function updateMatchTeams(
+  input: UpdateMatchTeamsInput
+): Promise<UpdateMatchTeamsResult> {
+  const parsed = updateMatchTeamsSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: "Dados de clube inválidos." }
+  }
+  const { matchId, time_1, time_2 } = parsed.data
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const { data: match, error: fetchError } = await supabase
+    .from("matches")
+    .select("id, participante_1, participante_2")
+    .eq("id", matchId)
+    .maybeSingle()
+  if (fetchError) {
+    return { ok: false, error: "Não foi possível carregar a partida." }
+  }
+  if (!match) {
+    return { ok: false, error: "Partida não encontrada." }
+  }
+
+  const ehParticipante =
+    user.id === match.participante_1 || user.id === match.participante_2
+  if (!ehParticipante) {
+    return { ok: false, error: "Você não participa desta partida." }
+  }
+
+  // Aplica só os lados informados (undefined = não mexe).
+  const patch: { time_1?: string | null; time_2?: string | null } = {}
+  if (time_1 !== undefined) patch.time_1 = time_1
+  if (time_2 !== undefined) patch.time_2 = time_2
+
+  const { data: atualizada, error: updateError } = await supabase
+    .from("matches")
+    .update(patch)
+    .eq("id", matchId)
+    .select("id")
+  if (updateError) {
+    return { ok: false, error: "Não foi possível salvar o clube." }
+  }
+  if (!atualizada || atualizada.length === 0) {
+    return { ok: false, error: "Você não participa desta partida." }
   }
 
   revalidatePath("/dashboard")

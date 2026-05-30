@@ -1,12 +1,18 @@
 "use client"
 
-import { updateMatchScore } from "@/actions/match"
+import { toast } from "sonner"
+
+import { updateMatchScore, updateMatchTeams } from "@/actions/match"
+import { selectTeam } from "@/actions/teams"
 import {
   MatchScoreModal,
   type MatchScoreModalProps,
 } from "@/features/match/components/MatchScoreModal"
 
-export type MatchScoreModalConnectedProps = Omit<MatchScoreModalProps, "onSave">
+export type MatchScoreModalConnectedProps = Omit<
+  MatchScoreModalProps,
+  "onSave" | "onSelecionarClube"
+>
 
 /**
  * Conecta o `MatchScoreModal` (apresentacional) à Server Action
@@ -27,6 +33,21 @@ export function MatchScoreModalConnected(props: MatchScoreModalConnectedProps) {
         if (!resultado.ok) {
           throw new Error(resultado.error)
         }
+      }}
+      onSelecionarClube={async (lado, team) => {
+        // Cacheia o clube e associa ao lado escolhido da partida.
+        const sel = await selectTeam(team)
+        if (!sel.ok) {
+          toast.error(sel.error)
+          return
+        }
+        const patch = lado === 1 ? { time_1: sel.teamId } : { time_2: sel.teamId }
+        const upd = await updateMatchTeams({ matchId: props.matchId, ...patch })
+        if (!upd.ok) {
+          toast.error(upd.error)
+          return
+        }
+        toast.success("Clube atualizado.")
       }}
     />
   )

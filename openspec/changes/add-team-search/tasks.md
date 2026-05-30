@@ -23,9 +23,9 @@
 
 ## 4. Integração no fluxo
 
-- [ ] 4.1 Permitir escolher o clube de cada lado ao criar/editar a partida (form mínimo), gravando `matches.time_1/time_2`
-- [ ] 4.2 Exibir o clube + escudo no `MatchCard` (dashboard) e no `MatchScoreModal`, usando `TeamCrest`
-- [ ] 4.3 Atribuição da fonte de dados (ex.: rodapé "Dados de clubes via API-Football") — premissa não comercial
+- [x] 4.1 Escolher o clube de cada lado **no `MatchScoreModal`** (opção A) via `updateMatchTeams` (UPDATE de `time_1/2` com checagem de propriedade); `getActiveMatches` embute os clubes (FK-hint)
+- [x] 4.2 Clube + escudo exibidos no `MatchCard` e no `MatchScoreModal` (via `TeamCrest`); `MatchScoreModalConnected` liga `selectTeam` + `updateMatchTeams`
+- [x] 4.3 Rodapé de atribuição "Dados e escudos de clubes via API-Football" no dashboard
 
 ## 5. Validação e qualidade
 

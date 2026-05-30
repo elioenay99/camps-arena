@@ -22,3 +22,16 @@ export const updateMatchScoreSchema = z.object({
 })
 
 export type UpdateMatchScoreInput = z.infer<typeof updateMatchScoreSchema>
+
+/** Associação de clube a um (ou ambos) lados da partida. */
+export const updateMatchTeamsSchema = z
+  .object({
+    matchId: z.uuid({ error: "ID de partida inválido." }),
+    time_1: z.uuid({ error: "Clube inválido." }).nullable().optional(),
+    time_2: z.uuid({ error: "Clube inválido." }).nullable().optional(),
+  })
+  .refine((d) => d.time_1 !== undefined || d.time_2 !== undefined, {
+    error: "Nada para atualizar.",
+  })
+
+export type UpdateMatchTeamsInput = z.infer<typeof updateMatchTeamsSchema>

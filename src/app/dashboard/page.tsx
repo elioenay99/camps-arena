@@ -53,6 +53,10 @@ export default async function DashboardPage() {
           </ul>
         )}
       </section>
+
+      <footer className="text-center text-xs text-muted-foreground/70">
+        Dados e escudos de clubes via API-Football.
+      </footer>
     </main>
   );
 }

@@ -10,6 +10,11 @@ export interface ParticipanteResumo {
   celular: string | null
 }
 
+export interface ClubeResumo {
+  nome: string
+  escudo_url: string | null
+}
+
 export interface PartidaAtiva {
   id: string
   placar_1: number
@@ -19,6 +24,8 @@ export interface PartidaAtiva {
   tournament: { titulo: string; status: TournamentStatus } | null
   participante_1: ParticipanteResumo | null
   participante_2: ParticipanteResumo | null
+  time_1: ClubeResumo | null
+  time_2: ClubeResumo | null
 }
 
 /**
@@ -44,7 +51,9 @@ export async function getActiveMatches(): Promise<PartidaAtiva[]> {
       `id, placar_1, placar_2, status, created_at,
        tournament:tournaments!matches_tournament_id_fkey ( titulo, status ),
        participante_1:users!matches_participante_1_fkey ( nome, avatar, celular ),
-       participante_2:users!matches_participante_2_fkey ( nome, avatar, celular )`
+       participante_2:users!matches_participante_2_fkey ( nome, avatar, celular ),
+       time_1:teams!matches_time_1_fkey ( nome, escudo_url ),
+       time_2:teams!matches_time_2_fkey ( nome, escudo_url )`
     )
     .neq("status", "encerrada")
     .order("created_at", { ascending: true })

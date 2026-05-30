@@ -16,12 +16,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { PLACAR_MAX } from "@/schema/matchSchema"
+import { TeamCrest } from "@/features/team/components/TeamCrest"
+import { TeamSearchInput } from "@/features/team/components/TeamSearchInput"
+import type { TeamResult } from "@/schema/teamSchema"
 
 export interface ParticipantePartida {
   nome: string
   avatarUrl?: string | null
   /** Celular em qualquer formato; normalizado para o link wa.me. */
   celular?: string | null
+  /** Clube que o participante representa (escudo + nome). */
+  clube?: { nome: string; escudoUrl?: string | null } | null
 }
 
 export interface MatchScoreModalProps {
@@ -48,6 +53,11 @@ export interface MatchScoreModalProps {
     placar_1: number
     placar_2: number
   }) => Promise<void> | void
+  /**
+   * Se fornecido, habilita escolher/trocar o clube de cada lado (1 ou 2).
+   * Sem isso, o clube é apenas exibido (quando presente).
+   */
+  onSelecionarClube?: (lado: 1 | 2, team: TeamResult) => Promise<void> | void
 }
 
 function primeiroNome(nome: string) {
@@ -163,14 +173,19 @@ function Stepper({
 
 function ColunaParticipante({
   participante,
+  lado,
   value,
   onChange,
+  onSelecionarClube,
 }: {
   participante: ParticipantePartida
+  lado: 1 | 2
   value: number
   onChange: (proximo: number) => void
+  onSelecionarClube?: (lado: 1 | 2, team: TeamResult) => Promise<void> | void
 }) {
   const wa = linkWhatsApp(participante.celular)
+  const clube = participante.clube
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -179,6 +194,26 @@ function ColunaParticipante({
         <span className="text-center text-sm font-medium">
           {participante.nome}
         </span>
+      </div>
+
+      <div className="flex w-full flex-col items-center gap-2">
+        <div className="flex items-center gap-2">
+          <TeamCrest
+            nome={clube?.nome ?? participante.nome}
+            escudoUrl={clube?.escudoUrl}
+            size={28}
+          />
+          <span className="text-xs text-muted-foreground">
+            {clube?.nome ?? "Sem clube"}
+          </span>
+        </div>
+        {onSelecionarClube ? (
+          <TeamSearchInput
+            className="w-full"
+            label={`Clube de ${primeiroNome(participante.nome)}`}
+            onSelect={(team) => onSelecionarClube(lado, team)}
+          />
+        ) : null}
       </div>
 
       <Stepper label={participante.nome} value={value} onChange={onChange} />
@@ -210,6 +245,7 @@ export function MatchScoreModal({
   placarInicial2 = 0,
   trigger,
   onSave,
+  onSelecionarClube,
 }: MatchScoreModalProps) {
   const [open, setOpen] = React.useState(false)
   const [placar1, setPlacar1] = React.useState(placarInicial1)
@@ -285,13 +321,17 @@ export function MatchScoreModal({
           <div className="grid grid-cols-2 gap-4">
             <ColunaParticipante
               participante={participante1}
+              lado={1}
               value={placar1}
               onChange={setPlacar1}
+              onSelecionarClube={onSelecionarClube}
             />
             <ColunaParticipante
               participante={participante2}
+              lado={2}
               value={placar2}
               onChange={setPlacar2}
+              onSelecionarClube={onSelecionarClube}
             />
           </div>
         </div>
