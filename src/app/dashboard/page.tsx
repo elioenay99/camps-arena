@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { logout } from "@/actions/auth";
@@ -39,9 +40,14 @@ export default async function DashboardPage() {
       </div>
 
       <section aria-labelledby="partidas-ativas-titulo" className="flex flex-col gap-4">
-        <h1 id="partidas-ativas-titulo" className="text-2xl font-semibold">
-          Partidas ativas
-        </h1>
+        <div className="flex items-center justify-between gap-4">
+          <h1 id="partidas-ativas-titulo" className="text-2xl font-semibold">
+            Partidas ativas
+          </h1>
+          <Button asChild size="sm">
+            <Link href="/dashboard/torneios/novo">Novo torneio</Link>
+          </Button>
+        </div>
 
         {partidas.length === 0 ? (
           <EmptyActiveMatches />

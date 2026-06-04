@@ -33,6 +33,17 @@ create table if not exists public.tournaments (
   created_at timestamptz not null default now()
 );
 
+-- Ownership e visibilidade (aditivo; idempotente).
+-- created_by anulável + ON DELETE SET NULL: torneios de sistema/legados não têm
+-- dono e apagar o usuário não deve levar junto torneios com histórico.
+-- is_public default true: preserva a visibilidade dos torneios já semeados.
+alter table public.tournaments
+  add column if not exists created_by uuid references public.users (id) on delete set null;
+alter table public.tournaments
+  add column if not exists is_public boolean not null default true;
+
+create index if not exists tournaments_created_by_idx on public.tournaments (created_by);
+
 -- ---------- Tabela: teams (cache de clubes reais buscados via API) ----------
 -- Dados públicos de clube (nome + escudo). 'external_id' + 'provider' permitem
 -- reusar/atualizar o clube sem duplicar. Aditivo: NÃO substitui o participante.
@@ -209,11 +220,32 @@ create or replace view public.users_public
 
 grant select on public.users_public to anon, authenticated;
 
--- ----- tournaments: SELECT público; escrita negada por padrão (sem policy) -----
+-- ----- tournaments: visibilidade por dono/público; escrita restrita ao dono -----
+-- SELECT: público vê os públicos; o dono vê também os seus privados.
+-- (anon tem auth.uid() nulo → enxerga apenas is_public.)
 drop policy if exists tournaments_select_public on public.tournaments;
-create policy tournaments_select_public on public.tournaments
+drop policy if exists tournaments_select_visivel on public.tournaments;
+create policy tournaments_select_visivel on public.tournaments
   for select to anon, authenticated
-  using (true);
+  using (is_public or created_by = auth.uid());
+
+-- INSERT/UPDATE/DELETE: só o dono. with check impede criar em nome de outro
+-- e transferir a posse num UPDATE.
+drop policy if exists tournaments_insert_owner on public.tournaments;
+create policy tournaments_insert_owner on public.tournaments
+  for insert to authenticated
+  with check (created_by = auth.uid());
+
+drop policy if exists tournaments_update_owner on public.tournaments;
+create policy tournaments_update_owner on public.tournaments
+  for update to authenticated
+  using (created_by = auth.uid())
+  with check (created_by = auth.uid());
+
+drop policy if exists tournaments_delete_owner on public.tournaments;
+create policy tournaments_delete_owner on public.tournaments
+  for delete to authenticated
+  using (created_by = auth.uid());
 
 -- ----- teams: SELECT público (dados públicos de clube); INSERT por logado (cache) -----
 -- Sem UPDATE/DELETE (negados por padrão): o cache usa INSERT idempotente

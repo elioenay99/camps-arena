@@ -36,21 +36,34 @@ export interface Database {
           id: string
           titulo: string
           status: TournamentStatus
+          created_by: string | null
+          is_public: boolean
           created_at: string
         }
         Insert: {
           id?: string
           titulo: string
           status?: TournamentStatus
+          created_by?: string | null
+          is_public?: boolean
           created_at?: string
         }
         Update: {
           id?: string
           titulo?: string
           status?: TournamentStatus
+          created_by?: string | null
+          is_public?: boolean
           created_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "tournaments_created_by_fkey"
+            columns: ["created_by"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       teams: {
         Row: {
