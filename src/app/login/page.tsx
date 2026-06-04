@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { LoginForm } from "@/features/auth/components/LoginForm";
 import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -16,9 +18,9 @@ export const metadata: Metadata = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ redirectTo?: string }>;
+  searchParams: Promise<{ redirectTo?: string; aviso?: string }>;
 }) {
-  const { redirectTo } = await searchParams;
+  const { redirectTo, aviso } = await searchParams;
 
   return (
     <main className="flex flex-1 items-center justify-center px-6 py-16">
@@ -29,9 +31,28 @@ export default async function LoginPage({
             Acesse o painel do Arena para gerir suas partidas.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-4">
+          {aviso === "link-invalido" ? (
+            <p className="text-destructive text-sm" role="alert">
+              Link inválido ou expirado. Faça login ou solicite um novo link.
+            </p>
+          ) : null}
           <LoginForm redirectTo={redirectTo} />
+          <Link
+            href="/recuperar-senha"
+            className="text-muted-foreground text-sm underline underline-offset-4"
+          >
+            Esqueci minha senha
+          </Link>
         </CardContent>
+        <CardFooter>
+          <p className="text-muted-foreground text-sm">
+            Ainda não tem conta?{" "}
+            <Link href="/cadastro" className="underline underline-offset-4">
+              Criar conta
+            </Link>
+          </p>
+        </CardFooter>
       </Card>
     </main>
   );

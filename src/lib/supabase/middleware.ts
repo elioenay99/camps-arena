@@ -5,7 +5,7 @@ import { env } from "@/lib/env"
 import type { Database } from "@/lib/supabase/database.types"
 
 /** Prefixos de rota que exigem sessão autenticada. */
-const PROTECTED_PREFIXES = ["/dashboard"]
+const PROTECTED_PREFIXES = ["/dashboard", "/atualizar-senha"]
 
 function isProtected(pathname: string) {
   return PROTECTED_PREFIXES.some(

@@ -27,5 +27,21 @@ export const signupSchema = z.object({
   celular: celularBR,
 })
 
+export const forgotPasswordSchema = z.object({
+  email: z.email({ error: "E-mail inválido." }),
+})
+
+export const updatePasswordSchema = z
+  .object({
+    password: z.string().min(6, "A senha deve ter ao menos 6 caracteres."),
+    confirm: z.string(),
+  })
+  .refine((dados) => dados.password === dados.confirm, {
+    error: "As senhas não coincidem.",
+    path: ["confirm"],
+  })
+
 export type LoginInput = z.infer<typeof loginSchema>
 export type SignupInput = z.infer<typeof signupSchema>
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>
+export type UpdatePasswordInput = z.infer<typeof updatePasswordSchema>
