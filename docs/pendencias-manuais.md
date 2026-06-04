@@ -144,7 +144,7 @@ para o **dono do torneio**. **Sem isto, criar partida pela app falha** (não há
 policy). Aplicar no **SQL Editor** do Supabase (idempotente; rode o bloco INTEIRO —
 o SELECT estreitado deve entrar junto/antes do INSERT):
 
-- [ ] **5.1 — Policies de `matches`:**
+- [x] **5.1 — Policies de `matches`:**
 
 ```sql
 -- SELECT: a partida é visível quando o torneio dela é visível (público, ou
@@ -177,7 +177,7 @@ create policy matches_insert_tournament_owner on public.matches
   );
 ```
 
-- [ ] **5.2 — (opcional) Conferir** que as partidas semeadas continuam visíveis
+- [x] **5.2 — (opcional) Conferir** que as partidas semeadas continuam visíveis
   (torneios semeados são públicos):
 
 ```sql
