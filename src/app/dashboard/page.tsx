@@ -44,9 +44,14 @@ export default async function DashboardPage() {
           <h1 id="partidas-ativas-titulo" className="text-2xl font-semibold">
             Partidas ativas
           </h1>
-          <Button asChild size="sm">
-            <Link href="/dashboard/torneios/novo">Novo torneio</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link href="/dashboard/torneios/novo">Novo torneio</Link>
+            </Button>
+            <Button asChild size="sm">
+              <Link href="/dashboard/partidas/nova">Nova partida</Link>
+            </Button>
+          </div>
         </div>
 
         {partidas.length === 0 ? (

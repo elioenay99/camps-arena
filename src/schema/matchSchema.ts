@@ -35,3 +35,27 @@ export const updateMatchTeamsSchema = z
   })
 
 export type UpdateMatchTeamsInput = z.infer<typeof updateMatchTeamsSchema>
+
+/**
+ * Criação de partida: torneio obrigatório; participantes opcionais (lados a
+ * definir). Quando ambos vêm, devem ser distintos — espelha a CHECK
+ * `matches_participantes_distintos` do banco (defesa em profundidade).
+ */
+export const createMatchSchema = z
+  .object({
+    tournamentId: z.uuid({ error: "Torneio inválido." }),
+    participante1: z.uuid({ error: "Participante inválido." }).nullable(),
+    participante2: z.uuid({ error: "Participante inválido." }).nullable(),
+  })
+  .refine(
+    (d) =>
+      d.participante1 === null ||
+      d.participante2 === null ||
+      d.participante1 !== d.participante2,
+    {
+      error: "Os dois lados não podem ter o mesmo participante.",
+      path: ["participante2"],
+    }
+  )
+
+export type CreateMatchInput = z.infer<typeof createMatchSchema>

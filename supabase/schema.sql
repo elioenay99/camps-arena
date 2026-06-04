@@ -260,11 +260,42 @@ create policy teams_insert_authenticated on public.teams
   for insert to authenticated
   with check (true);
 
--- ----- matches: SELECT público; UPDATE só para participante da partida -----
+-- ----- matches: SELECT segue a visibilidade do torneio; INSERT só do dono -----
+-- A partida é visível quando o torneio dela é visível (público, ou privado do
+-- próprio solicitante) OU quando o solicitante participa da partida — sem essa
+-- cláusula, participante convidado em torneio privado de terceiro não veria a
+-- própria partida (e o modal de placar quebraria). A subquery contra
+-- `tournaments` espelha a policy tournaments_select_visivel: camadas consistentes.
 drop policy if exists matches_select_public on public.matches;
-create policy matches_select_public on public.matches
+drop policy if exists matches_select_visivel on public.matches;
+create policy matches_select_visivel on public.matches
   for select to anon, authenticated
-  using (true);
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and (t.is_public or t.created_by = auth.uid())
+    )
+    or auth.uid() = participante_1
+    or auth.uid() = participante_2
+  );
+
+-- INSERT: só o dono do torneio cria partidas nele, e nunca em torneio
+-- encerrado. `<> 'encerrado'` (em vez de `= 'ativo'`) é falha-segura: rascunho
+-- recebe partidas (montagem antes de ativar) e um status futuro não bloqueia
+-- silenciosamente. A Server Action createMatch repete a checagem (mensagem
+-- precisa); esta policy é a segunda barreira contra POST direto.
+drop policy if exists matches_insert_tournament_owner on public.matches;
+create policy matches_insert_tournament_owner on public.matches
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+        and t.status <> 'encerrado'
+    )
+  );
 
 drop policy if exists matches_update_participant on public.matches;
 create policy matches_update_participant on public.matches

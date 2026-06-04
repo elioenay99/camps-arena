@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
+import { z } from "zod"
 
-import { PLACAR_MAX, updateMatchScoreSchema } from "@/schema/matchSchema"
+import {
+  createMatchSchema,
+  PLACAR_MAX,
+  updateMatchScoreSchema,
+} from "@/schema/matchSchema"
 
 const UUID = "11111111-1111-4111-8111-111111111111"
 
@@ -98,6 +103,82 @@ describe("updateMatchScoreSchema", () => {
 
   it("rejeita quando falta um placar", () => {
     const r = updateMatchScoreSchema.safeParse({ matchId: UUID, placar_1: 1 })
+    expect(r.success).toBe(false)
+  })
+})
+
+describe("createMatchSchema", () => {
+  const P1 = "22222222-2222-4222-8222-222222222222"
+  const P2 = "33333333-3333-4333-8333-333333333333"
+
+  it("aceita torneio válido com participantes nulos", () => {
+    const r = createMatchSchema.safeParse({
+      tournamentId: UUID,
+      participante1: null,
+      participante2: null,
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it("aceita participantes distintos", () => {
+    const r = createMatchSchema.safeParse({
+      tournamentId: UUID,
+      participante1: P1,
+      participante2: P2,
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it("aceita um único participante (qualquer lado)", () => {
+    expect(
+      createMatchSchema.safeParse({
+        tournamentId: UUID,
+        participante1: P1,
+        participante2: null,
+      }).success
+    ).toBe(true)
+    expect(
+      createMatchSchema.safeParse({
+        tournamentId: UUID,
+        participante1: null,
+        participante2: P2,
+      }).success
+    ).toBe(true)
+  })
+
+  it("rejeita o mesmo participante nos dois lados, apontando participante2", () => {
+    const r = createMatchSchema.safeParse({
+      tournamentId: UUID,
+      participante1: P1,
+      participante2: P1,
+    })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      // O erro aponta o CAMPO certo — é o que o form usa para destacar.
+      expect(z.flattenError(r.error).fieldErrors.participante2).toBeTruthy()
+    }
+  })
+
+  it("rejeita tournamentId que não é uuid", () => {
+    const r = createMatchSchema.safeParse({
+      tournamentId: "abc",
+      participante1: null,
+      participante2: null,
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("rejeita participante que não é uuid (sem coerção de '')", () => {
+    const r = createMatchSchema.safeParse({
+      tournamentId: UUID,
+      participante1: "",
+      participante2: null,
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("rejeita undefined nos participantes (campo é explícito, anulável)", () => {
+    const r = createMatchSchema.safeParse({ tournamentId: UUID })
     expect(r.success).toBe(false)
   })
 })

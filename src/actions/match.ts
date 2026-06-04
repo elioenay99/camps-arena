@@ -1,10 +1,12 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
+import { redirect } from "next/navigation"
 import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
 import {
+  createMatchSchema,
   updateMatchScoreSchema,
   updateMatchTeamsSchema,
   type UpdateMatchScoreInput,
@@ -100,6 +102,91 @@ export async function updateMatchScore(
 
   revalidatePath("/dashboard")
   return { ok: true }
+}
+
+export type CreateMatchFormState = {
+  error?: string
+  fieldErrors?: Record<string, string[] | undefined>
+}
+
+/**
+ * Cria uma partida em um torneio do PRÓPRIO usuário (form action, segue o
+ * padrão de `createTournament`). Segurança em profundidade:
+ *   1. Sessão via `auth.getUser()`.
+ *   2. Propriedade conferida por FILTRO no servidor (`created_by = user.id` +
+ *      `status <> 'encerrado'`) — "não achou" vira mensagem única, sem oráculo
+ *      de existência de torneio privado alheio.
+ *   3. INSERT envia SÓ tournament_id/participante_1/participante_2 (status e
+ *      placares ficam com os defaults do banco); a RLS
+ *      (`matches_insert_tournament_owner`) é a segunda barreira.
+ */
+export async function createMatch(
+  _prevState: CreateMatchFormState,
+  formData: FormData
+): Promise<CreateMatchFormState> {
+  // Select nativo: opção "Definir depois" envia "" → null.
+  const participanteOuNull = (campo: string) => {
+    const valor = formData.get(campo)
+    return typeof valor === "string" && valor !== "" ? valor : null
+  }
+
+  const parsed = createMatchSchema.safeParse({
+    tournamentId: formData.get("tournamentId"),
+    participante1: participanteOuNull("participante1"),
+    participante2: participanteOuNull("participante2"),
+  })
+  if (!parsed.success) {
+    return {
+      error: "Verifique os campos destacados.",
+      fieldErrors: z.flattenError(parsed.error).fieldErrors,
+    }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { error: "Sessão expirada. Entre novamente para criar uma partida." }
+  }
+
+  try {
+    // Propriedade + lifecycle: `.neq` falha-segura (rascunho aceita partidas;
+    // status futuro não bloqueia silenciosamente) — espelha a policy de INSERT.
+    const { data: torneio, error: fetchError } = await supabase
+      .from("tournaments")
+      .select("id")
+      .eq("id", parsed.data.tournamentId)
+      .eq("created_by", user.id)
+      .neq("status", "encerrado")
+      .maybeSingle()
+    if (fetchError) {
+      return { error: "Não foi possível criar a partida agora. Tente novamente." }
+    }
+    if (!torneio) {
+      return {
+        error: "Torneio não encontrado, encerrado ou você não é o dono dele.",
+      }
+    }
+
+    const { error } = await supabase.from("matches").insert({
+      tournament_id: parsed.data.tournamentId,
+      participante_1: parsed.data.participante1,
+      participante_2: parsed.data.participante2,
+    })
+    if (error) {
+      console.error("createMatch falhou", error.code ?? error.message)
+      return { error: "Não foi possível criar a partida agora. Tente novamente." }
+    }
+  } catch {
+    return { error: "Não foi possível criar a partida agora. Tente novamente." }
+  }
+
+  // redirect() fora do try/catch (lança NEXT_REDIRECT).
+  revalidatePath("/dashboard")
+  redirect("/dashboard")
 }
 
 export type UpdateMatchTeamsResult =

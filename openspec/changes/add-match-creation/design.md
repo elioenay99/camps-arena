@@ -46,7 +46,7 @@ Segue `createTournament` (form-based), não o padrão objeto de `updateMatchScor
 
 ### D4 — Ownership check na action por filtro, não por leitura+comparação
 
-`select id, status from tournaments where id = ? and created_by = user.id` (`maybeSingle`). Filtrar por `created_by` no servidor é mais simples e não depende de RLS para a semântica; "não achou" vira mensagem única ("torneio não encontrado ou você não é o dono") — sem oráculo de existência de torneio privado alheio.
+`select id from tournaments where id = ? and created_by = user.id and status <> 'encerrado'` (`maybeSingle`). Ownership E lifecycle conferidos por FILTRO no servidor (só `id` é projetado); é mais simples e não depende de RLS para a semântica; "não achou" vira mensagem única ("torneio não encontrado, encerrado ou você não é o dono") — sem oráculo de existência de torneio privado alheio.
 
 ### D5 — Selects nativos na UI
 
@@ -59,6 +59,8 @@ Projeto não tem shadcn Select (mesma situação do checkbox no Tier 1b); adicio
 
 ## Riscos
 
-- **Partidas órfãs de visibilidade**: partida cujo torneio fica privado depois — participantes seguem vendo (cláusula de participante); terceiros perdem acesso. Comportamento desejado.
+- **Limitação conhecida (MVP) — descoberta no dashboard**: a cláusula de participante vale na RLS e nas actions (o fetch por id de `updateMatchScore` retorna a linha), mas o ÚNICO ponto de descoberta da UI é o dashboard, cujo embed `tournaments!inner` passa pela RLS de `tournaments` (sem cláusula de participante) — logo, **participante em torneio privado de terceiro não enxerga o card** até existir tela/feed próprio (Tier 3, junto com `participants` por torneio). MAIS restritivo que a policy, nunca menos — não é vetor de segurança. A cláusula de participante no SELECT é defesa de RLS (actions/consultas diretas), não promessa de UI.
+- **Dimensão de AUTORIZAÇÃO — participante arbitrário**: o dono pode atribuir qualquer `users.id` como participante sem consentimento (FK garante existência, não anuência); isso concede à pessoa a capacidade (estreita) de editar o placar dessa partida via `matches_update_participant`. Aceito no MVP: sem escalonamento além da própria partida, e a validação contra a lista de `getParticipantesDisponiveis` seria inócua (a lista é TODOS os users — mesma garantia da FK). O fix real é o escopo de participantes por torneio com convite/aceite (Tier 3).
+- **Partidas órfãs de visibilidade**: partida cujo torneio fica privado depois — participantes seguem vendo via RLS/actions (cláusula de participante); terceiros perdem acesso. Comportamento desejado (com a ressalva de descoberta acima).
 - **Lista de usuários completa no select**: aceitável hoje (RLS já permite a authenticated; app é multi-usuário pequeno). Quando houver `participants` por torneio (Tier 3), o select passa a ser filtrado por torneio.
 - **Aplicação manual do DDL**: até o usuário aplicar, criar partida pela app falha com RLS (mensagem genérica da action). Documentado em `docs/pendencias-manuais.md` com a ordem correta (SELECT estreitado junto/antes do INSERT).
