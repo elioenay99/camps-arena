@@ -16,7 +16,7 @@ RLS oculta torneio privado de terceiro → `maybeSingle` devolve `null` → fetc
 
 ### D3 — uuid validado antes da query
 
-`z.uuid().safeParse(id)` na página; inválido → `notFound()` imediato. Evita transformar lixo de URL em erro 22P02 do PostgREST (que viraria 500/error.tsx — resposta errada para URL malformada).
+`z.uuid().safeParse(id)` na página; inválido → `notFound()` imediato. Evita transformar lixo de URL em erro 22P02 do PostgREST (que viraria 500/error.tsx — resposta errada para URL malformada). Nota: `z.uuid()` é deliberadamente MAIS estrito que o Postgres (exige nibbles de versão/variante RFC 9562) — inócuo aqui, pois `gen_random_uuid()` só gera v4; nenhum id real é rejeitado.
 
 ### D4 — Tabela RSC pura, sem client
 
@@ -29,6 +29,10 @@ Mapa `id → nome` vem dos embeds; participante sem nome (`null`/vazio) vira "Se
 ### D6 — Link no MatchCard, não botão novo
 
 O subtítulo já mostra o título do torneio; ele vira link (área de toque natural, zero poluição visual). `getActiveMatches` ganha `id` no embed do tournament — mudança aditiva no tipo.
+
+### D7 — Boundaries próprios da sub-rota (achado da validação)
+
+`loading.tsx`/`error.tsx` de `/dashboard` mostram skeleton e copy de "partidas ativas" — contexto errado para a página de classificação (o boundary do segmento pai envolve a sub-rota). A sub-rota ganha `loading.tsx` (skeleton de header+tabela) e `error.tsx` (copy de classificação) próprios, e `/dashboard` ganha `not-found.tsx` (os `notFound()` da página cairiam no 404 cru do Next, fora do shell). `generateMetadata` dá título por torneio (padrão do app), com `React cache()` no fetcher para metadata+page custarem UMA query.
 
 ## Riscos
 

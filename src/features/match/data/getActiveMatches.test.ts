@@ -74,8 +74,12 @@ describe("getActiveMatches", () => {
 
     // !inner é seguro (tournament_id NOT NULL) e exigido para o filtro de embed
     // afetar as linhas de matches (sem ele o PostgREST só anula o embed).
-    expect(String(client.selectSpy.mock.calls[0][0])).toContain(
-      "tournaments!matches_tournament_id_fkey!inner"
+    // Whitespace normalizado: o postgrest-js remove espaços não-citados antes
+    // de enviar — assertar a forma normalizada evita acoplar à formatação.
+    const cols = String(client.selectSpy.mock.calls[0][0]).replace(/\s+/g, "")
+    // `id` alimenta o link do card para a página de classificação.
+    expect(cols).toContain(
+      "tournament:tournaments!matches_tournament_id_fkey!inner(id,titulo,status)"
     )
     // Falha-segura simétrica ao .neq de matches: só 'encerrado' oculta
     // (rascunho/futuros aparecem). O caminho usa o ALIAS `tournament`,

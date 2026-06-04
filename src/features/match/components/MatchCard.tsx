@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -53,7 +55,16 @@ export function MatchCard({ partida }: { partida: PartidaAtiva }) {
           <CardTitle asChild>
             <h2>{tituloPartida}</h2>
           </CardTitle>
-          <CardDescription>{subtitulo}</CardDescription>
+          <CardDescription>
+            {/* Título do torneio linka para a classificação (entrada do Tier 2). */}
+            <Link
+              href={`/dashboard/torneios/${partida.tournament.id}`}
+              className="underline-offset-4 hover:underline focus-visible:underline"
+            >
+              {torneio}
+            </Link>
+            {` • ${LABEL_STATUS[partida.status]}`}
+          </CardDescription>
         </CardHeader>
 
         <CardContent className="flex items-center justify-center gap-3 py-2">

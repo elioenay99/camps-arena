@@ -22,7 +22,7 @@ export interface PartidaAtiva {
   status: MatchStatus
   created_at: string
   // Nunca null: `tournament_id` é NOT NULL no schema e o embed usa `!inner`.
-  tournament: { titulo: string; status: TournamentStatus }
+  tournament: { id: string; titulo: string; status: TournamentStatus }
   participante_1: ParticipanteResumo | null
   participante_2: ParticipanteResumo | null
   time_1: ClubeResumo | null
@@ -55,7 +55,7 @@ export async function getActiveMatches(): Promise<PartidaAtiva[]> {
     .from("matches")
     .select(
       `id, placar_1, placar_2, status, created_at,
-       tournament:tournaments!matches_tournament_id_fkey!inner ( titulo, status ),
+       tournament:tournaments!matches_tournament_id_fkey!inner ( id, titulo, status ),
        participante_1:users!matches_participante_1_fkey ( nome, avatar, celular ),
        participante_2:users!matches_participante_2_fkey ( nome, avatar, celular ),
        time_1:teams!matches_time_1_fkey ( nome, escudo_url ),
