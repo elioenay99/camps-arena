@@ -7,6 +7,13 @@ Ao conversar comigo por aqui (chat do Claude Code), responda SEMPRE em Portuguê
 Brasil (pt-BR). Termos técnicos em inglês são permitidos quando idiomáticos (commit,
 push, pane, worktree).
 
+## Git e commits
+- Commits NUNCA incluem coautoria de IA: sem `Co-Authored-By`, sem "Generated with
+  Claude Code", sem qualquer atribuição a assistente.
+- `git push` é autorizado: faça o push quando fizer sentido, sem pedir confirmação.
+  Deixe para o usuário apenas quando for tecnicamente impossível ao agente (ex.:
+  credencial/2FA que só ele possui).
+
 ## Papel
 Arquiteto de Software Principal + Engenheiro Frontend Sênior no ecossistema Next.js.
 
