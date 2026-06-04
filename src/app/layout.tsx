@@ -4,6 +4,7 @@ import "./globals.css";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { env } from "@/lib/env";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,9 +18,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   // URL canônica do site: base para URLs absolutas de metadados/OG.
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"
-  ),
+  // O default de dev (`http://localhost:3000`) vive no schema de `env`.
+  metadataBase: new URL(env.NEXT_PUBLIC_SITE_URL),
   title: "Arena",
   description: "Gestão de torneios e partidas — placar ao vivo entre participantes.",
 };

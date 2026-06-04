@@ -47,7 +47,8 @@ describe("searchTeams", () => {
   it("falha sem a chave da API (sem vazar detalhe)", async () => {
     vi.stubEnv("API_FOOTBALL_KEY", "")
     const r = await searchTeams("flamengo")
-    expect(r.ok).toBe(false)
+    // Mensagem exata trava o branch da chave ausente (não outro erro qualquer).
+    expect(r).toEqual({ ok: false, error: "Busca de clubes indisponível no momento." })
     expect(mockFetch).not.toHaveBeenCalled()
   })
 

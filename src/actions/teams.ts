@@ -1,5 +1,6 @@
 "use server"
 
+import { apiFootballKey } from "@/lib/env"
 import { createClient } from "@/lib/supabase/server"
 import {
   selectTeamSchema,
@@ -71,7 +72,7 @@ export async function searchTeams(query: string): Promise<SearchTeamsResult> {
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
-  const apiKey = process.env.API_FOOTBALL_KEY
+  const apiKey = apiFootballKey()
   if (!apiKey) {
     console.error("API_FOOTBALL_KEY ausente — busca de clubes indisponível.")
     return { ok: false, error: "Busca de clubes indisponível no momento." }
