@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
@@ -66,19 +65,7 @@ export default async function TorneioPage({
   const titulo = torneio.titulo.trim() || "Torneio";
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold tracking-[0.3em] text-muted-foreground">
-          ARENA
-        </span>
-        <Link
-          href="/dashboard"
-          className="text-muted-foreground text-sm underline underline-offset-4"
-        >
-          Voltar ao painel
-        </Link>
-      </div>
-
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold">{titulo}</h1>
         <p className="text-muted-foreground text-sm">

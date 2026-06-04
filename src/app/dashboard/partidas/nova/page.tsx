@@ -7,7 +7,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -36,7 +35,7 @@ export default async function NovaPartidaPage() {
   const torneios = await getOwnTournaments(user.id);
 
   return (
-    <main className="flex flex-1 items-center justify-center px-6 py-16">
+    <main className="flex flex-1 items-center justify-center px-6 py-10">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="text-2xl">Nova partida</CardTitle>
@@ -62,11 +61,6 @@ export default async function NovaPartidaPage() {
             />
           )}
         </CardContent>
-        <CardFooter>
-          <Link href="/dashboard" className="text-muted-foreground text-sm underline underline-offset-4">
-            Voltar ao painel
-          </Link>
-        </CardFooter>
       </Card>
     </main>
   );

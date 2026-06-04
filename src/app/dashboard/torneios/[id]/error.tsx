@@ -32,13 +32,8 @@ export default function TorneioError({
   const tentarNovamente = unstable_retry ?? reset;
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold tracking-[0.3em] text-muted-foreground">
-          ARENA
-        </span>
-      </div>
-
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
+      {/* Sem marca: o header persistente do layout do segmento já a exibe. */}
       <Card role="alert">
         <CardHeader>
           <CardTitle className="text-2xl">Algo deu errado</CardTitle>

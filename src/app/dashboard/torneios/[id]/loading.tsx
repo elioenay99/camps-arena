@@ -10,17 +10,11 @@ export default function TorneioLoading() {
     <main
       role="status"
       aria-live="polite"
-      className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16"
+      className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10"
     >
       <span className="sr-only">Carregando classificação…</span>
 
-      <div className="flex items-center justify-between" aria-hidden="true">
-        <span className="text-sm font-semibold tracking-[0.3em] text-muted-foreground">
-          ARENA
-        </span>
-        <Skeleton className="h-5 w-28 rounded-md" />
-      </div>
-
+      {/* Sem marca: o header persistente do layout do segmento já a exibe. */}
       <div className="flex flex-col gap-2" aria-hidden="true">
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-4 w-72" />
