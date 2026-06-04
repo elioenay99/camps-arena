@@ -22,10 +22,23 @@ export async function createTournament(
   _prevState: TournamentFormState,
   formData: FormData
 ): Promise<TournamentFormState> {
+  // Conversão EXPLÍCITA da string do form (sem z.coerce — mesma decisão do
+  // placar): campo vazio/ausente vira undefined e o Zod aplica o default;
+  // string não-vazia vira Number (NaN é rejeitado pelo Zod); qualquer outro
+  // tipo (ex.: File) passa cru e cai na validação do Zod.
+  const pontosOuDefault = (campo: string) => {
+    const valor = formData.get(campo)
+    if (valor === null || valor === "") return undefined
+    return typeof valor === "string" ? Number(valor) : valor
+  }
+
   const parsed = createTournamentSchema.safeParse({
     titulo: formData.get("titulo"),
     // Checkbox nativo: qualquer presença no FormData = marcado; ausente = false.
     isPublic: formData.get("isPublic") !== null,
+    pontosVitoria: pontosOuDefault("pontosVitoria"),
+    pontosEmpate: pontosOuDefault("pontosEmpate"),
+    pontosDerrota: pontosOuDefault("pontosDerrota"),
   })
 
   if (!parsed.success) {
@@ -50,6 +63,11 @@ export async function createTournament(
       titulo: parsed.data.titulo,
       is_public: parsed.data.isPublic,
       created_by: user.id,
+      // Sempre enviados (defaults do Zod): o default do DDL é só para
+      // torneios legados/escritas administrativas.
+      pontos_vitoria: parsed.data.pontosVitoria,
+      pontos_empate: parsed.data.pontosEmpate,
+      pontos_derrota: parsed.data.pontosDerrota,
     })
     if (error) {
       console.error("createTournament falhou", error.code ?? error.message)

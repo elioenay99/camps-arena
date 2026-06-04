@@ -30,6 +30,10 @@ A ordenação SHALL seguir: pontos → vitórias → saldo de gols → gols pró
 - **WHEN** três participantes seguem empatados após os critérios anteriores
 - **THEN** o confronto direto não é aplicado e o empate persiste
 
+#### Scenario: Confronto direto inconclusivo persiste o empate
+- **WHEN** dois empatados nunca se enfrentaram ou somaram os mesmos pontos entre si
+- **THEN** o empate persiste e ambos dividem a posição
+
 #### Scenario: Empate persistente divide a posição
 - **WHEN** dois participantes são indistinguíveis por toda a cadeia
 - **THEN** ambos recebem a mesma posição e o seguinte pula (1º, 1º, 3º)

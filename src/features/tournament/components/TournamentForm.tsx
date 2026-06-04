@@ -7,8 +7,39 @@ import { createTournament, type TournamentFormState } from "@/actions/tournament
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PONTOS_MAX, PONTUACAO_PADRAO } from "@/schema/tournamentSchema"
 
 const initialState: TournamentFormState = {}
+
+function PontosInput({
+  campo,
+  rotulo,
+  padrao,
+  erro,
+}: {
+  campo: string
+  rotulo: string
+  padrao: number
+  erro?: string
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={campo}>{rotulo}</Label>
+      <Input
+        id={campo}
+        name={campo}
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={PONTOS_MAX}
+        step={1}
+        defaultValue={padrao}
+        aria-invalid={Boolean(erro)}
+      />
+      {erro ? <p className="text-destructive text-sm">{erro}</p> : null}
+    </div>
+  )
+}
 
 function SubmitButton() {
   const { pending } = useFormStatus()
@@ -39,6 +70,32 @@ export function TournamentForm() {
           <p className="text-destructive text-sm">{state.fieldErrors.titulo[0]}</p>
         ) : null}
       </div>
+
+      {/* border-0/p-0/m-0/min-w-0: o preflight do Tailwind v4 NÃO reseta
+          fieldset/legend — sem isso herda borda groove e padding do UA. */}
+      <fieldset className="grid grid-cols-3 gap-3 border-0 p-0 m-0 min-w-0">
+        <legend className="text-sm font-medium pb-2">
+          Pontos por resultado
+        </legend>
+        <PontosInput
+          campo="pontosVitoria"
+          rotulo="Vitória"
+          padrao={PONTUACAO_PADRAO.vitoria}
+          erro={state.fieldErrors?.pontosVitoria?.[0]}
+        />
+        <PontosInput
+          campo="pontosEmpate"
+          rotulo="Empate"
+          padrao={PONTUACAO_PADRAO.empate}
+          erro={state.fieldErrors?.pontosEmpate?.[0]}
+        />
+        <PontosInput
+          campo="pontosDerrota"
+          rotulo="Derrota"
+          padrao={PONTUACAO_PADRAO.derrota}
+          erro={state.fieldErrors?.pontosDerrota?.[0]}
+        />
+      </fieldset>
 
       <div className="flex items-center gap-2">
         <input

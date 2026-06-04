@@ -188,3 +188,44 @@ select count(*) from public.matches;
 > Dica: como o "Torneio de Teste" tem `created_by = NULL`, ninguém pode criar
 > partida NELE pela app — crie um torneio novo pela app (ele nasce seu) ou
 > atribua-se como dono: `update public.tournaments set created_by = '<seu-user-id>' where titulo = 'Torneio de Teste';`
+
+---
+
+## 6. Supabase — regras de pontuação (`add-scoring-rules`)
+
+Pontuação configurável por torneio (vitória/empate/derrota, defaults 3/1/0) +
+CHECK de coerência. Torneios existentes herdam 3/1/0 pelos defaults — sem
+migração de dados. **Sem isto, criar torneio pela app falha** (a action passa a
+enviar as 3 colunas, que ainda não existem no banco). Aplicar no **SQL Editor**
+(idempotente):
+
+- [ ] **6.1 — Colunas + CHECK:**
+
+```sql
+-- Regras de pontuação por torneio (aditivo).
+alter table public.tournaments
+  add column if not exists pontos_vitoria integer not null default 3;
+alter table public.tournaments
+  add column if not exists pontos_empate integer not null default 1;
+alter table public.tournaments
+  add column if not exists pontos_derrota integer not null default 0;
+
+-- Coerência: 0 <= derrota <= empate <= vitoria <= 100.
+alter table public.tournaments drop constraint if exists tournaments_pontuacao_coerente;
+alter table public.tournaments
+  add constraint tournaments_pontuacao_coerente
+  check (
+    pontos_derrota >= 0
+    and pontos_derrota <= pontos_empate
+    and pontos_empate <= pontos_vitoria
+    and pontos_vitoria <= 100
+  );
+```
+
+- [ ] **6.2 — (opcional) Conferir** os defaults nos torneios existentes:
+
+```sql
+select titulo, pontos_vitoria, pontos_empate, pontos_derrota from public.tournaments;
+```
+
+> Fonte de verdade: `supabase/schema.sql` (seção `tournaments`).

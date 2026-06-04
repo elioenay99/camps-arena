@@ -38,6 +38,9 @@ export interface Database {
           status: TournamentStatus
           created_by: string | null
           is_public: boolean
+          pontos_vitoria: number
+          pontos_empate: number
+          pontos_derrota: number
           created_at: string
         }
         Insert: {
@@ -46,6 +49,9 @@ export interface Database {
           status?: TournamentStatus
           created_by?: string | null
           is_public?: boolean
+          pontos_vitoria?: number
+          pontos_empate?: number
+          pontos_derrota?: number
           created_at?: string
         }
         Update: {
@@ -54,6 +60,9 @@ export interface Database {
           status?: TournamentStatus
           created_by?: string | null
           is_public?: boolean
+          pontos_vitoria?: number
+          pontos_empate?: number
+          pontos_derrota?: number
           created_at?: string
         }
         Relationships: [

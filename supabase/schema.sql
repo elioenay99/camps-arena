@@ -44,6 +44,27 @@ alter table public.tournaments
 
 create index if not exists tournaments_created_by_idx on public.tournaments (created_by);
 
+-- Regras de pontuação por torneio (aditivo; idempotente). Defaults 3/1/0:
+-- torneios legados herdam a convenção do futebol sem migração de dados.
+alter table public.tournaments
+  add column if not exists pontos_vitoria integer not null default 3;
+alter table public.tournaments
+  add column if not exists pontos_empate integer not null default 1;
+alter table public.tournaments
+  add column if not exists pontos_derrota integer not null default 0;
+
+-- Coerência: derrota valendo mais que vitória corromperia toda classificação.
+-- Segunda barreira além do Zod (POST direto/edições futuras). Teto 100 = sanidade.
+alter table public.tournaments drop constraint if exists tournaments_pontuacao_coerente;
+alter table public.tournaments
+  add constraint tournaments_pontuacao_coerente
+  check (
+    pontos_derrota >= 0
+    and pontos_derrota <= pontos_empate
+    and pontos_empate <= pontos_vitoria
+    and pontos_vitoria <= 100
+  );
+
 -- ---------- Tabela: teams (cache de clubes reais buscados via API) ----------
 -- Dados públicos de clube (nome + escudo). 'external_id' + 'provider' permitem
 -- reusar/atualizar o clube sem duplicar. Aditivo: NÃO substitui o participante.

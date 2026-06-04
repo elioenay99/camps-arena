@@ -81,6 +81,9 @@ describe("createTournament", () => {
       titulo: "Copa",
       is_public: true,
       created_by: "dono-1",
+      pontos_vitoria: 3,
+      pontos_empate: 1,
+      pontos_derrota: 0,
     })
   })
 
@@ -93,7 +96,75 @@ describe("createTournament", () => {
       titulo: "Privado",
       is_public: false,
       created_by: "dono-1",
+      pontos_vitoria: 3,
+      pontos_empate: 1,
+      pontos_derrota: 0,
     })
+  })
+
+  it("pontuação customizada do form é convertida e gravada", async () => {
+    const { insertSpy } = montarClient({ user: { id: "dono-1" } })
+    await expect(
+      createTournament(
+        {},
+        formData({
+          titulo: "Copa",
+          isPublic: "on",
+          pontosVitoria: "2",
+          pontosEmpate: "1",
+          pontosDerrota: "0",
+        })
+      )
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard")
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pontos_vitoria: 2,
+        pontos_empate: 1,
+        pontos_derrota: 0,
+      })
+    )
+  })
+
+  it("campos de pontuação vazios assumem os defaults 3/1/0", async () => {
+    const { insertSpy } = montarClient({ user: { id: "dono-1" } })
+    await expect(
+      createTournament(
+        {},
+        formData({
+          titulo: "Copa",
+          isPublic: "on",
+          pontosVitoria: "",
+          pontosEmpate: "",
+          pontosDerrota: "",
+        })
+      )
+    ).rejects.toThrow("NEXT_REDIRECT:/dashboard")
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pontos_vitoria: 3,
+        pontos_empate: 1,
+        pontos_derrota: 0,
+      })
+    )
+  })
+
+  it("pontuação incoerente (derrota > vitória) não toca o banco", async () => {
+    const r = await createTournament(
+      {},
+      formData({ titulo: "Copa", pontosVitoria: "1", pontosDerrota: "5" })
+    )
+    // 5 > empate default (1) → o refine de derrota<=empate acusa o campo.
+    expect(r.fieldErrors?.pontosDerrota).toBeTruthy()
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("pontuação não-numérica ('abc' → NaN) não toca o banco", async () => {
+    const r = await createTournament(
+      {},
+      formData({ titulo: "Copa", pontosVitoria: "abc" })
+    )
+    expect(r.fieldErrors?.pontosVitoria).toBeTruthy()
+    expect(mockCreateClient).not.toHaveBeenCalled()
   })
 
   it("erro do banco (RLS) vira mensagem genérica, sem redirect", async () => {
