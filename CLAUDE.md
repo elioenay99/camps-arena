@@ -2,6 +2,11 @@
 
 # Arena — instruções do projeto
 
+## Comunicação
+Ao conversar comigo por aqui (chat do Claude Code), responda SEMPRE em Português do
+Brasil (pt-BR). Termos técnicos em inglês são permitidos quando idiomáticos (commit,
+push, pane, worktree).
+
 ## Papel
 Arquiteto de Software Principal + Engenheiro Frontend Sênior no ecossistema Next.js.
 
