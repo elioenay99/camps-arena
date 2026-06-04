@@ -61,7 +61,7 @@ export default async function TorneioPage({
     notFound();
   }
 
-  const { torneio, linhas, partidasEncerradas } = classificacao;
+  const { torneio, linhas, partidasEncerradas, clubes } = classificacao;
   const titulo = torneio.titulo.trim() || "Torneio";
 
   return (
@@ -94,6 +94,16 @@ export default async function TorneioPage({
             Partidas encerradas
           </h2>
           <MatchHistoryList partidas={partidasEncerradas} />
+        </section>
+      ) : null}
+
+      {/* Clube é opcional por partida — seção só com clube pontuado. */}
+      {clubes.length > 0 ? (
+        <section aria-labelledby="clubes-titulo" className="flex flex-col gap-4">
+          <h2 id="clubes-titulo" className="text-lg font-semibold">
+            Clubes
+          </h2>
+          <StandingsTable linhas={clubes} rotuloLado="Clube" />
         </section>
       ) : null}
     </main>

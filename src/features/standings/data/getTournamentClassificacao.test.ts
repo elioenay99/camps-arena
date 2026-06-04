@@ -82,19 +82,27 @@ function partidaEncerrada(
   p2: { id: string; nome: string | null } | null,
   placar_1: number,
   placar_2: number,
-  encerradaEm = "2026-06-04T12:00:00Z"
+  encerradaEm = "2026-06-04T12:00:00Z",
+  clubes?: {
+    t1: { id: string; nome: string } | null
+    t2: { id: string; nome: string } | null
+  }
 ) {
   proximoId += 1
   return {
     id: `m${proximoId}`,
     participante_1: p1?.id ?? null,
     participante_2: p2?.id ?? null,
+    time_1: clubes?.t1?.id ?? null,
+    time_2: clubes?.t2?.id ?? null,
     placar_1,
     placar_2,
     status: "encerrada",
     updated_at: encerradaEm,
     p1,
     p2,
+    t1: clubes?.t1 ?? null,
+    t2: clubes?.t2 ?? null,
   }
 }
 
@@ -190,7 +198,76 @@ describe("getTournamentClassificacao", () => {
     const colsCruas = String(client.partidasSelectSpy.mock.calls[0][0])
     expect(colsCruas).toMatch(/^\s*id\s*,/)
     expect(cols).toContain("updated_at")
+    // Insumos da classificação de clubes.
+    expect(cols).toContain("time_1")
+    expect(cols).toContain("time_2")
+    expect(cols).toContain("t1:teams!matches_time_1_fkey(id,nome)")
+    expect(cols).toContain("t2:teams!matches_time_2_fkey(id,nome)")
     expect(cols).not.toContain("celular")
+  })
+
+  it("clubes pontuam pelo MESMO motor e regras do torneio (re-chaveado por time)", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    const gremio = { id: "c1", nome: "Grêmio" }
+    const inter = { id: "c2", nome: "Inter" }
+    montarClient({
+      // pontos_vitoria custom prova que os clubes usam as regras do torneio.
+      torneio: { ...TORNEIO, pontos_vitoria: 2 },
+      partidas: [
+        partidaEncerrada(ana, beto, 1, 0, "2026-06-04T12:00:00Z", {
+          t1: gremio,
+          t2: inter,
+        }),
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.clubes).toEqual([
+      expect.objectContaining({ nome: "Grêmio", posicao: 1, pontos: 2, vitorias: 1 }),
+      expect.objectContaining({ nome: "Inter", posicao: 2, pontos: 0 }),
+    ])
+    // E a classificação de participantes vem do MESMO snapshot.
+    expect(r?.linhas[0]).toMatchObject({ nome: "Ana", pontos: 2 })
+  })
+
+  it("partida não-encerrada com os dois clubes não pontua em clubes", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    const gremio = { id: "c1", nome: "Grêmio" }
+    const inter = { id: "c2", nome: "Inter" }
+    montarClient({
+      torneio: TORNEIO,
+      partidas: [
+        {
+          ...partidaEncerrada(ana, beto, 9, 0, "2026-06-04T12:00:00Z", {
+            t1: gremio,
+            t2: inter,
+          }),
+          status: "em_andamento",
+        },
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.clubes).toEqual([])
+  })
+
+  it("partida sem os dois clubes não pontua em clubes (mas pontua em participantes)", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    const gremio = { id: "c1", nome: "Grêmio" }
+    montarClient({
+      torneio: TORNEIO,
+      partidas: [
+        // Só um lado tem clube: não há confronto de clubes.
+        partidaEncerrada(ana, beto, 1, 0, "2026-06-04T12:00:00Z", {
+          t1: gremio,
+          t2: null,
+        }),
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.clubes).toEqual([])
+    expect(r?.linhas).toHaveLength(2)
   })
 
   it("ordena por updated_at desc (encerradas mais recentes primeiro no histórico)", async () => {

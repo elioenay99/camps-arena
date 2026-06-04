@@ -2,7 +2,8 @@ import type { LinhaComNome } from "@/features/standings/data/getTournamentClassi
 
 const COLUNAS = [
   { chave: "pos", rotulo: "Pos", titulo: "Posição" },
-  { chave: "nome", rotulo: "Participante", titulo: "Participante" },
+  // Rótulo do lado vem por prop: a tabela serve participantes E clubes.
+  { chave: "nome", rotulo: null, titulo: null },
   { chave: "pontos", rotulo: "P", titulo: "Pontos" },
   { chave: "jogos", rotulo: "J", titulo: "Jogos" },
   { chave: "vitorias", rotulo: "V", titulo: "Vitórias" },
@@ -14,35 +15,46 @@ const COLUNAS = [
 ] as const
 
 /** Tabela de classificação — RSC puro: só renderiza o que o motor calculou. */
-export function StandingsTable({ linhas }: { linhas: LinhaComNome[] }) {
+export function StandingsTable({
+  linhas,
+  rotuloLado = "Participante",
+}: {
+  linhas: LinhaComNome[]
+  /** Rótulo da coluna de nome ("Participante" ou "Clube"). */
+  rotuloLado?: string
+}) {
   return (
     <div className="overflow-x-auto rounded-lg border">
       {/* min-w dá piso à tabela: sem ele, w-full nunca transborda o wrapper e
           o overflow-x-auto seria inerte — 10 colunas espremidas no mobile. */}
       <table className="w-full min-w-[34rem] text-sm">
         <caption className="sr-only">
-          Classificação do torneio: posição, pontos e estatísticas por participante
+          {`Classificação por ${rotuloLado.toLowerCase()}: posição, pontos e estatísticas`}
         </caption>
         <thead>
           <tr className="border-b bg-muted/50 text-muted-foreground">
-            {COLUNAS.map((c) => (
-              <th
-                key={c.chave}
-                scope="col"
-                className={
-                  c.chave === "nome"
-                    ? "px-3 py-2 text-left font-medium"
-                    : "px-2 py-2 text-center font-medium"
-                }
-              >
-                {/* abbr (tooltip no hover) escondida do leitor de tela; o
-                    sr-only anuncia o título completo da coluna. */}
-                <abbr title={c.titulo} className="no-underline" aria-hidden="true">
-                  {c.rotulo}
-                </abbr>
-                <span className="sr-only">{c.titulo}</span>
-              </th>
-            ))}
+            {COLUNAS.map((c) => {
+              const rotulo = c.rotulo ?? rotuloLado
+              const titulo = c.titulo ?? rotuloLado
+              return (
+                <th
+                  key={c.chave}
+                  scope="col"
+                  className={
+                    c.chave === "nome"
+                      ? "px-3 py-2 text-left font-medium"
+                      : "px-2 py-2 text-center font-medium"
+                  }
+                >
+                  {/* abbr (tooltip no hover) escondida do leitor de tela; o
+                      sr-only anuncia o título completo da coluna. */}
+                  <abbr title={titulo} className="no-underline" aria-hidden="true">
+                    {rotulo}
+                  </abbr>
+                  <span className="sr-only">{titulo}</span>
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>

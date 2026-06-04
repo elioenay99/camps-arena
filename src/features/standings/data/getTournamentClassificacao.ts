@@ -37,6 +37,8 @@ export interface ClassificacaoTorneio {
   torneio: TorneioClassificacao
   linhas: LinhaComNome[]
   partidasEncerradas: PartidaEncerrada[]
+  /** Classificação de clubes: mesmo motor, chaveado por time_1/time_2. */
+  clubes: LinhaComNome[]
 }
 
 interface ParticipanteEmbed {
@@ -44,16 +46,25 @@ interface ParticipanteEmbed {
   nome: string | null
 }
 
+interface ClubeEmbed {
+  id: string
+  nome: string
+}
+
 interface PartidaComNomes {
   id: string
   participante_1: string | null
   participante_2: string | null
+  time_1: string | null
+  time_2: string | null
   placar_1: number
   placar_2: number
   status: MatchStatus
   updated_at: string
   p1: ParticipanteEmbed | null
   p2: ParticipanteEmbed | null
+  t1: ClubeEmbed | null
+  t2: ClubeEmbed | null
 }
 
 /** Mesmo fallback do MatchCard para participante sem nome. */
@@ -108,9 +119,11 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const { data: partidas, error: partidasError } = await supabase
     .from("matches")
     .select(
-      `id, participante_1, participante_2, placar_1, placar_2, status, updated_at,
+      `id, participante_1, participante_2, time_1, time_2, placar_1, placar_2, status, updated_at,
        p1:users!matches_participante_1_fkey ( id, nome ),
-       p2:users!matches_participante_2_fkey ( id, nome )`
+       p2:users!matches_participante_2_fkey ( id, nome ),
+       t1:teams!matches_time_1_fkey ( id, nome ),
+       t2:teams!matches_time_2_fkey ( id, nome )`
     )
     .eq("tournament_id", tournamentId)
     .order("updated_at", { ascending: false })
@@ -124,21 +137,40 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const linhasPartidas = (partidas ?? []) as unknown as PartidaComNomes[]
 
   const nomes = new Map<string, string>()
+  const nomesClubes = new Map<string, string>()
   for (const p of linhasPartidas) {
     if (p.p1) nomes.set(p.p1.id, nomeOuFallback(p.p1.nome))
     if (p.p2) nomes.set(p.p2.id, nomeOuFallback(p.p2.nome))
+    if (p.t1) nomesClubes.set(p.t1.id, nomeOuFallback(p.t1.nome))
+    if (p.t2) nomesClubes.set(p.t2.id, nomeOuFallback(p.t2.nome))
   }
 
-  const linhas = computeStandings(
-    {
-      vitoria: torneio.pontos_vitoria,
-      empate: torneio.pontos_empate,
-      derrota: torneio.pontos_derrota,
-    },
-    linhasPartidas
-  ).map((linha) => ({
+  const regras = {
+    vitoria: torneio.pontos_vitoria,
+    empate: torneio.pontos_empate,
+    derrota: torneio.pontos_derrota,
+  }
+
+  const linhas = computeStandings(regras, linhasPartidas).map((linha) => ({
     ...linha,
     nome: nomes.get(linha.participanteId) ?? "Sem nome",
+  }))
+
+  // Terceira projeção: o motor é agnóstico ao significado do id — re-chavear
+  // os lados por CLUBE produz a classificação de clubes de graça. Partida sem
+  // os dois clubes vira lado nulo → inelegível (não há confronto de clubes).
+  const clubes = computeStandings(
+    regras,
+    linhasPartidas.map((p) => ({
+      participante_1: p.time_1,
+      participante_2: p.time_2,
+      placar_1: p.placar_1,
+      placar_2: p.placar_2,
+      status: p.status,
+    }))
+  ).map((linha) => ({
+    ...linha,
+    nome: nomesClubes.get(linha.participanteId) ?? "Sem nome",
   }))
 
   // Segunda projeção do MESMO snapshot: o histórico registra toda encerrada
@@ -154,5 +186,5 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
       encerradaEm: p.updated_at,
     }))
 
-  return { torneio, linhas, partidasEncerradas }
+  return { torneio, linhas, partidasEncerradas, clubes }
 })
