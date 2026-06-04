@@ -10,24 +10,13 @@ Marque com `[x]` conforme concluir.
 
 ## 1. GitHub — exigir o check de CI no `main`
 
-- [ ] Proteger o branch `main` para exigir o check `quality` antes de merge.
+- [x] Proteger o branch `main` para exigir o check `quality` antes de merge.
+  **Concluído em 2026-06-04** via `gh api -X PUT .../branches/main/protection --input <json>`
+  (`strict: true`, check `quality`, `enforce_admins: false` — push direto do admin segue
+  funcionando; force push e deleção do branch bloqueados).
 
-**Via interface:** GitHub → repositório → **Settings → Branches → Add branch ruleset
-(ou Branch protection rule)** → branch name pattern `main` → marque **Require status
-checks to pass before merging** → adicione o check **`quality`**.
-
-**Via CLI** (cole no chat do Claude Code com o prefixo `!` para rodar você mesmo —
-o agente não pode, pois `gh api -X PUT` está em `deny`):
-
-```bash
-gh api -X PUT repos/elioenay99/camps-arena/branches/main/protection \
-  -H "Accept: application/vnd.github+json" \
-  -f 'required_status_checks[strict]=true' \
-  -f 'required_status_checks[contexts][]=quality' \
-  -f 'enforce_admins=false' \
-  -f 'required_pull_request_reviews[required_approving_review_count]=0' \
-  -f 'restrictions=' 
-```
+> Nota: o endpoint exige JSON tipado — flags `-f` enviam strings e dão HTTP 422.
+> Para alterar no futuro, use `--input arquivo.json`.
 
 ---
 
