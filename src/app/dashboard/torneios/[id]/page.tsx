@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
 import { createClient } from "@/lib/supabase/server";
+import { MatchHistoryList } from "@/features/match/components/MatchHistoryList";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
 import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao";
 import type { TournamentStatus } from "@/lib/supabase/database.types";
@@ -61,7 +62,7 @@ export default async function TorneioPage({
     notFound();
   }
 
-  const { torneio, linhas } = classificacao;
+  const { torneio, linhas, partidasEncerradas } = classificacao;
   const titulo = torneio.titulo.trim() || "Torneio";
 
   return (
@@ -97,6 +98,17 @@ export default async function TorneioPage({
           <StandingsTable linhas={linhas} />
         )}
       </section>
+
+      {/* Seção omitida quando vazia: o estado vazio da classificação já
+          comunica "nenhuma encerrada" — duas mensagens seriam ruído. */}
+      {partidasEncerradas.length > 0 ? (
+        <section aria-labelledby="historico-titulo" className="flex flex-col gap-4">
+          <h2 id="historico-titulo" className="text-lg font-semibold">
+            Partidas encerradas
+          </h2>
+          <MatchHistoryList partidas={partidasEncerradas} />
+        </section>
+      ) : null}
     </main>
   );
 }

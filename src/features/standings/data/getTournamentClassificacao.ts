@@ -22,9 +22,21 @@ export interface LinhaComNome extends LinhaClassificacao {
   nome: string
 }
 
+/** Partida encerrada shaped para o histórico (registro fiel, com fallbacks). */
+export interface PartidaEncerrada {
+  id: string
+  nome_1: string
+  nome_2: string
+  placar_1: number
+  placar_2: number
+  /** Aproximação de "encerrada em": último lançamento (`updated_at`). */
+  encerradaEm: string
+}
+
 export interface ClassificacaoTorneio {
   torneio: TorneioClassificacao
   linhas: LinhaComNome[]
+  partidasEncerradas: PartidaEncerrada[]
 }
 
 interface ParticipanteEmbed {
@@ -33,11 +45,13 @@ interface ParticipanteEmbed {
 }
 
 interface PartidaComNomes {
+  id: string
   participante_1: string | null
   participante_2: string | null
   placar_1: number
   placar_2: number
   status: MatchStatus
+  updated_at: string
   p1: ParticipanteEmbed | null
   p2: ParticipanteEmbed | null
 }
@@ -45,6 +59,14 @@ interface PartidaComNomes {
 /** Mesmo fallback do MatchCard para participante sem nome. */
 function nomeOuFallback(nome: string | null | undefined): string {
   return nome?.trim() || "Sem nome"
+}
+
+/**
+ * Nome de um LADO do histórico: lado vazio é "A definir" (fallback do
+ * MatchCard) — diferente do motor, o histórico REGISTRA a partida como ela é.
+ */
+function nomeDoLado(embed: ParticipanteEmbed | null): string {
+  return embed ? nomeOuFallback(embed.nome) : "A definir"
 }
 
 /**
@@ -81,14 +103,17 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     return null
   }
 
+  // Ordenadas por updated_at desc para o histórico (encerradas mais recentes
+  // primeiro); o motor é insensível à ordem (acumuladores comutativos).
   const { data: partidas, error: partidasError } = await supabase
     .from("matches")
     .select(
-      `participante_1, participante_2, placar_1, placar_2, status,
+      `id, participante_1, participante_2, placar_1, placar_2, status, updated_at,
        p1:users!matches_participante_1_fkey ( id, nome ),
        p2:users!matches_participante_2_fkey ( id, nome )`
     )
     .eq("tournament_id", tournamentId)
+    .order("updated_at", { ascending: false })
 
   if (partidasError) {
     throw new Error(`Falha ao carregar as partidas: ${partidasError.message}`)
@@ -116,5 +141,18 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     nome: nomes.get(linha.participanteId) ?? "Sem nome",
   }))
 
-  return { torneio, linhas }
+  // Segunda projeção do MESMO snapshot: o histórico registra toda encerrada
+  // (inclusive sem participante — diferente do motor, que exige os dois lados).
+  const partidasEncerradas = linhasPartidas
+    .filter((p) => p.status === "encerrada")
+    .map((p) => ({
+      id: p.id,
+      nome_1: nomeDoLado(p.p1),
+      nome_2: nomeDoLado(p.p2),
+      placar_1: p.placar_1,
+      placar_2: p.placar_2,
+      encerradaEm: p.updated_at,
+    }))
+
+  return { torneio, linhas, partidasEncerradas }
 })

@@ -28,11 +28,12 @@ interface Cenario {
 /**
  * Cliente falso bifurcado por tabela:
  *  - tournaments: select().eq().maybeSingle()
- *  - matches: select().eq() → thenable {data,error}
+ *  - matches: select().eq().order() → {data,error}
  */
 function montarClient(c: Cenario) {
   const partidasEqSpy = vi.fn()
   const partidasSelectSpy = vi.fn()
+  const partidasOrderSpy = vi.fn()
   const client = {
     from: vi.fn((tabela: string) =>
       tabela === "tournaments"
@@ -52,10 +53,15 @@ function montarClient(c: Cenario) {
               return {
                 eq: vi.fn((col: string, val: unknown) => {
                   partidasEqSpy(col, val)
-                  return Promise.resolve({
-                    data: c.partidas ?? null,
-                    error: c.partidasError ?? null,
-                  })
+                  return {
+                    order: vi.fn((coluna: string, opts: unknown) => {
+                      partidasOrderSpy(coluna, opts)
+                      return Promise.resolve({
+                        data: c.partidas ?? null,
+                        error: c.partidasError ?? null,
+                      })
+                    }),
+                  }
                 }),
               }
             }),
@@ -63,29 +69,40 @@ function montarClient(c: Cenario) {
     ),
     partidasEqSpy,
     partidasSelectSpy,
+    partidasOrderSpy,
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
   return client
 }
 
+let proximoId = 0
+
 function partidaEncerrada(
-  p1: { id: string; nome: string | null },
-  p2: { id: string; nome: string | null },
+  p1: { id: string; nome: string | null } | null,
+  p2: { id: string; nome: string | null } | null,
   placar_1: number,
-  placar_2: number
+  placar_2: number,
+  encerradaEm = "2026-06-04T12:00:00Z"
 ) {
+  proximoId += 1
   return {
-    participante_1: p1.id,
-    participante_2: p2.id,
+    id: `m${proximoId}`,
+    participante_1: p1?.id ?? null,
+    participante_2: p2?.id ?? null,
     placar_1,
     placar_2,
     status: "encerrada",
+    updated_at: encerradaEm,
     p1,
     p2,
   }
 }
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  // Ids determinísticos por teste: asserções de id não acoplam à ordem dos it.
+  proximoId = 0
+})
 
 describe("getTournamentClassificacao", () => {
   it("torneio invisível/inexistente devolve null SEM consultar partidas", async () => {
@@ -168,7 +185,67 @@ describe("getTournamentClassificacao", () => {
     expect(cols).toContain("placar_1")
     expect(cols).toContain("placar_2")
     expect(cols).toContain("status")
+    // Insumos do histórico. O `id` precisa ser de TOPO: `toContain("id")`
+    // seria falso positivo (os embeds `(id,nome)` contêm a substring).
+    const colsCruas = String(client.partidasSelectSpy.mock.calls[0][0])
+    expect(colsCruas).toMatch(/^\s*id\s*,/)
+    expect(cols).toContain("updated_at")
     expect(cols).not.toContain("celular")
+  })
+
+  it("ordena por updated_at desc (encerradas mais recentes primeiro no histórico)", async () => {
+    const client = montarClient({ torneio: TORNEIO, partidas: [] })
+    await getTournamentClassificacao(TORNEIO.id)
+    expect(client.partidasOrderSpy).toHaveBeenCalledWith("updated_at", {
+      ascending: false,
+    })
+  })
+
+  it("partidasEncerradas filtra só encerradas, preservando a ordem da query", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: TORNEIO,
+      partidas: [
+        partidaEncerrada(ana, beto, 2, 1, "2026-06-04T12:00:00Z"), // m1
+        { ...partidaEncerrada(ana, beto, 0, 0), status: "em_andamento" },
+        { ...partidaEncerrada(ana, beto, 0, 0), status: "agendada" },
+        partidaEncerrada(beto, ana, 1, 0, "2026-06-01T12:00:00Z"), // m4
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    // `id` assertado: é a key da lista no MatchHistoryList.
+    expect(r?.partidasEncerradas).toEqual([
+      expect.objectContaining({
+        id: "m1",
+        nome_1: "Ana",
+        nome_2: "Beto",
+        placar_1: 2,
+        placar_2: 1,
+        encerradaEm: "2026-06-04T12:00:00Z",
+      }),
+      expect.objectContaining({
+        id: "m4",
+        nome_1: "Beto",
+        nome_2: "Ana",
+        encerradaEm: "2026-06-01T12:00:00Z",
+      }),
+    ])
+  })
+
+  it("histórico inclui encerrada sem participante com 'A definir' (motor a ignora)", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    montarClient({
+      torneio: TORNEIO,
+      partidas: [partidaEncerrada(ana, null, 3, 0)],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    // Registro fiel no histórico…
+    expect(r?.partidasEncerradas).toEqual([
+      expect.objectContaining({ nome_1: "Ana", nome_2: "A definir" }),
+    ])
+    // …mas a classificação não pontua partida sem os dois lados.
+    expect(r?.linhas).toEqual([])
   })
 
   it("sem partidas devolve tabela vazia com o torneio", async () => {
