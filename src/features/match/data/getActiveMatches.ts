@@ -21,7 +21,8 @@ export interface PartidaAtiva {
   placar_2: number
   status: MatchStatus
   created_at: string
-  tournament: { titulo: string; status: TournamentStatus } | null
+  // Nunca null: `tournament_id` é NOT NULL no schema e o embed usa `!inner`.
+  tournament: { titulo: string; status: TournamentStatus }
   participante_1: ParticipanteResumo | null
   participante_2: ParticipanteResumo | null
   time_1: ClubeResumo | null
@@ -39,6 +40,11 @@ export interface PartidaAtiva {
  *   modal usa para o atalho de WhatsApp.
  * - `.neq('encerrada')` em vez de `.eq(...)`: falha-segura — um novo status
  *   intermediário no enum aparece por padrão em vez de sumir silenciosamente.
+ * - Lifecycle do torneio manda: torneio `encerrado` tira a partida do dashboard
+ *   mesmo com a partida não-encerrada. Filtro no servidor: o embed vira `!inner`
+ *   (seguro: `tournament_id` é NOT NULL — não existe partida sem torneio) e o
+ *   `.neq` referencia o ALIAS `tournament` (exigência do PostgREST para embeds
+ *   aliased). Mesma semântica falha-segura: só `encerrado` oculta.
  * - Ordem por `created_at` ascendente: estável (não reordena a lista a cada
  *   atualização de placar, ao contrário de `updated_at`).
  */
@@ -49,13 +55,14 @@ export async function getActiveMatches(): Promise<PartidaAtiva[]> {
     .from("matches")
     .select(
       `id, placar_1, placar_2, status, created_at,
-       tournament:tournaments!matches_tournament_id_fkey ( titulo, status ),
+       tournament:tournaments!matches_tournament_id_fkey!inner ( titulo, status ),
        participante_1:users!matches_participante_1_fkey ( nome, avatar, celular ),
        participante_2:users!matches_participante_2_fkey ( nome, avatar, celular ),
        time_1:teams!matches_time_1_fkey ( nome, escudo_url ),
        time_2:teams!matches_time_2_fkey ( nome, escudo_url )`
     )
     .neq("status", "encerrada")
+    .neq("tournament.status", "encerrado")
     .order("created_at", { ascending: true })
 
   if (error) {

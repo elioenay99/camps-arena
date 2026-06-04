@@ -40,7 +40,7 @@ function paraParticipante(
 export function MatchCard({ partida }: { partida: PartidaAtiva }) {
   const p1 = paraParticipante(partida.participante_1, partida.time_1)
   const p2 = paraParticipante(partida.participante_2, partida.time_2)
-  const torneio = partida.tournament?.titulo?.trim() || "Torneio"
+  const torneio = partida.tournament.titulo.trim() || "Torneio"
 
   const tituloPartida = `${p1.nome} x ${p2.nome}`
   const subtitulo = `${torneio} • ${LABEL_STATUS[partida.status]}`

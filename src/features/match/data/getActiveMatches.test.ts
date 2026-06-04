@@ -14,26 +14,27 @@ interface Cenario {
   error?: { message: string } | null
 }
 
-/** Cliente falso: from(...).select(...).neq(...).order(...) → {data,error}. */
+/** Cliente falso: from(...).select(...).neq(...).neq(...).order(...) → {data,error}. */
 function montarClient(c: Cenario) {
   const selectSpy = vi.fn()
   const neqSpy = vi.fn()
   const orderSpy = vi.fn()
+  // `neq` retorna o próprio builder: aceita quantos filtros a query encadear.
+  const builder = {
+    neq: vi.fn((coluna: string, valor: unknown) => {
+      neqSpy(coluna, valor)
+      return builder
+    }),
+    order: vi.fn((coluna: string, opts: unknown) => {
+      orderSpy(coluna, opts)
+      return Promise.resolve({ data: c.data ?? null, error: c.error ?? null })
+    }),
+  }
   const client = {
     from: vi.fn(() => ({
       select: vi.fn((cols: unknown) => {
         selectSpy(cols)
-        return {
-          neq: vi.fn((coluna: string, valor: unknown) => {
-            neqSpy(coluna, valor)
-            return {
-              order: vi.fn((coluna2: string, opts: unknown) => {
-                orderSpy(coluna2, opts)
-                return Promise.resolve({ data: c.data ?? null, error: c.error ?? null })
-              }),
-            }
-          }),
-        }
+        return builder
       }),
     })),
     selectSpy,
@@ -64,6 +65,22 @@ describe("getActiveMatches", () => {
     expect(client.neqSpy).toHaveBeenCalledWith("status", "encerrada")
     // Ordem estável (não reordena a cada save, ao contrário de updated_at).
     expect(client.orderSpy).toHaveBeenCalledWith("created_at", { ascending: true })
+  })
+
+  it("filtra torneio encerrado no servidor: embed !inner + neq no ALIAS", async () => {
+    const client = montarClient({ data: [] })
+
+    await getActiveMatches()
+
+    // !inner é seguro (tournament_id NOT NULL) e exigido para o filtro de embed
+    // afetar as linhas de matches (sem ele o PostgREST só anula o embed).
+    expect(String(client.selectSpy.mock.calls[0][0])).toContain(
+      "tournaments!matches_tournament_id_fkey!inner"
+    )
+    // Falha-segura simétrica ao .neq de matches: só 'encerrado' oculta
+    // (rascunho/futuros aparecem). O caminho usa o ALIAS `tournament`,
+    // exigência do PostgREST para embeds aliased.
+    expect(client.neqSpy).toHaveBeenCalledWith("tournament.status", "encerrado")
   })
 
   it("retorna [] quando data é null", async () => {

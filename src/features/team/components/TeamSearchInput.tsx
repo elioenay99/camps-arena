@@ -170,14 +170,9 @@ export function TeamSearchInput({
             <p className="px-2 py-2 text-sm text-destructive" role="alert">
               {erro}
             </p>
-          ) : results.length === 0 ? (
-            <p
-              className="px-2 py-2 text-sm text-muted-foreground"
-              aria-live="polite"
-            >
-              Nenhum clube encontrado.
-            </p>
           ) : (
+            // Sem branch de "vazio": `mostrarLista` garante results.length > 0
+            // aqui (busca vazia fecha a lista — decisão assertada em teste).
             // role=listbox só contém role=option (estados ficam fora).
             <ul
               id={listboxId}
