@@ -36,7 +36,7 @@ function normalizar(json: unknown): TeamResult[] {
     teams.push({
       externalId: String(id),
       nome: name,
-      escudoUrl: typeof logo === "string" ? logo : null,
+      escudoUrl: typeof logo === "string" && logo.length > 0 ? logo : null,
     })
   }
   return teams
@@ -47,14 +47,28 @@ function normalizar(json: unknown): TeamResult[] {
  * (`API_FOOTBALL_KEY`, sem `NEXT_PUBLIC_`). Termo < 3 chars → lista vazia
  * (sem chamada). Erros são tratados sem vazar detalhes ao cliente.
  *
- * Proteção do limite grátis (100/dia): `next.revalidate` cacheia buscas
- * repetidas; o debounce do autocomplete (Fase 3) e o cache em `teams`
- * (selectTeam) são as defesas principais.
+ * Exige sessão autenticada: como Server Actions são endpoints HTTP, uma action
+ * pública poderia ser chamada por POST direto para esgotar a cota grátis
+ * (~100/dia) anonimamente. O único caller de UI é o modal autenticado.
+ *
+ * Proteção do limite grátis: `next.revalidate` cacheia a resposta por URL (não
+ * por usuário) — vários autenticados que buscam o mesmo termo compartilham o
+ * cache de 24h, o que é correto (lista de clubes é dado público). O debounce do
+ * autocomplete e o cache em `teams` (selectTeam) complementam.
  */
 export async function searchTeams(query: string): Promise<SearchTeamsResult> {
   const parsed = teamSearchSchema.safeParse(query)
   if (!parsed.success) {
     return { ok: true, teams: [] }
+  }
+
+  // Identidade — fecha o vetor de esgotar a cota anonimamente.
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
   }
 
   const apiKey = process.env.API_FOOTBALL_KEY

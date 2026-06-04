@@ -133,7 +133,7 @@ export async function updateMatchTeams(
 
   const { data: match, error: fetchError } = await supabase
     .from("matches")
-    .select("id, participante_1, participante_2")
+    .select("id, participante_1, participante_2, time_1, time_2")
     .eq("id", matchId)
     .maybeSingle()
   if (fetchError) {
@@ -147,6 +147,13 @@ export async function updateMatchTeams(
     user.id === match.participante_1 || user.id === match.participante_2
   if (!ehParticipante) {
     return { ok: false, error: "Você não participa desta partida." }
+  }
+
+  // Rejeita o mesmo clube nos dois lados (estado atual sobrescrito pelo patch).
+  const time1Final = time_1 !== undefined ? time_1 : (match.time_1 ?? null)
+  const time2Final = time_2 !== undefined ? time_2 : (match.time_2 ?? null)
+  if (time1Final !== null && time2Final !== null && time1Final === time2Final) {
+    return { ok: false, error: "Os dois lados não podem ter o mesmo clube." }
   }
 
   // Aplica só os lados informados (undefined = não mexe).

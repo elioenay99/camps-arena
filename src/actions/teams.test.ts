@@ -12,9 +12,18 @@ const mockCreateClient = vi.mocked(createClient)
 describe("searchTeams", () => {
   const mockFetch = vi.fn()
 
+  function mockSessao(user: { id: string } | null) {
+    mockCreateClient.mockResolvedValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }),
+      },
+    } as unknown as never)
+  }
+
   beforeEach(() => {
     vi.stubGlobal("fetch", mockFetch)
     vi.stubEnv("API_FOOTBALL_KEY", "test-key")
+    mockSessao({ id: "u1" })
   })
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -25,6 +34,13 @@ describe("searchTeams", () => {
   it("não chama a API para termo com menos de 3 caracteres", async () => {
     const r = await searchTeams("ab")
     expect(r).toEqual({ ok: true, teams: [] })
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it("rejeita busca sem sessão e NÃO chama a API (anti-DoS de cota)", async () => {
+    mockSessao(null)
+    const r = await searchTeams("flamengo")
+    expect(r.ok).toBe(false)
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
@@ -162,6 +178,34 @@ describe("selectTeam", () => {
   it("rejeita entrada inválida", async () => {
     const r = await selectTeam({ externalId: "", nome: "", escudoUrl: null })
     expect(r.ok).toBe(false)
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("rejeita escudo de domínio não confiável, sem tocar no banco (anti-poison)", async () => {
+    const r = await selectTeam({
+      externalId: "33",
+      nome: "Forjado",
+      escudoUrl: "https://evil.example/x.png",
+    })
+    expect(r.ok).toBe(false)
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("rejeita externalId não numérico, sem tocar no banco", async () => {
+    const r = await selectTeam({ externalId: "33; drop", nome: "X", escudoUrl: null })
+    expect(r.ok).toBe(false)
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("rejeita domínio confiável SEM path de escudo (alinha Zod à CHECK do banco)", async () => {
+    for (const escudoUrl of [
+      "https://media.api-sports.io",
+      "https://media.api-sports.io/",
+      "https://media.api-sports.io:443/football/teams/33.png",
+    ]) {
+      const r = await selectTeam({ externalId: "33", nome: "X", escudoUrl })
+      expect(r.ok).toBe(false)
+    }
     expect(mockCreateClient).not.toHaveBeenCalled()
   })
 

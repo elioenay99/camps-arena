@@ -23,6 +23,8 @@ interface Cenario {
     id: string
     participante_1: string | null
     participante_2: string | null
+    time_1?: string | null
+    time_2?: string | null
   } | null
   readError?: { message: string } | null
   writeData?: { id: string }[] | null
@@ -127,5 +129,31 @@ describe("updateMatchTeams", () => {
     const r = await updateMatchTeams({ matchId: UUID, time_1: null })
     expect(r.ok).toBe(true)
     expect(client.updateSpy).toHaveBeenCalledWith({ time_1: null })
+  })
+
+  it("rejeita o mesmo clube nos dois lados (ambos no input), sem escrever", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+    })
+    const r = await updateMatchTeams({ matchId: UUID, time_1: TEAM_1, time_2: TEAM_1 })
+    expect(r.ok).toBe(false)
+    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it("rejeita patch parcial que colide com o clube já gravado no outro lado", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: {
+        id: UUID,
+        participante_1: USER_ID,
+        participante_2: OUTRO_ID,
+        time_2: TEAM_1,
+      },
+    })
+    const r = await updateMatchTeams({ matchId: UUID, time_1: TEAM_1 })
+    expect(r.ok).toBe(false)
+    expect(client.updateSpy).not.toHaveBeenCalled()
   })
 })

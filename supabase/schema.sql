@@ -79,6 +79,27 @@ alter table public.matches
 create index if not exists matches_time_1_idx on public.matches (time_1);
 create index if not exists matches_time_2_idx on public.matches (time_2);
 
+-- ---------- Hardening: integridade dos clubes (defesa em profundidade) ----------
+-- Segunda barreira além da validação nas Server Actions (searchTeams/selectTeam/
+-- updateMatchTeams). Idempotente via DROP + ADD (Postgres não tem ADD IF NOT EXISTS).
+
+-- Os dois lados da partida não podem referenciar o MESMO clube.
+alter table public.matches drop constraint if exists matches_times_distintos;
+alter table public.matches
+  add constraint matches_times_distintos
+  check (time_1 is null or time_2 is null or time_1 <> time_2);
+
+-- Escudo só do CDN confiável da API-Football (espelha next.config.ts) ou nulo.
+-- ATENÇÃO: se houver registros legados com escudo_url fora desse domínio, o ADD
+-- falha. Conferir ANTES de aplicar:
+--   select count(*) from public.teams
+--   where escudo_url is not null
+--     and escudo_url not like 'https://media.api-sports.io/%';
+alter table public.teams drop constraint if exists teams_escudo_url_dominio;
+alter table public.teams
+  add constraint teams_escudo_url_dominio
+  check (escudo_url is null or escudo_url like 'https://media.api-sports.io/%');
+
 -- ---------- updated_at automático em matches ----------
 create or replace function public.set_updated_at()
 returns trigger
