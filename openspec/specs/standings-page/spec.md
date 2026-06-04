@@ -19,7 +19,7 @@ O sistema SHALL oferecer a página protegida `/dashboard/torneios/[id]` exibindo
 - **THEN** a página responde com notFound (404), sem distinguir os casos
 
 ### Requirement: Fetcher de classificação
-O sistema SHALL prover `getTournamentClassificacao` que busca o torneio (com regras) e as partidas com nomes embutidos numa única viagem por recurso, executa o motor e devolve as linhas com nome resolvido E a lista de partidas encerradas shaped para exibição (`partidasEncerradas`). Torneio não retornado pela RLS SHALL resultar em `null`; falha de query SHALL lançar erro amigável.
+O sistema SHALL prover `getTournamentClassificacao` que busca o torneio (com regras) e as partidas com nomes embutidos numa única viagem por recurso, executa o motor e devolve as linhas com nome resolvido, a lista de partidas encerradas (`partidasEncerradas`) E a classificação de clubes (`clubes`, motor re-chaveado por `time_*`). Torneio não retornado pela RLS SHALL resultar em `null`; falha de query SHALL lançar erro amigável.
 
 #### Scenario: Nomes resolvidos a partir dos embeds
 - **WHEN** as partidas retornam embeds de participantes com nomes
@@ -29,7 +29,7 @@ O sistema SHALL prover `getTournamentClassificacao` que busca o torneio (com reg
 - **WHEN** a query do torneio devolve vazio
 - **THEN** o fetcher devolve null sem consultar partidas
 
-#### Scenario: Classificação e histórico do mesmo snapshot
+#### Scenario: Classificação, histórico e clubes do mesmo snapshot
 - **WHEN** o fetcher retorna
-- **THEN** classificação e `partidasEncerradas` derivam da MESMA consulta de partidas (sem segunda viagem, sem inconsistência entre as fatias)
+- **THEN** as três projeções derivam da MESMA consulta de partidas (sem viagens extras, sem inconsistência entre fatias)
 
