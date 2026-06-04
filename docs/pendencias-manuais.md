@@ -199,7 +199,7 @@ migração de dados. **Sem isto, criar torneio pela app falha** (a action passa 
 enviar as 3 colunas, que ainda não existem no banco). Aplicar no **SQL Editor**
 (idempotente):
 
-- [ ] **6.1 — Colunas + CHECK:**
+- [x] **6.1 — Colunas + CHECK:**
 
 ```sql
 -- Regras de pontuação por torneio (aditivo).
@@ -222,7 +222,7 @@ alter table public.tournaments
   );
 ```
 
-- [ ] **6.2 — (opcional) Conferir** os defaults nos torneios existentes:
+- [x] **6.2 — (opcional) Conferir** os defaults nos torneios existentes:
 
 ```sql
 select titulo, pontos_vitoria, pontos_empate, pontos_derrota from public.tournaments;
