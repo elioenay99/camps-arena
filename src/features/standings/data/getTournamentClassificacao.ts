@@ -13,6 +13,8 @@ export interface TorneioClassificacao {
   id: string
   titulo: string
   status: TournamentStatus
+  /** Dono do torneio (anulável: semeados/legados) — habilita o console do dono. */
+  created_by: string | null
   pontos_vitoria: number
   pontos_empate: number
   pontos_derrota: number
@@ -33,12 +35,23 @@ export interface PartidaEncerrada {
   encerradaEm: string
 }
 
+/** Partida ainda não encerrada — console do dono (encerrar) e contexto. */
+export interface PartidaAberta {
+  id: string
+  nome_1: string
+  nome_2: string
+  placar_1: number
+  placar_2: number
+  status: MatchStatus
+}
+
 export interface ClassificacaoTorneio {
   torneio: TorneioClassificacao
   linhas: LinhaComNome[]
   partidasEncerradas: PartidaEncerrada[]
   /** Classificação de clubes: mesmo motor, chaveado por time_1/time_2. */
   clubes: LinhaComNome[]
+  partidasAbertas: PartidaAberta[]
 }
 
 interface ParticipanteEmbed {
@@ -60,6 +73,7 @@ interface PartidaComNomes {
   placar_1: number
   placar_2: number
   status: MatchStatus
+  created_at: string
   updated_at: string
   p1: ParticipanteEmbed | null
   p2: ParticipanteEmbed | null
@@ -103,7 +117,9 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
 
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
-    .select("id, titulo, status, pontos_vitoria, pontos_empate, pontos_derrota")
+    .select(
+      "id, titulo, status, created_by, pontos_vitoria, pontos_empate, pontos_derrota"
+    )
     .eq("id", tournamentId)
     .maybeSingle()
 
@@ -119,7 +135,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const { data: partidas, error: partidasError } = await supabase
     .from("matches")
     .select(
-      `id, participante_1, participante_2, time_1, time_2, placar_1, placar_2, status, updated_at,
+      `id, participante_1, participante_2, time_1, time_2, placar_1, placar_2, status, created_at, updated_at,
        p1:users!matches_participante_1_fkey ( id, nome ),
        p2:users!matches_participante_2_fkey ( id, nome ),
        t1:teams!matches_time_1_fkey ( id, nome ),
@@ -186,5 +202,24 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
       encerradaEm: p.updated_at,
     }))
 
-  return { torneio, linhas, partidasEncerradas, clubes }
+  // Quarta projeção: em aberto (console do dono — encerrar). `!==` falha-segura:
+  // status novo aparece como "em aberto" em vez de sumir. Ordem por created_at
+  // ASC, ESTÁVEL — a query ordena por updated_at (pensada pro histórico) e
+  // reordenaria as abertas a cada lançamento de placar (mesma decisão do
+  // dashboard em getActiveMatches).
+  const partidasAbertas = linhasPartidas
+    .filter((p) => p.status !== "encerrada")
+    .sort((a, b) =>
+      a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0
+    )
+    .map((p) => ({
+      id: p.id,
+      nome_1: nomeDoLado(p.p1),
+      nome_2: nomeDoLado(p.p2),
+      placar_1: p.placar_1,
+      placar_2: p.placar_2,
+      status: p.status,
+    }))
+
+  return { torneio, linhas, partidasEncerradas, clubes, partidasAbertas }
 })

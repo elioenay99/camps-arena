@@ -25,6 +25,8 @@ interface Cenario {
     participante_2: string | null
     time_1?: string | null
     time_2?: string | null
+    status?: string
+    tournament_id?: string
   } | null
   readError?: { message: string } | null
   writeData?: { id: string }[] | null
@@ -96,10 +98,15 @@ describe("updateMatchTeams", () => {
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
-  it("associa o clube do lado 1 (só esse campo no patch) e revalida", async () => {
+  it("associa o clube do lado 1 (só esse campo no patch) e revalida as duas rotas", async () => {
     const client = montarClient({
       user: { id: USER_ID },
-      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      readData: {
+        id: UUID,
+        participante_1: USER_ID,
+        participante_2: OUTRO_ID,
+        tournament_id: "torneio-1",
+      },
       writeData: [{ id: UUID }],
     })
     const r = await updateMatchTeams({ matchId: UUID, time_1: TEAM_1 })
@@ -107,6 +114,25 @@ describe("updateMatchTeams", () => {
     expect(client.writeEqSpy).toHaveBeenCalledWith("id", UUID)
     expect(client.updateSpy).toHaveBeenCalledWith({ time_1: TEAM_1 })
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
+    // Clube alimenta a classificação de clubes da página do torneio.
+    expect(mockRevalidate).toHaveBeenCalledWith("/dashboard/torneios/torneio-1")
+  })
+
+  it("partida ENCERRADA rejeita troca de clube (alimenta a tabela de clubes)", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: {
+        id: UUID,
+        participante_1: USER_ID,
+        participante_2: OUTRO_ID,
+        status: "encerrada",
+      },
+    })
+    const r = await updateMatchTeams({ matchId: UUID, time_1: TEAM_1 })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/encerrada/i)
+    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
   it("associa os dois lados quando ambos vêm no input", async () => {

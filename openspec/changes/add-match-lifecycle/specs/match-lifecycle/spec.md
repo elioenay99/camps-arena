@@ -16,22 +16,30 @@ O sistema SHALL permitir que SOMENTE o dono do torneio encerre uma partida (stat
 - **THEN** retorna erro e nada muda no banco
 
 ### Requirement: Reabertura de partida pelo dono
-O sistema SHALL permitir que o dono do torneio reabra uma partida `encerrada` (status → `em_andamento`) para correção de placar. Reabrir partida não-encerrada NÃO SHALL ser permitido.
+O sistema SHALL permitir que o dono do torneio reabra uma partida `encerrada` (status → `em_andamento`) para correção de placar. Reabrir partida não-encerrada NÃO SHALL ser permitido. Em torneio `encerrado`, encerrar e reabrir NÃO SHALL ser permitidos (a partida reaberta ficaria invisível e ineditável — beco sem saída).
 
 #### Scenario: Dono reabre para corrigir
-- **WHEN** o dono aciona Reabrir numa partida encerrada
+- **WHEN** o dono aciona Reabrir numa partida encerrada de torneio não-encerrado
 - **THEN** o status volta a `em_andamento`, a partida sai da classificação/histórico e volta ao dashboard de ativas
 
 #### Scenario: Transição inválida rejeitada
 - **WHEN** a reabertura é tentada numa partida que não está encerrada
 - **THEN** a action rejeita sem tocar o banco
 
-### Requirement: Placar imutável em partida encerrada
-O sistema NÃO SHALL aceitar alteração de placar em partida `encerrada` — nem pelo participante, nem pelo dono (o fluxo de correção é reabrir → corrigir → re-encerrar). A regra SHALL valer na Server Action (mensagem precisa) e no banco (trigger, contra POST direto).
+#### Scenario: Torneio encerrado congela o lifecycle
+- **WHEN** encerrar ou reabrir é tentado numa partida de torneio com status `encerrado`
+- **THEN** a action rejeita com a resposta única de propriedade e os botões não aparecem na página
+
+### Requirement: Placar e clube imutáveis em partida encerrada
+O sistema NÃO SHALL aceitar alteração de placar NEM de clube (`time_1`/`time_2`) em partida `encerrada` — nem pelo participante, nem pelo dono (o fluxo de correção é reabrir → corrigir → re-encerrar). O clube alimenta a classificação de clubes, logo em encerrada é tão imutável quanto o placar. A regra SHALL valer nas Server Actions (mensagem precisa) e no banco (trigger, contra POST direto).
 
 #### Scenario: Placar em encerrada é rejeitado com mensagem clara
 - **WHEN** um participante tenta salvar placar numa partida encerrada
 - **THEN** a action retorna que a partida está encerrada, sem UPDATE
+
+#### Scenario: Clube em encerrada é rejeitado
+- **WHEN** um participante tenta trocar o clube de uma partida encerrada
+- **THEN** a action rejeita e o trigger bloqueia o POST direto
 
 ### Requirement: Console do dono na página do torneio
 A página do torneio SHALL listar as partidas em aberto (não-encerradas) e, PARA O DONO, exibir o botão Encerrar nelas e o botão Reabrir nas partidas do histórico. Para quem não é o dono, os botões NÃO SHALL aparecer (a autorização real permanece no servidor/RLS).

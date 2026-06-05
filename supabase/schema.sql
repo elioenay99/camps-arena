@@ -181,6 +181,55 @@ create trigger matches_lock_relations
   before update on public.matches
   for each row execute function public.lock_match_relations();
 
+-- ---------- Lifecycle: status só pelo dono; placar/clube de encerrada imutáveis --
+-- A RLS de UPDATE é por LINHA: sem este trigger, um participante mudaria o
+-- próprio status (encerrando/reabrindo a partida por POST direto), o placar e
+-- até o CLUBE de partida já encerrada (reescrevendo a classificação de clubes
+-- silenciosamente). Regras:
+--   1. `status` só muda quando auth.uid() é o dono do torneio.
+--   2. Partida `encerrada` não aceita mudança de placar NEM de clube (o fluxo
+--      de correção é: dono reabre → participante corrige → dono re-encerra).
+-- service_role (admin/migrations) permanece livre.
+create or replace function public.lock_match_lifecycle()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if new.status is distinct from old.status then
+      if not exists (
+        select 1 from public.tournaments t
+        where t.id = new.tournament_id
+          and t.created_by = (select auth.uid())
+      ) then
+        raise exception 'Só o dono do torneio altera o status da partida';
+      end if;
+    end if;
+
+    if old.status = 'encerrada'
+       and (new.placar_1 is distinct from old.placar_1
+            or new.placar_2 is distinct from old.placar_2
+            or new.time_1 is distinct from old.time_1
+            or new.time_2 is distinct from old.time_2)
+    then
+      raise exception 'Partida encerrada não aceita alteração de placar ou clube';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists matches_lock_lifecycle on public.matches;
+create trigger matches_lock_lifecycle
+  before update on public.matches
+  for each row execute function public.lock_match_lifecycle();
+
 -- ---------- Cria o perfil público ao registrar no Auth ----------
 create or replace function public.handle_new_user()
 returns trigger
@@ -323,6 +372,28 @@ create policy matches_update_participant on public.matches
   for update to authenticated
   using (auth.uid() = participante_1 or auth.uid() = participante_2)
   with check (auth.uid() = participante_1 or auth.uid() = participante_2);
+
+-- UPDATE também para o DONO do torneio (policies são OR): é ele quem encerra
+-- e reabre partidas (modelo árbitro). A semântica de COLUNA (status só dono;
+-- placar travado em encerrada) fica no trigger lock_match_lifecycle — RLS é
+-- por linha e não distingue colunas.
+drop policy if exists matches_update_tournament_owner on public.matches;
+create policy matches_update_tournament_owner on public.matches
+  for update to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
 
 -- Segurança/PII: a tabela `users` (com `celular`) é legível só por authenticated.
 -- Anônimos leem apenas `users_public` (id, nome, avatar) — sem telefone.

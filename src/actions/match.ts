@@ -61,7 +61,7 @@ export async function updateMatchScore(
   // 2) Propriedade — carrega a partida e confere se o usuário participa dela.
   const { data: match, error: fetchError } = await supabase
     .from("matches")
-    .select("id, participante_1, participante_2")
+    .select("id, participante_1, participante_2, status, tournament_id")
     .eq("id", matchId)
     .maybeSingle()
 
@@ -76,6 +76,15 @@ export async function updateMatchScore(
     user.id === match.participante_1 || user.id === match.participante_2
   if (!ehParticipante) {
     return { ok: false, error: "Você não participa desta partida." }
+  }
+
+  // Encerrada é imutável (mensagem precisa; o trigger lock_match_lifecycle é
+  // a barreira final contra POST direto). Correção: dono reabre antes.
+  if (match.status === "encerrada") {
+    return {
+      ok: false,
+      error: "Partida encerrada não aceita placar. Peça ao dono do torneio para reabri-la.",
+    }
   }
 
   // 3) UPDATE — apenas placares (não dispara o trigger de trava de relações).
@@ -100,7 +109,10 @@ export async function updateMatchScore(
     }
   }
 
+  // A página do torneio também exibe placar ao vivo (partidas em aberto,
+  // classificação) — revalidar as DUAS rotas.
   revalidatePath("/dashboard")
+  revalidatePath(`/dashboard/torneios/${match.tournament_id}`)
   return { ok: true }
 }
 
@@ -220,7 +232,7 @@ export async function updateMatchTeams(
 
   const { data: match, error: fetchError } = await supabase
     .from("matches")
-    .select("id, participante_1, participante_2, time_1, time_2")
+    .select("id, participante_1, participante_2, time_1, time_2, status, tournament_id")
     .eq("id", matchId)
     .maybeSingle()
   if (fetchError) {
@@ -234,6 +246,15 @@ export async function updateMatchTeams(
     user.id === match.participante_1 || user.id === match.participante_2
   if (!ehParticipante) {
     return { ok: false, error: "Você não participa desta partida." }
+  }
+
+  // Clube alimenta a CLASSIFICAÇÃO DE CLUBES — em partida encerrada ele é tão
+  // imutável quanto o placar (trigger lock_match_lifecycle é a barreira final).
+  if (match.status === "encerrada") {
+    return {
+      ok: false,
+      error: "Partida encerrada não aceita alteração de clube. Peça ao dono do torneio para reabri-la.",
+    }
   }
 
   // Rejeita o mesmo clube nos dois lados (estado atual sobrescrito pelo patch).
@@ -260,6 +281,124 @@ export async function updateMatchTeams(
     return { ok: false, error: "Você não participa desta partida." }
   }
 
+  // Clube alimenta a página do torneio (classificação de clubes) também.
   revalidatePath("/dashboard")
+  revalidatePath(`/dashboard/torneios/${match.tournament_id}`)
   return { ok: true }
+}
+
+export type MatchLifecycleResult = { ok: true } | { ok: false; error: string }
+
+/**
+ * Transição de status executada pelo DONO do torneio (modelo árbitro).
+ * Segurança em profundidade: sessão + propriedade do TORNEIO conferida por
+ * FILTRO no servidor (resposta única, sem oráculo) + RLS
+ * (`matches_update_tournament_owner`) + trigger `lock_match_lifecycle` como
+ * barreira final contra POST direto.
+ */
+async function mudarStatusComoDono(
+  matchId: unknown,
+  opts: {
+    /** A transição só vale a partir deste predicado sobre o status atual. */
+    podePartirDe: (status: string) => boolean
+    erroTransicao: string
+    novoStatus: "encerrada" | "em_andamento"
+    erroGenerico: string
+  }
+): Promise<MatchLifecycleResult> {
+  const parsed = z.uuid().safeParse(matchId)
+  if (!parsed.success) {
+    return { ok: false, error: "Partida inválida." }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  // Partida (status atual + torneio dela).
+  const { data: match, error: fetchError } = await supabase
+    .from("matches")
+    .select("id, status, tournament_id")
+    .eq("id", parsed.data)
+    .maybeSingle()
+  if (fetchError) {
+    return { ok: false, error: opts.erroGenerico }
+  }
+
+  // Propriedade do TORNEIO por filtro — partida inexistente, invisível, de
+  // torneio alheio OU de torneio encerrado recebem a MESMA resposta (sem
+  // oráculo). Torneio encerrado congela o lifecycle das partidas: reabrir ali
+  // seria beco sem saída (a partida some do dashboard e de toda edição).
+  const erroPropriedade =
+    "Partida não encontrada, torneio encerrado ou você não é o dono dele."
+  if (!match) {
+    return { ok: false, error: erroPropriedade }
+  }
+  const { data: torneio, error: torneioError } = await supabase
+    .from("tournaments")
+    .select("id")
+    .eq("id", match.tournament_id)
+    .eq("created_by", user.id)
+    .neq("status", "encerrado")
+    .maybeSingle()
+  if (torneioError) {
+    return { ok: false, error: opts.erroGenerico }
+  }
+  if (!torneio) {
+    return { ok: false, error: erroPropriedade }
+  }
+
+  if (!opts.podePartirDe(match.status)) {
+    return { ok: false, error: opts.erroTransicao }
+  }
+
+  // `.select()` confirma a escrita: corrida (status mudou entre a checagem e
+  // o update) ou RLS derrubam para 0 linhas.
+  const { data: atualizada, error: updateError } = await supabase
+    .from("matches")
+    .update({ status: opts.novoStatus })
+    .eq("id", parsed.data)
+    .select("id")
+  if (updateError) {
+    return { ok: false, error: opts.erroGenerico }
+  }
+  if (!atualizada || atualizada.length === 0) {
+    return {
+      ok: false,
+      error: "A partida pode ter sido alterada. Recarregue e tente novamente.",
+    }
+  }
+
+  revalidatePath("/dashboard")
+  revalidatePath(`/dashboard/torneios/${match.tournament_id}`)
+  return { ok: true }
+}
+
+/** Encerra uma partida em aberto (status → encerrada). Só o dono do torneio. */
+export async function encerrarPartida(matchId: unknown): Promise<MatchLifecycleResult> {
+  return mudarStatusComoDono(matchId, {
+    podePartirDe: (status) => status !== "encerrada",
+    erroTransicao: "Esta partida já está encerrada.",
+    novoStatus: "encerrada",
+    erroGenerico: "Não foi possível encerrar a partida agora. Tente novamente.",
+  })
+}
+
+/**
+ * Reabre uma partida encerrada (status → em_andamento) para correção de
+ * placar. Só o dono do torneio.
+ */
+export async function reabrirPartida(matchId: unknown): Promise<MatchLifecycleResult> {
+  return mudarStatusComoDono(matchId, {
+    podePartirDe: (status) => status === "encerrada",
+    erroTransicao: "Só é possível reabrir uma partida encerrada.",
+    novoStatus: "em_andamento",
+    erroGenerico: "Não foi possível reabrir a partida agora. Tente novamente.",
+  })
 }

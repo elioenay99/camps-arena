@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { createClient } from "@/lib/supabase/server";
 import { MatchHistoryList } from "@/features/match/components/MatchHistoryList";
+import { OpenMatchesList } from "@/features/match/components/OpenMatchesList";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
 import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao";
 import type { TournamentStatus } from "@/lib/supabase/database.types";
@@ -61,8 +62,15 @@ export default async function TorneioPage({
     notFound();
   }
 
-  const { torneio, linhas, partidasEncerradas, clubes } = classificacao;
+  const { torneio, linhas, partidasEncerradas, clubes, partidasAbertas } =
+    classificacao;
   const titulo = torneio.titulo.trim() || "Torneio";
+  // Console do dono (encerrar/reabrir). O botão é UX — a autorização real é a
+  // action + RLS + trigger no banco. Torneio encerrado congela o lifecycle
+  // (reabrir ali seria beco sem saída: a partida some do dashboard e de toda
+  // edição); torneio sem dono (created_by NULL, semeados) não tem console.
+  const ehDono = torneio.created_by !== null && torneio.created_by === user.id;
+  const podeGerirPartidas = ehDono && torneio.status !== "encerrado";
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
@@ -86,6 +94,19 @@ export default async function TorneioPage({
         )}
       </section>
 
+      {/* Em aberto: contexto para todos; botão Encerrar só para o dono. */}
+      {partidasAbertas.length > 0 ? (
+        <section aria-labelledby="abertas-titulo" className="flex flex-col gap-4">
+          <h2 id="abertas-titulo" className="text-lg font-semibold">
+            Partidas em aberto
+          </h2>
+          <OpenMatchesList
+            partidas={partidasAbertas}
+            mostrarEncerrar={podeGerirPartidas}
+          />
+        </section>
+      ) : null}
+
       {/* Seção omitida quando vazia: o estado vazio da classificação já
           comunica "nenhuma encerrada" — duas mensagens seriam ruído. */}
       {partidasEncerradas.length > 0 ? (
@@ -93,7 +114,10 @@ export default async function TorneioPage({
           <h2 id="historico-titulo" className="text-lg font-semibold">
             Partidas encerradas
           </h2>
-          <MatchHistoryList partidas={partidasEncerradas} />
+          <MatchHistoryList
+            partidas={partidasEncerradas}
+            mostrarReabrir={podeGerirPartidas}
+          />
         </section>
       ) : null}
 

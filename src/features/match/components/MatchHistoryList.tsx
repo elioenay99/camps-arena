@@ -1,3 +1,4 @@
+import { MatchStatusButton } from "@/features/match/components/MatchStatusButton"
 import type { PartidaEncerrada } from "@/features/standings/data/getTournamentClassificacao"
 
 // Timezone fixo do produto (app pt-BR): sem ele o servidor formataria em UTC
@@ -7,8 +8,18 @@ const formatoData = new Intl.DateTimeFormat("pt-BR", {
   timeZone: "America/Sao_Paulo",
 })
 
-/** Histórico de partidas encerradas — RSC puro, só renderiza o fetcher. */
-export function MatchHistoryList({ partidas }: { partidas: PartidaEncerrada[] }) {
+/**
+ * Histórico de partidas encerradas — RSC puro, só renderiza o fetcher.
+ * `mostrarReabrir` liga o console do dono (a autorização REAL fica no
+ * servidor/RLS; o botão é só UX).
+ */
+export function MatchHistoryList({
+  partidas,
+  mostrarReabrir = false,
+}: {
+  partidas: PartidaEncerrada[]
+  mostrarReabrir?: boolean
+}) {
   return (
     <ul className="flex list-none flex-col gap-2 p-0">
       {partidas.map((p) => (
@@ -28,12 +39,14 @@ export function MatchHistoryList({ partidas }: { partidas: PartidaEncerrada[] })
           <span className="sr-only">
             {`Placar final: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2}`}
           </span>
-          <time
-            dateTime={p.encerradaEm}
-            className="text-muted-foreground shrink-0 text-xs"
-          >
-            {formatoData.format(new Date(p.encerradaEm))}
-          </time>
+          <span className="flex shrink-0 items-center gap-3">
+            <time dateTime={p.encerradaEm} className="text-muted-foreground text-xs">
+              {formatoData.format(new Date(p.encerradaEm))}
+            </time>
+            {mostrarReabrir ? (
+              <MatchStatusButton matchId={p.id} acao="reabrir" />
+            ) : null}
+          </span>
         </li>
       ))}
     </ul>

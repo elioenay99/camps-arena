@@ -13,6 +13,7 @@ const TORNEIO = {
   id: "11111111-1111-4111-8111-111111111111",
   titulo: "Copa",
   status: "ativo",
+  created_by: "dono-1",
   pontos_vitoria: 3,
   pontos_empate: 1,
   pontos_derrota: 0,
@@ -98,6 +99,9 @@ function partidaEncerrada(
     placar_1,
     placar_2,
     status: "encerrada",
+    // created_at cresce com a ordem de criação — determinístico para o sort
+    // estável de partidasAbertas.
+    created_at: `2026-05-01T00:${String(proximoId).padStart(2, "0")}:00Z`,
     updated_at: encerradaEm,
     p1,
     p2,
@@ -198,6 +202,8 @@ describe("getTournamentClassificacao", () => {
     const colsCruas = String(client.partidasSelectSpy.mock.calls[0][0])
     expect(colsCruas).toMatch(/^\s*id\s*,/)
     expect(cols).toContain("updated_at")
+    // Ordem estável das partidas em aberto.
+    expect(cols).toContain("created_at")
     // Insumos da classificação de clubes.
     expect(cols).toContain("time_1")
     expect(cols).toContain("time_2")
@@ -325,10 +331,38 @@ describe("getTournamentClassificacao", () => {
     expect(r?.linhas).toEqual([])
   })
 
-  it("sem partidas devolve tabela vazia com o torneio", async () => {
+  it("sem partidas devolve tabela vazia com o torneio (incl. created_by p/ console do dono)", async () => {
     montarClient({ torneio: TORNEIO, partidas: null })
     const r = await getTournamentClassificacao(TORNEIO.id)
-    expect(r?.torneio).toMatchObject({ titulo: "Copa" })
+    expect(r?.torneio).toMatchObject({ titulo: "Copa", created_by: "dono-1" })
     expect(r?.linhas).toEqual([])
+    expect(r?.partidasAbertas).toEqual([])
+  })
+
+  it("partidasAbertas lista só as NÃO-encerradas, com status e fallback de lado", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: TORNEIO,
+      partidas: [
+        { ...partidaEncerrada(ana, beto, 1, 0), status: "em_andamento" }, // m1
+        partidaEncerrada(ana, beto, 2, 2), // m2 (encerrada — fora)
+        { ...partidaEncerrada(ana, null, 0, 0), status: "agendada" }, // m3
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.partidasAbertas).toEqual([
+      expect.objectContaining({
+        id: "m1",
+        nome_1: "Ana",
+        nome_2: "Beto",
+        placar_1: 1,
+        placar_2: 0,
+        status: "em_andamento",
+      }),
+      expect.objectContaining({ id: "m3", nome_2: "A definir", status: "agendada" }),
+    ])
+    // E o histórico segue só com a encerrada — projeções consistentes.
+    expect(r?.partidasEncerradas).toEqual([expect.objectContaining({ id: "m2" })])
   })
 })

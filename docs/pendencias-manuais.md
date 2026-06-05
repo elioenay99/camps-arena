@@ -229,3 +229,99 @@ select titulo, pontos_vitoria, pontos_empate, pontos_derrota from public.tournam
 ```
 
 > Fonte de verdade: `supabase/schema.sql` (seção `tournaments`).
+
+---
+
+## 7. Supabase — lifecycle de partida (`add-match-lifecycle`)
+
+Encerramento/reabertura pelo DONO do torneio + trava de integridade. **Sem isto,
+encerrar/reabrir pela app falha** (a RLS nega UPDATE ao dono) e **fica aberto o
+buraco** de participante mudar status/placar-de-encerrada por POST direto (a RLS
+de UPDATE é por linha, não por coluna). Aplicar no **SQL Editor** (idempotente):
+
+- [ ] **7.1 — Policy de UPDATE para o dono + trigger de lifecycle:**
+
+```sql
+-- UPDATE também para o DONO do torneio (policies são OR).
+drop policy if exists matches_update_tournament_owner on public.matches;
+create policy matches_update_tournament_owner on public.matches
+  for update to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+-- Lifecycle: status só pelo dono; placar/clube travados em partida encerrada.
+create or replace function public.lock_match_lifecycle()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if new.status is distinct from old.status then
+      if not exists (
+        select 1 from public.tournaments t
+        where t.id = new.tournament_id
+          and t.created_by = (select auth.uid())
+      ) then
+        raise exception 'Só o dono do torneio altera o status da partida';
+      end if;
+    end if;
+
+    if old.status = 'encerrada'
+       and (new.placar_1 is distinct from old.placar_1
+            or new.placar_2 is distinct from old.placar_2
+            or new.time_1 is distinct from old.time_1
+            or new.time_2 is distinct from old.time_2)
+    then
+      raise exception 'Partida encerrada não aceita alteração de placar ou clube';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists matches_lock_lifecycle on public.matches;
+create trigger matches_lock_lifecycle
+  before update on public.matches
+  for each row execute function public.lock_match_lifecycle();
+```
+
+- [ ] **7.2 — (opcional) Conferir o caminho feliz**: como dono, encerre uma
+  partida pela página do torneio e veja-a entrar na classificação; reabra e
+  veja-a voltar.
+
+- [ ] **7.3 — (recomendado) Conferir as TRAVAS** (o trigger é a única barreira
+  contra POST direto — os testes unitários não o executam). No SQL Editor,
+  rode como usuário comum (role `authenticated`, não `postgres`) — ou
+  simplesmente confira que estes UPDATEs FALHAM via API REST com o token de um
+  participante que não é dono:
+
+```sql
+-- Deve FALHAR (participante não muda status):
+-- update public.matches set status = 'encerrada' where id = '<partida-em-aberto>';
+
+-- Deve FALHAR (placar de encerrada é imutável):
+-- update public.matches set placar_1 = 9 where id = '<partida-encerrada>';
+
+-- Deve FALHAR (clube de encerrada é imutável):
+-- update public.matches set time_1 = null where id = '<partida-encerrada>';
+```
+
+> Fonte de verdade: `supabase/schema.sql` (policy + função/trigger de lifecycle).

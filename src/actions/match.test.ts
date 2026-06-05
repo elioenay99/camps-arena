@@ -25,6 +25,7 @@ interface Cenario {
     id: string
     participante_1: string | null
     participante_2: string | null
+    status?: string
   } | null
   readError?: { message: string } | null
   writeData?: { id: string }[] | null
@@ -128,6 +129,23 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toBe("Partida não encontrada.")
+    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it("rejeita placar em partida ENCERRADA com mensagem específica, sem UPDATE", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: {
+        id: UUID,
+        participante_1: USER_ID,
+        participante_2: OUTRO_ID,
+        status: "encerrada",
+      },
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/encerrada/i)
     expect(client.updateSpy).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
