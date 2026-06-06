@@ -8,12 +8,13 @@ export interface TorneioProprio {
 }
 
 /**
- * Torneios criados pelo usuário informado e ainda não encerrados — alimenta o
- * select do form de nova partida. Filtro EXPLÍCITO por `created_by` no
- * servidor: a RLS também deixa passar torneios públicos de terceiros, então
- * "confiar na RLS" listaria torneios em que o usuário não pode criar partida.
- * `.neq('encerrado')` falha-segura: rascunho aparece (montagem de tabela);
- * status futuro não some silenciosamente.
+ * Torneios criados pelo usuário informado, AVULSOS e ainda não encerrados —
+ * alimenta o seletor do form de nova partida. Filtro EXPLÍCITO por
+ * `created_by` no servidor: a RLS também deixa passar torneios públicos de
+ * terceiros, então "confiar na RLS" listaria torneios em que o usuário não
+ * pode criar partida. `formato = 'avulso'`: liga não aceita partida manual
+ * (a tabela é gerada ao iniciar). `.neq('encerrado')` falha-segura: status
+ * futuro não some silenciosamente.
  */
 export async function getOwnTournaments(userId: string): Promise<TorneioProprio[]> {
   const supabase = await createClient()
@@ -22,6 +23,7 @@ export async function getOwnTournaments(userId: string): Promise<TorneioProprio[
     .from("tournaments")
     .select("id, titulo")
     .eq("created_by", userId)
+    .eq("formato", "avulso")
     .neq("status", "encerrado")
     .order("created_at", { ascending: false })
 

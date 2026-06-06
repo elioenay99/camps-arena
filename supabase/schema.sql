@@ -14,6 +14,12 @@ begin
   if not exists (select 1 from pg_type where typname = 'match_status') then
     create type public.match_status as enum ('agendada', 'em_andamento', 'encerrada');
   end if;
+  -- Formato do torneio: 'avulso' (partidas manuais, modelo original) ou
+  -- 'liga' (tabela round-robin gerada ao iniciar). Formatos futuros (grupos,
+  -- mata-mata) entram com ALTER TYPE ... ADD VALUE (aditivo).
+  if not exists (select 1 from pg_type where typname = 'tournament_format') then
+    create type public.tournament_format as enum ('avulso', 'liga');
+  end if;
 end$$;
 
 -- ---------- Tabela: users (perfil público, 1:1 com auth.users) ----------
@@ -52,6 +58,14 @@ alter table public.tournaments
   add column if not exists pontos_empate integer not null default 1;
 alter table public.tournaments
   add column if not exists pontos_derrota integer not null default 0;
+
+-- Formato (aditivo; idempotente). Default 'avulso': legados preservam o
+-- comportamento original sem migração. 'ida_e_volta' só é significativo em
+-- liga (espelho do segundo turno com lados invertidos); fica false nos demais.
+alter table public.tournaments
+  add column if not exists formato public.tournament_format not null default 'avulso';
+alter table public.tournaments
+  add column if not exists ida_e_volta boolean not null default false;
 
 -- Coerência: derrota valendo mais que vitória corromperia toda classificação.
 -- Segunda barreira além do Zod (POST direto/edições futuras). Teto 100 = sanidade.
@@ -135,6 +149,27 @@ alter table public.matches
 create index if not exists matches_time_1_idx on public.matches (time_1);
 create index if not exists matches_time_2_idx on public.matches (time_2);
 
+-- ---------- Rodada (aditivo; idempotente) ----------
+-- NULL = partida avulsa (todas as legadas). Em liga, número da rodada gerada
+-- pela tabela round-robin. Imutável via anon/authenticated (trigger
+-- lock_match_relations) — renumerar rodada reescreveria a ordem da liga.
+alter table public.matches
+  add column if not exists rodada integer;
+
+alter table public.matches drop constraint if exists matches_rodada_positiva;
+alter table public.matches
+  add constraint matches_rodada_positiva
+  check (rodada is null or rodada >= 1);
+
+-- Barreira contra DUPLA GERAÇÃO da tabela (check-then-act da action não é
+-- atômico: duas abas podem passar a checagem e inserir duas tabelas). Como o
+-- INSERT em lote é um statement único, o perdedor da corrida falha INTEIRO
+-- (23505) sem estado parcial — o retry idempotente só promove o status.
+-- Parcial (rodada not null): partidas avulsas seguem livres para repetir pares.
+create unique index if not exists matches_liga_par_unico
+  on public.matches (tournament_id, rodada, participante_1, participante_2)
+  where rodada is not null;
+
 -- ---------- Hardening: integridade dos clubes (defesa em profundidade) ----------
 -- Segunda barreira além da validação nas Server Actions (searchTeams/selectTeam/
 -- updateMatchTeams). Idempotente via DROP + ADD (Postgres não tem ADD IF NOT EXISTS).
@@ -192,8 +227,9 @@ begin
     if new.participante_1 is distinct from old.participante_1
        or new.participante_2 is distinct from old.participante_2
        or new.tournament_id is distinct from old.tournament_id
+       or new.rodada is distinct from old.rodada
     then
-      raise exception 'Não é permitido alterar participantes ou torneio da partida';
+      raise exception 'Não é permitido alterar participantes, torneio ou rodada da partida';
     end if;
   end if;
   return new;
@@ -304,7 +340,9 @@ $$;
 -- Estas funções são o ÚNICO caminho do convidado: validam o código e agem
 -- em nome do próprio auth.uid(), nada além.
 
--- Aceita o convite: exige sessão, código válido e torneio não-encerrado.
+-- Aceita o convite: exige sessão, código válido, torneio não-encerrado e —
+-- em liga — torneio ainda em rascunho (a tabela é gerada ao iniciar; quem
+-- entra depois ficaria órfão de partidas).
 -- Idempotente (on conflict do nothing): reabrir o link não duplica nem falha.
 create or replace function public.aceitar_convite(codigo text)
 returns uuid
@@ -316,13 +354,14 @@ declare
   v_uid uuid := (select auth.uid());
   v_tournament uuid;
   v_status public.tournament_status;
+  v_formato public.tournament_format;
 begin
   if v_uid is null then
     raise exception 'Você precisa estar autenticado para aceitar um convite';
   end if;
 
-  select i.tournament_id, t.status
-    into v_tournament, v_status
+  select i.tournament_id, t.status, t.formato
+    into v_tournament, v_status, v_formato
     from public.tournament_invites i
     join public.tournaments t on t.id = i.tournament_id
    where i.code = codigo;
@@ -333,6 +372,9 @@ begin
   end if;
   if v_status = 'encerrado' then
     raise exception 'Este torneio está encerrado e não aceita novos participantes';
+  end if;
+  if v_formato = 'liga' and v_status <> 'rascunho' then
+    raise exception 'Esta liga já foi iniciada e não aceita novos participantes';
   end if;
 
   insert into public.participants (tournament_id, user_id)
@@ -345,13 +387,18 @@ $$;
 
 -- Preview do convite para a página /convite/[codigo]: o torneio pode ser
 -- privado e invisível ao convidado até o aceite — o CÓDIGO é a credencial.
--- Expõe apenas o mínimo (id, título, status, se já participa); código
--- inválido devolve zero linhas (mesma resposta que revogado).
-create or replace function public.info_convite(codigo text)
+-- Expõe apenas o mínimo (id, título, status, formato, se já participa);
+-- código inválido devolve zero linhas (mesma resposta que revogado).
+-- DROP antes do CREATE: mudar o RETURNS TABLE (coluna `formato` adicionada
+-- nesta change) não é permitido via CREATE OR REPLACE. O DROP derruba os
+-- GRANTs — eles são re-aplicados logo abaixo.
+drop function if exists public.info_convite(text);
+create function public.info_convite(codigo text)
 returns table (
   tournament_id uuid,
   titulo text,
   status public.tournament_status,
+  formato public.tournament_format,
   ja_participa boolean
 )
 language sql
@@ -363,6 +410,7 @@ as $$
     t.id,
     t.titulo,
     t.status,
+    t.formato,
     exists (
       select 1 from public.participants p
       where p.tournament_id = t.id
@@ -495,9 +543,12 @@ create policy matches_select_visivel on public.matches
 -- recebe partidas (montagem antes de ativar) e um status futuro não bloqueia
 -- silenciosamente. Cada participante informado precisa ser participante
 -- CONFIRMADO do torneio (consentiu via convite) — partidas legadas não são
--- afetadas (a policy só vale para INSERTs novos). A Server Action createMatch
--- repete as checagens (mensagem precisa); esta policy é a segunda barreira
--- contra POST direto.
+-- afetadas (a policy só vale para INSERTs novos). Formato: em torneio 'liga'
+-- só entra partida COM rodada (o caminho da geração da tabela) — partida
+-- manual sem rodada é barrada; o dono forjar rodada via POST direto é
+-- auto-sabotagem sem vítima terceira (risco aceito no design). A Server
+-- Action createMatch repete as checagens (mensagem precisa); esta policy é a
+-- segunda barreira contra POST direto.
 drop policy if exists matches_insert_tournament_owner on public.matches;
 create policy matches_insert_tournament_owner on public.matches
   for insert to authenticated
@@ -507,6 +558,7 @@ create policy matches_insert_tournament_owner on public.matches
       where t.id = tournament_id
         and t.created_by = auth.uid()
         and t.status <> 'encerrado'
+        and (t.formato = 'avulso' or matches.rodada is not null)
     )
     and (participante_1 is null or exists (
       select 1 from public.participants p

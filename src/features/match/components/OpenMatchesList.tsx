@@ -27,6 +27,12 @@ export function OpenMatchesList({
           className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm"
         >
           <span className="flex min-w-0 items-center gap-2" aria-hidden="true">
+            {/* Rodada da liga; partida avulsa (rodada null) fica como sempre. */}
+            {p.rodada !== null ? (
+              <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+                R{p.rodada}
+              </span>
+            ) : null}
             <span className="truncate">{p.nome_1}</span>
             <span className="shrink-0 font-semibold tabular-nums">
               {p.placar_1} x {p.placar_2}
@@ -34,7 +40,7 @@ export function OpenMatchesList({
             <span className="truncate">{p.nome_2}</span>
           </span>
           <span className="sr-only">
-            {`Placar atual: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2} — partida ${LABEL_STATUS[p.status]}`}
+            {`${p.rodada !== null ? `Rodada ${p.rodada}: ` : ""}Placar atual: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2} — partida ${LABEL_STATUS[p.status]}`}
           </span>
           <span className="flex shrink-0 items-center gap-3">
             <span aria-hidden="true" className="text-muted-foreground text-xs">

@@ -41,14 +41,16 @@ export default async function NovaPartidaDoTorneioPage({
     redirect(`/login?redirectTo=/dashboard/torneios/${id}/partidas/nova`);
   }
 
-  // Gate por FILTRO: só o DONO de torneio NÃO-encerrado vê o form. Inexistente,
-  // alheio, invisível ou encerrado → o MESMO 404 (sem oráculo de existência) —
-  // a autorização real é a action + RLS.
+  // Gate por FILTRO: só o DONO de torneio AVULSO não-encerrado vê o form.
+  // Inexistente, alheio, invisível, encerrado ou LIGA (partida manual não
+  // existe em liga) → o MESMO 404 (sem oráculo de existência) — a autorização
+  // real é a action + RLS.
   const { data: torneio, error } = await supabase
     .from("tournaments")
     .select("id, titulo")
     .eq("id", id)
     .eq("created_by", user.id)
+    .eq("formato", "avulso")
     .neq("status", "encerrado")
     .maybeSingle();
   if (error) {

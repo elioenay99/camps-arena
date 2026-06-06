@@ -33,7 +33,7 @@ interface Cenario {
   user?: { id: string } | null
   authError?: boolean
   /** Resultado do lookup de torneio (dono + não encerrado). */
-  torneio?: { id: string } | null
+  torneio?: { id: string; formato?: string } | null
   torneioError?: boolean
   /** user_ids confirmados que a query de participants devolve. */
   confirmados?: string[]
@@ -149,6 +149,18 @@ describe("createMatch", () => {
     expect(filtroSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
     expect(filtroSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroSpy).toHaveBeenCalledWith("neq", "status", "encerrado")
+  })
+
+  it("torneio de formato liga é rejeitado com mensagem clara, sem inserir", async () => {
+    const { insertSpy, fromSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, formato: "liga" },
+    })
+    const r = await createMatch({}, formData({ tournamentId: TORNEIO }))
+    expect(r.error).toMatch(/liga.*tabela/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+    // Nem chega à checagem de consentimento.
+    expect(fromSpy).not.toHaveBeenCalledWith("participants")
   })
 
   it("erro no lookup do torneio vira mensagem genérica, sem inserir", async () => {

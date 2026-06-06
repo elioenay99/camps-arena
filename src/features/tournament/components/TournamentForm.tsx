@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState } from "react"
+import { useActionState, useState } from "react"
 import { useFormStatus } from "react-dom"
 
 import { createTournament, type TournamentFormState } from "@/actions/tournaments"
@@ -53,6 +53,9 @@ function SubmitButton() {
 
 export function TournamentForm() {
   const [state, formAction] = useActionState(createTournament, initialState)
+  // Estado local SÓ para progressive disclosure (ida-e-volta aparece em liga);
+  // o valor submetido é o do radio nativo — sem ele o form continua funcional.
+  const [formato, setFormato] = useState<"avulso" | "liga">("avulso")
 
   return (
     <form action={formAction} className="grid gap-4" noValidate>
@@ -70,6 +73,63 @@ export function TournamentForm() {
           <p className="text-destructive text-sm">{state.fieldErrors.titulo[0]}</p>
         ) : null}
       </div>
+
+      {/* border-0/p-0/m-0/min-w-0: o preflight do Tailwind v4 NÃO reseta
+          fieldset/legend (mesma decisão da pontuação abaixo). */}
+      <fieldset className="grid gap-2 border-0 p-0 m-0 min-w-0">
+        <legend className="text-sm font-medium pb-2">Formato</legend>
+        <div className="flex items-start gap-2">
+          <input
+            id="formatoAvulso"
+            name="formato"
+            type="radio"
+            value="avulso"
+            checked={formato === "avulso"}
+            onChange={() => setFormato("avulso")}
+            className="mt-1 size-4 accent-primary"
+          />
+          <Label htmlFor="formatoAvulso" className="font-normal flex-col items-start gap-0.5">
+            Avulso
+            <span className="text-muted-foreground text-xs font-normal">
+              Você cria cada partida manualmente, quando quiser.
+            </span>
+          </Label>
+        </div>
+        <div className="flex items-start gap-2">
+          <input
+            id="formatoLiga"
+            name="formato"
+            type="radio"
+            value="liga"
+            checked={formato === "liga"}
+            onChange={() => setFormato("liga")}
+            className="mt-1 size-4 accent-primary"
+          />
+          <Label htmlFor="formatoLiga" className="font-normal flex-col items-start gap-0.5">
+            Liga (pontos corridos)
+            <span className="text-muted-foreground text-xs font-normal">
+              Todos jogam contra todos. O torneio nasce em rascunho: convide os
+              participantes e a tabela é gerada quando você iniciar.
+            </span>
+          </Label>
+        </div>
+        {formato === "liga" ? (
+          <div className="ml-6 flex items-center gap-2">
+            <input
+              id="idaEVolta"
+              name="idaEVolta"
+              type="checkbox"
+              className="size-4 rounded border-input accent-primary"
+            />
+            <Label htmlFor="idaEVolta" className="font-normal">
+              Ida e volta (dois turnos)
+            </Label>
+          </div>
+        ) : null}
+        {state.fieldErrors?.formato ? (
+          <p className="text-destructive text-sm">{state.fieldErrors.formato[0]}</p>
+        ) : null}
+      </fieldset>
 
       {/* border-0/p-0/m-0/min-w-0: o preflight do Tailwind v4 NÃO reseta
           fieldset/legend — sem isso herda borda groove e padding do UA. */}

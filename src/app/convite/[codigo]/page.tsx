@@ -94,6 +94,15 @@ export default async function ConvitePage({
           {`O torneio "${info.titulo.trim() || "Torneio"}" está encerrado e não aceita novos participantes.`}
         </p>
       );
+    } else if (info.formato === "liga" && info.status !== "rascunho") {
+      // Liga iniciada: a tabela já foi gerada — quem entrasse agora ficaria
+      // sem partidas. A função aceitar_convite rejeita de qualquer forma;
+      // explicar AQUI evita o clique fadado ao erro.
+      conteudo = (
+        <p className="text-muted-foreground text-sm" role="status">
+          {`A liga "${info.titulo.trim() || "Torneio"}" já foi iniciada e não aceita novos participantes.`}
+        </p>
+      );
     } else {
       conteudo = (
         <div className="grid gap-4">

@@ -9,6 +9,7 @@ import { MatchHistoryList } from "@/features/match/components/MatchHistoryList";
 import { OpenMatchesList } from "@/features/match/components/OpenMatchesList";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
 import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao";
+import { IniciarTorneioPanel } from "@/features/tournament/components/IniciarTorneioPanel";
 import { InviteSection } from "@/features/tournament/components/InviteSection";
 import { ParticipantsSection } from "@/features/tournament/components/ParticipantsSection";
 import { getConviteDoTorneio } from "@/features/tournament/data/getConviteDoTorneio";
@@ -77,6 +78,10 @@ export default async function TorneioPage({
   // edição); torneio sem dono (created_by NULL, semeados) não tem console.
   const ehDono = torneio.created_by !== null && torneio.created_by === user.id;
   const podeGerirPartidas = ehDono && torneio.status !== "encerrado";
+  // Liga: partidas nascem da tabela gerada (sem "Nova partida"); o painel de
+  // início só existe no rascunho do dono.
+  const ehLiga = torneio.formato === "liga";
+  const mostrarIniciar = ehDono && ehLiga && torneio.status === "rascunho";
 
   // Lista de participantes (visível a quem vê o torneio) e, SÓ para o dono de
   // torneio aberto, o código de convite (a RLS de tournament_invites já
@@ -92,10 +97,11 @@ export default async function TorneioPage({
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">{titulo}</h1>
           <p className="text-muted-foreground text-sm">
-            {`Torneio ${LABEL_STATUS[torneio.status]} • vitória ${torneio.pontos_vitoria} · empate ${torneio.pontos_empate} · derrota ${torneio.pontos_derrota}`}
+            {`${ehLiga ? `Liga${torneio.ida_e_volta ? " (ida e volta)" : ""}` : "Torneio"} ${LABEL_STATUS[torneio.status]} • vitória ${torneio.pontos_vitoria} · empate ${torneio.pontos_empate} · derrota ${torneio.pontos_derrota}`}
           </p>
         </div>
-        {podeGerirPartidas ? (
+        {/* Liga não aceita partida manual: as partidas nascem da tabela. */}
+        {podeGerirPartidas && !ehLiga ? (
           <Button asChild size="sm">
             <Link href={`/dashboard/torneios/${id}/partidas/nova`}>
               Nova partida
@@ -103,6 +109,14 @@ export default async function TorneioPage({
           </Button>
         ) : null}
       </header>
+
+      {mostrarIniciar ? (
+        <IniciarTorneioPanel
+          tournamentId={id}
+          qtdParticipantes={participantes.length}
+          idaEVolta={torneio.ida_e_volta}
+        />
+      ) : null}
 
       <section aria-labelledby="classificacao-titulo" className="flex flex-col gap-4">
         <h2 id="classificacao-titulo" className="text-lg font-semibold">

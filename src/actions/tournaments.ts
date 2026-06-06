@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { z } from "zod"
 
+import {
+  gerarTabelaLiga,
+  LIGA_MAX_PARTICIPANTES,
+} from "@/features/league/gerarTabelaLiga"
 import { gerarCodigoConvite } from "@/lib/invite-code"
 import { createClient } from "@/lib/supabase/server"
 import { createTournamentSchema } from "@/schema/tournamentSchema"
@@ -37,6 +41,9 @@ export async function createTournament(
     titulo: formData.get("titulo"),
     // Checkbox nativo: qualquer presença no FormData = marcado; ausente = false.
     isPublic: formData.get("isPublic") !== null,
+    // Radio nativo: ausente vira undefined e o Zod aplica o default 'avulso'.
+    formato: formData.get("formato") ?? undefined,
+    idaEVolta: formData.get("idaEVolta") !== null,
     pontosVitoria: pontosOuDefault("pontosVitoria"),
     pontosEmpate: pontosOuDefault("pontosEmpate"),
     pontosDerrota: pontosOuDefault("pontosDerrota"),
@@ -59,6 +66,11 @@ export async function createTournament(
     return { error: "Sessão expirada. Entre novamente para criar um torneio." }
   }
 
+  // Liga nasce em RASCUNHO (período de adesão por convite; a tabela é gerada
+  // pelo dono via iniciarTorneio). Avulso omite o status — fica com o default
+  // 'ativo' do banco, preservando o comportamento original.
+  const ehLiga = parsed.data.formato === "liga"
+
   let torneioId: string
   try {
     const { data: torneio, error } = await supabase
@@ -67,6 +79,10 @@ export async function createTournament(
         titulo: parsed.data.titulo,
         is_public: parsed.data.isPublic,
         created_by: user.id,
+        formato: parsed.data.formato,
+        // ida_e_volta só significa algo em liga; no avulso vai false (default).
+        ida_e_volta: ehLiga ? parsed.data.idaEVolta : false,
+        ...(ehLiga ? { status: "rascunho" as const } : {}),
         // Sempre enviados (defaults do Zod): o default do DDL é só para
         // torneios legados/escritas administrativas.
         pontos_vitoria: parsed.data.pontosVitoria,
@@ -117,4 +133,156 @@ export async function createTournament(
   revalidatePath("/dashboard")
   revalidatePath("/dashboard/torneios")
   redirect(`/dashboard/torneios/${torneioId}`)
+}
+
+export type IniciarTorneioResult = { ok: true } | { ok: false; error: string }
+
+/**
+ * Inicia uma LIGA em rascunho: gera a tabela round-robin completa (motor puro
+ * `gerarTabelaLiga`) e promove o torneio a 'ativo'.
+ *
+ * Segurança em profundidade: sessão + propriedade/estado por FILTRO no
+ * servidor (dono + formato liga + rascunho → resposta única, sem oráculo) +
+ * RLS (`matches_insert_tournament_owner` exige dono e, em liga, rodada
+ * preenchida; `tournaments_update_owner` cobre a promoção).
+ *
+ * Sem transação via PostgREST — DUAS escritas na ordem falha-segura:
+ *   1. INSERT em lote das partidas (um request = um statement = atômico).
+ *   2. UPDATE do status para 'ativo'.
+ * Se (2) falhar, o retry detecta partidas com rodada já geradas e NÃO insere
+ * de novo — só promove o status (recuperação idempotente). A ordem inversa
+ * criaria liga ativa sem partidas, sem caminho de retry.
+ */
+export async function iniciarTorneio(
+  tournamentId: unknown
+): Promise<IniciarTorneioResult> {
+  const parsed = z.uuid().safeParse(tournamentId)
+  if (!parsed.success) {
+    return { ok: false, error: "Torneio inválido." }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const erroGenerico = "Não foi possível iniciar o torneio agora. Tente novamente."
+  // Resposta única para inexistente/alheio/avulso/já iniciado: sem oráculo.
+  const erroPropriedade =
+    "Torneio não encontrado, já iniciado ou você não é o dono dele."
+
+  // Propriedade + formato + estado por FILTRO (padrão das actions).
+  const { data: torneio, error: torneioError } = await supabase
+    .from("tournaments")
+    .select("id, ida_e_volta")
+    .eq("id", parsed.data)
+    .eq("created_by", user.id)
+    .eq("formato", "liga")
+    .eq("status", "rascunho")
+    .maybeSingle()
+  if (torneioError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (!torneio) {
+    return { ok: false, error: erroPropriedade }
+  }
+
+  // Recuperação idempotente: tabela já gerada (retry após falha na promoção,
+  // ou corrida entre duas abas) → não insere de novo, só promove o status.
+  const { data: jaGeradas, error: geradasError } = await supabase
+    .from("matches")
+    .select("id")
+    .eq("tournament_id", parsed.data)
+    .not("rodada", "is", null)
+    .limit(1)
+  if (geradasError) {
+    return { ok: false, error: erroGenerico }
+  }
+
+  if (!jaGeradas || jaGeradas.length === 0) {
+    const { data: confirmados, error: participantesError } = await supabase
+      .from("participants")
+      .select("user_id")
+      .eq("tournament_id", parsed.data)
+    if (participantesError) {
+      return { ok: false, error: erroGenerico }
+    }
+
+    const participantes = (confirmados ?? []).map((p) => p.user_id)
+    if (participantes.length < 2) {
+      return {
+        ok: false,
+        error:
+          "A liga precisa de pelo menos 2 participantes confirmados. Compartilhe o link de convite.",
+      }
+    }
+    if (participantes.length > LIGA_MAX_PARTICIPANTES) {
+      return {
+        ok: false,
+        error: `A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} participantes.`,
+      }
+    }
+
+    // Ordenação por code-point ANTES do motor: determinismo cross-locale
+    // (mesma decisão do computeStandings). O motor não embaralha.
+    participantes.sort()
+
+    let rodadas
+    try {
+      rodadas = gerarTabelaLiga(participantes, torneio.ida_e_volta)
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : erroGenerico }
+    }
+
+    // Um único INSERT em lote: atômico no banco (tabela inteira ou nada).
+    const partidas = rodadas.flatMap((r) =>
+      r.confrontos.map(([p1, p2]) => ({
+        tournament_id: parsed.data,
+        participante_1: p1,
+        participante_2: p2,
+        rodada: r.rodada,
+      }))
+    )
+    const { error: insertError } = await supabase.from("matches").insert(partidas)
+    if (insertError) {
+      console.error("iniciarTorneio: geração falhou", insertError.code ?? insertError.message)
+      // 23505 = perdedor da corrida de dupla geração (índice matches_liga_par_unico):
+      // a OUTRA chamada já gerou a tabela — recarregar mostra o torneio ativo.
+      if (insertError.code === "23505") {
+        return {
+          ok: false,
+          error: "A tabela já foi gerada (talvez em outra aba). Recarregue a página.",
+        }
+      }
+      return { ok: false, error: erroGenerico }
+    }
+  }
+
+  // Promoção. `.select()` confirma a escrita (RLS/corrida → 0 linhas).
+  const { data: promovido, error: updateError } = await supabase
+    .from("tournaments")
+    .update({ status: "ativo" })
+    .eq("id", parsed.data)
+    .eq("created_by", user.id)
+    .eq("status", "rascunho")
+    .select("id")
+  if (updateError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (!promovido || promovido.length === 0) {
+    return {
+      ok: false,
+      error: "O torneio pode ter sido alterado. Recarregue e tente novamente.",
+    }
+  }
+
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/torneios")
+  revalidatePath(`/dashboard/torneios/${parsed.data}`)
+  return { ok: true }
 }

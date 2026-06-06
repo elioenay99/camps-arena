@@ -46,7 +46,7 @@ function montarClient(c: Cenario) {
 beforeEach(() => vi.clearAllMocks())
 
 describe("getOwnTournaments", () => {
-  it("filtra por created_by do usuário e exclui encerrados", async () => {
+  it("filtra por created_by do usuário, formato avulso e exclui encerrados", async () => {
     const linhas = [{ id: "t1", titulo: "Copa" }]
     const client = montarClient({ data: linhas })
 
@@ -57,6 +57,8 @@ describe("getOwnTournaments", () => {
     // Filtro EXPLÍCITO no servidor — a RLS sozinha deixaria passar públicos
     // de terceiros, onde o usuário NÃO pode criar partida.
     expect(client.filtroSpy).toHaveBeenCalledWith("eq", "created_by", USER_ID)
+    // Liga não aceita partida manual — o seletor não a lista.
+    expect(client.filtroSpy).toHaveBeenCalledWith("eq", "formato", "avulso")
     // Falha-segura: só 'encerrado' sai (rascunho recebe partidas).
     expect(client.filtroSpy).toHaveBeenCalledWith("neq", "status", "encerrado")
     // Mais recentes primeiro (D6 do design).

@@ -2,6 +2,7 @@
 // Fonte de verdade do schema é o SQL; estes tipos dão type-safety ao client.
 
 export type TournamentStatus = "rascunho" | "ativo" | "encerrado"
+export type TournamentFormat = "avulso" | "liga"
 export type MatchStatus = "agendada" | "em_andamento" | "encerrada"
 
 export interface Database {
@@ -36,6 +37,8 @@ export interface Database {
           id: string
           titulo: string
           status: TournamentStatus
+          formato: TournamentFormat
+          ida_e_volta: boolean
           created_by: string | null
           is_public: boolean
           pontos_vitoria: number
@@ -47,6 +50,8 @@ export interface Database {
           id?: string
           titulo: string
           status?: TournamentStatus
+          formato?: TournamentFormat
+          ida_e_volta?: boolean
           created_by?: string | null
           is_public?: boolean
           pontos_vitoria?: number
@@ -58,6 +63,8 @@ export interface Database {
           id?: string
           titulo?: string
           status?: TournamentStatus
+          formato?: TournamentFormat
+          ida_e_volta?: boolean
           created_by?: string | null
           is_public?: boolean
           pontos_vitoria?: number
@@ -112,6 +119,7 @@ export interface Database {
           placar_1: number
           placar_2: number
           status: MatchStatus
+          rodada: number | null
           created_at: string
           updated_at: string
         }
@@ -125,6 +133,7 @@ export interface Database {
           placar_1?: number
           placar_2?: number
           status?: MatchStatus
+          rodada?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -138,6 +147,7 @@ export interface Database {
           placar_1?: number
           placar_2?: number
           status?: MatchStatus
+          rodada?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -256,12 +266,14 @@ export interface Database {
           tournament_id: string
           titulo: string
           status: TournamentStatus
+          formato: TournamentFormat
           ja_participa: boolean
         }[]
       }
     }
     Enums: {
       tournament_status: TournamentStatus
+      tournament_format: TournamentFormat
       match_status: MatchStatus
     }
     CompositeTypes: Record<string, never>

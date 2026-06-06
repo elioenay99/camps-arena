@@ -169,7 +169,7 @@ export async function createMatch(
     // status futuro não bloqueia silenciosamente) — espelha a policy de INSERT.
     const { data: torneio, error: fetchError } = await supabase
       .from("tournaments")
-      .select("id")
+      .select("id, formato")
       .eq("id", parsed.data.tournamentId)
       .eq("created_by", user.id)
       .neq("status", "encerrado")
@@ -180,6 +180,14 @@ export async function createMatch(
     if (!torneio) {
       return {
         error: "Torneio não encontrado, encerrado ou você não é o dono dele.",
+      }
+    }
+    // Liga não aceita partida manual: a tabela é gerada ao iniciar (mensagem
+    // precisa — o torneio é do próprio dono, não há oráculo a proteger).
+    // Espelha a cláusula de formato da policy matches_insert_tournament_owner.
+    if (torneio.formato === "liga") {
+      return {
+        error: "Torneios de liga não aceitam partida manual — a tabela é gerada ao iniciar o torneio.",
       }
     }
 

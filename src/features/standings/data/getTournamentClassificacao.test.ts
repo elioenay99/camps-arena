@@ -13,6 +13,8 @@ const TORNEIO = {
   id: "11111111-1111-4111-8111-111111111111",
   titulo: "Copa",
   status: "ativo",
+  formato: "avulso",
+  ida_e_volta: false,
   created_by: "dono-1",
   pontos_vitoria: 3,
   pontos_empate: 1,
@@ -99,6 +101,7 @@ function partidaEncerrada(
     placar_1,
     placar_2,
     status: "encerrada",
+    rodada: null,
     // created_at cresce com a ordem de criação — determinístico para o sort
     // estável de partidasAbertas.
     created_at: `2026-05-01T00:${String(proximoId).padStart(2, "0")}:00Z`,
@@ -204,6 +207,8 @@ describe("getTournamentClassificacao", () => {
     expect(cols).toContain("updated_at")
     // Ordem estável das partidas em aberto.
     expect(cols).toContain("created_at")
+    // Rodada da liga (rótulo e ordenação) — mesma viagem, sem query extra.
+    expect(cols).toContain("rodada")
     // Insumos da classificação de clubes.
     expect(cols).toContain("time_1")
     expect(cols).toContain("time_2")
@@ -364,5 +369,38 @@ describe("getTournamentClassificacao", () => {
     ])
     // E o histórico segue só com a encerrada — projeções consistentes.
     expect(r?.partidasEncerradas).toEqual([expect.objectContaining({ id: "m2" })])
+  })
+
+  it("partidasAbertas de liga ordenam por rodada (avulsa sem rodada vai pro fim)", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "liga" },
+      partidas: [
+        { ...partidaEncerrada(ana, beto, 0, 0), status: "agendada", rodada: 3 }, // m1
+        { ...partidaEncerrada(beto, ana, 0, 0), status: "agendada", rodada: 1 }, // m2
+        { ...partidaEncerrada(ana, beto, 0, 0), status: "agendada", rodada: null }, // m3
+        { ...partidaEncerrada(beto, ana, 0, 0), status: "agendada", rodada: 2 }, // m4
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.partidasAbertas.map((p) => p.id)).toEqual(["m2", "m4", "m1", "m3"])
+    expect(r?.partidasAbertas.map((p) => p.rodada)).toEqual([1, 2, 3, null])
+  })
+
+  it("rodada chega às projeções de histórico e abertas (insumo do rótulo)", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "liga" },
+      partidas: [
+        { ...partidaEncerrada(ana, beto, 2, 1), rodada: 1 }, // encerrada
+        { ...partidaEncerrada(beto, ana, 0, 0), status: "agendada", rodada: 2 },
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.partidasEncerradas[0]).toMatchObject({ rodada: 1 })
+    expect(r?.partidasAbertas[0]).toMatchObject({ rodada: 2 })
+    expect(r?.torneio).toMatchObject({ formato: "liga", ida_e_volta: false })
   })
 })

@@ -638,3 +638,215 @@ on conflict do nothing;
 > recriar `tournaments_select_visivel` / `matches_select_visivel` /
 > `matches_insert_tournament_owner` sem as cláusulas de participante (versões
 > nas seções 4 e 5 acima); por fim `drop function public.eh_participante(uuid);`.
+
+---
+
+## 9. Supabase — formato de torneio Liga (`add-league-format`)
+
+Formato Liga: o torneio nasce em rascunho, participantes entram pelo convite,
+e o dono "inicia" — a tabela round-robin é gerada de uma vez (com rodadas) e o
+torneio fica ativo. **Sem isto, criar torneio pela app FALHA** (a action passa
+a enviar `formato`/`ida_e_volta`, que ainda não existem) **e a página do
+torneio quebra** (o fetcher seleciona as colunas novas). Aplicar no **SQL
+Editor** (idempotente; rode o bloco INTEIRO):
+
+- [ ] **9.1 — Enum + colunas + CHECK + policy + funções:**
+
+```sql
+-- Enum de formato (formatos futuros entram com ADD VALUE).
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'tournament_format') then
+    create type public.tournament_format as enum ('avulso', 'liga');
+  end if;
+end$$;
+
+-- Colunas (aditivo). Default 'avulso' preserva os torneios existentes.
+alter table public.tournaments
+  add column if not exists formato public.tournament_format not null default 'avulso';
+alter table public.tournaments
+  add column if not exists ida_e_volta boolean not null default false;
+
+-- Rodada da liga (NULL = partida avulsa, todas as legadas).
+alter table public.matches
+  add column if not exists rodada integer;
+
+alter table public.matches drop constraint if exists matches_rodada_positiva;
+alter table public.matches
+  add constraint matches_rodada_positiva
+  check (rodada is null or rodada >= 1);
+
+-- Barreira contra dupla geração da tabela (corrida entre duas abas): o INSERT
+-- em lote perdedor falha inteiro (23505), sem estado parcial.
+create unique index if not exists matches_liga_par_unico
+  on public.matches (tournament_id, rodada, participante_1, participante_2)
+  where rodada is not null;
+
+-- INSERT de partida: em liga, só o caminho da geração (rodada preenchida).
+drop policy if exists matches_insert_tournament_owner on public.matches;
+create policy matches_insert_tournament_owner on public.matches
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+        and t.status <> 'encerrado'
+        and (t.formato = 'avulso' or matches.rodada is not null)
+    )
+    and (participante_1 is null or exists (
+      select 1 from public.participants p
+      where p.tournament_id = matches.tournament_id
+        and p.user_id = matches.participante_1
+    ))
+    and (participante_2 is null or exists (
+      select 1 from public.participants p
+      where p.tournament_id = matches.tournament_id
+        and p.user_id = matches.participante_2
+    ))
+  );
+
+-- Trigger de relações: rodada vira imutável via anon/authenticated.
+create or replace function public.lock_match_relations()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if new.participante_1 is distinct from old.participante_1
+       or new.participante_2 is distinct from old.participante_2
+       or new.tournament_id is distinct from old.tournament_id
+       or new.rodada is distinct from old.rodada
+    then
+      raise exception 'Não é permitido alterar participantes, torneio ou rodada da partida';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+-- Aceite do convite: liga já iniciada não recebe ninguém.
+create or replace function public.aceitar_convite(codigo text)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_tournament uuid;
+  v_status public.tournament_status;
+  v_formato public.tournament_format;
+begin
+  if v_uid is null then
+    raise exception 'Você precisa estar autenticado para aceitar um convite';
+  end if;
+
+  select i.tournament_id, t.status, t.formato
+    into v_tournament, v_status, v_formato
+    from public.tournament_invites i
+    join public.tournaments t on t.id = i.tournament_id
+   where i.code = codigo;
+
+  if v_tournament is null then
+    raise exception 'Convite inválido ou expirado';
+  end if;
+  if v_status = 'encerrado' then
+    raise exception 'Este torneio está encerrado e não aceita novos participantes';
+  end if;
+  if v_formato = 'liga' and v_status <> 'rascunho' then
+    raise exception 'Esta liga já foi iniciada e não aceita novos participantes';
+  end if;
+
+  insert into public.participants (tournament_id, user_id)
+  values (v_tournament, v_uid)
+  on conflict do nothing;
+
+  return v_tournament;
+end;
+$$;
+
+-- Preview do convite agora expõe o formato (a página explica liga iniciada
+-- ANTES do clique). Mudar o RETURNS TABLE exige DROP + CREATE — o DROP
+-- derruba os GRANTs, re-aplicados logo abaixo.
+drop function if exists public.info_convite(text);
+create function public.info_convite(codigo text)
+returns table (
+  tournament_id uuid,
+  titulo text,
+  status public.tournament_status,
+  formato public.tournament_format,
+  ja_participa boolean
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    t.id,
+    t.titulo,
+    t.status,
+    t.formato,
+    exists (
+      select 1 from public.participants p
+      where p.tournament_id = t.id
+        and p.user_id = (select auth.uid())
+    ) as ja_participa
+  from public.tournament_invites i
+  join public.tournaments t on t.id = i.tournament_id
+  where i.code = codigo;
+$$;
+
+-- GRANTs (CREATE FUNCTION dá EXECUTE a PUBLIC; o DROP acima apagou os
+-- anteriores de info_convite — re-aplicar TODOS é idempotente e seguro):
+revoke execute on function public.aceitar_convite(text) from public, anon;
+grant execute on function public.aceitar_convite(text) to authenticated;
+revoke execute on function public.info_convite(text) from public, anon;
+grant execute on function public.info_convite(text) to authenticated;
+```
+
+- [ ] **9.2 — (opcional) Conferir o caminho feliz**: crie um torneio formato
+  Liga pela app (deve nascer "em rascunho"); entre com OUTRA conta pelo link
+  de convite; como dono, clique "Iniciar torneio" e confira a tabela gerada
+  (partidas com "R1", "R2"… na página do torneio) e o status "ativo".
+
+- [ ] **9.3 — (recomendado) Conferir as TRAVAS** (policies/funções são a única
+  barreira contra POST direto — os testes unitários não as executam). Com o
+  token de um usuário comum:
+
+```sql
+-- Deve FALHAR (partida manual sem rodada em liga, mesmo sendo o dono):
+-- insert into public.matches (tournament_id) values ('<sua-liga>');
+
+-- Deve FALHAR (aceitar convite de liga já iniciada):
+-- select public.aceitar_convite('<codigo-de-liga-ativa>');
+
+-- Deve FALHAR (renumerar rodada por POST direto):
+-- update public.matches set rodada = 99 where id = '<partida-de-liga>';
+
+-- Deve FALHAR (CHECK de rodada):
+-- update public.matches set rodada = 0 where id = '<partida>';  -- via service_role
+```
+
+> Fonte de verdade: `supabase/schema.sql` (enum/colunas/CHECK/índice, policy
+> de INSERT de matches, lock_match_relations, aceitar_convite, info_convite).
+>
+> Rollback: recriar `aceitar_convite`/`lock_match_relations` e
+> `matches_insert_tournament_owner` nas versões da seção 8 (assinaturas
+> inalteradas — CREATE OR REPLACE basta). Para `info_convite` o tipo de
+> retorno MUDOU: é obrigatório `drop function if exists public.info_convite(text);`
+> antes de recriar a versão da seção 8, e re-aplicar os GRANTs
+> (`revoke ... from public, anon; grant ... to authenticated;`) — o DROP os
+> remove. Depois:
+> `drop index if exists public.matches_liga_par_unico;`
+> `alter table public.matches drop constraint matches_rodada_positiva;`
+> `alter table public.matches drop column rodada;`
+> `alter table public.tournaments drop column formato, drop column ida_e_volta;`
+> `drop type public.tournament_format;`

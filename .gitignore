@@ -42,3 +42,6 @@ yarn-error.log*
 next-env.d.ts
 .idea
 .env*.local
+
+# Artefatos locais do Claude Code
+.claude/scheduled_tasks.lock

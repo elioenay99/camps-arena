@@ -30,6 +30,12 @@ export function MatchHistoryList({
           {/* min-w-0 + truncate: sem eles, nome longo não encolhe (min-width
               auto do flex) e o grupo invade a data no mobile. */}
           <span className="flex min-w-0 items-center gap-2" aria-hidden="true">
+            {/* Rodada da liga; partida avulsa (rodada null) fica como sempre. */}
+            {p.rodada !== null ? (
+              <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+                R{p.rodada}
+              </span>
+            ) : null}
             <span className="truncate">{p.nome_1}</span>
             <span className="shrink-0 font-semibold tabular-nums">
               {p.placar_1} x {p.placar_2}
@@ -37,7 +43,7 @@ export function MatchHistoryList({
             <span className="truncate">{p.nome_2}</span>
           </span>
           <span className="sr-only">
-            {`Placar final: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2}`}
+            {`${p.rodada !== null ? `Rodada ${p.rodada}: ` : ""}Placar final: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2}`}
           </span>
           <span className="flex shrink-0 items-center gap-3">
             <time dateTime={p.encerradaEm} className="text-muted-foreground text-xs">

@@ -3,10 +3,16 @@ import { z } from "zod"
 
 import { createTournamentSchema, PONTOS_MAX } from "@/schema/tournamentSchema"
 
-const PADRAO = { pontosVitoria: 3, pontosEmpate: 1, pontosDerrota: 0 }
+const PADRAO = {
+  pontosVitoria: 3,
+  pontosEmpate: 1,
+  pontosDerrota: 0,
+  formato: "avulso",
+  idaEVolta: false,
+}
 
 describe("createTournamentSchema", () => {
-  it("aceita título válido e usa defaults (público, 3/1/0)", () => {
+  it("aceita título válido e usa defaults (público, 3/1/0, avulso)", () => {
     const r = createTournamentSchema.parse({ titulo: "Copa" })
     expect(r).toEqual({ titulo: "Copa", isPublic: true, ...PADRAO })
   })
@@ -14,6 +20,29 @@ describe("createTournamentSchema", () => {
   it("aplica trim no título", () => {
     const r = createTournamentSchema.parse({ titulo: "  Liga  ", isPublic: false })
     expect(r).toEqual({ titulo: "Liga", isPublic: false, ...PADRAO })
+  })
+
+  it("aceita formato liga com idaEVolta", () => {
+    const r = createTournamentSchema.parse({
+      titulo: "Liga",
+      formato: "liga",
+      idaEVolta: true,
+    })
+    expect(r.formato).toBe("liga")
+    expect(r.idaEVolta).toBe(true)
+  })
+
+  it("rejeita formato fora do enum", () => {
+    expect(
+      createTournamentSchema.safeParse({ titulo: "Copa", formato: "mata-mata" })
+        .success
+    ).toBe(false)
+  })
+
+  it("idaEVolta é estrito (boolean), não coage 'on'/string", () => {
+    expect(
+      createTournamentSchema.safeParse({ titulo: "Copa", idaEVolta: "on" }).success
+    ).toBe(false)
   })
 
   it("rejeita título curto (< 2 após trim)", () => {

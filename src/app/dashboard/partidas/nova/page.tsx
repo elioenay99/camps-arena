@@ -50,8 +50,9 @@ export default async function NovaPartidaPage() {
           {torneios.length === 0 ? (
             <div className="grid gap-4 text-center">
               <p className="text-muted-foreground text-sm">
-                Você ainda não tem um torneio aberto. Crie um torneio para
-                organizar as suas partidas.
+                Você ainda não tem um torneio avulso aberto. Partidas manuais
+                só existem em torneios avulsos (em liga, a tabela é gerada ao
+                iniciar) — crie um para continuar.
               </p>
               <Button asChild>
                 <Link href="/dashboard/torneios/novo">Criar torneio</Link>

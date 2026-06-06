@@ -117,10 +117,68 @@ describe("createTournament", () => {
       titulo: "Copa",
       is_public: true,
       created_by: "dono-1",
+      formato: "avulso",
+      ida_e_volta: false,
       pontos_vitoria: 3,
       pontos_empate: 1,
       pontos_derrota: 0,
     })
+    // Sem status explícito: avulso fica com o default 'ativo' do banco.
+    expect(insertSpy.mock.calls[0][0]).not.toHaveProperty("status")
+  })
+
+  it("formato liga nasce em rascunho com ida_e_volta do checkbox", async () => {
+    const { insertSpy } = montarClient({ user: { id: "dono-1" } })
+    await expect(
+      createTournament(
+        {},
+        formData({ titulo: "Liga", isPublic: "on", formato: "liga", idaEVolta: "on" })
+      )
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formato: "liga",
+        ida_e_volta: true,
+        status: "rascunho",
+      })
+    )
+  })
+
+  it("liga sem ida-e-volta grava ida_e_volta false (e ainda nasce rascunho)", async () => {
+    const { insertSpy } = montarClient({ user: { id: "dono-1" } })
+    await expect(
+      createTournament({}, formData({ titulo: "Liga", isPublic: "on", formato: "liga" }))
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formato: "liga",
+        ida_e_volta: false,
+        status: "rascunho",
+      })
+    )
+  })
+
+  it("ida-e-volta marcado em torneio AVULSO é ignorado (vai false)", async () => {
+    const { insertSpy } = montarClient({ user: { id: "dono-1" } })
+    await expect(
+      createTournament(
+        {},
+        formData({ titulo: "Copa", isPublic: "on", formato: "avulso", idaEVolta: "on" })
+      )
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ formato: "avulso", ida_e_volta: false })
+    )
+    expect(insertSpy.mock.calls[0][0]).not.toHaveProperty("status")
+  })
+
+  it("formato inválido não toca o banco", async () => {
+    const r = await createTournament(
+      {},
+      formData({ titulo: "Copa", formato: "mata-mata" })
+    )
+    expect(r.fieldErrors?.formato).toBeTruthy()
+    expect(mockCreateClient).not.toHaveBeenCalled()
   })
 
   it("dono entra como participante e o convite é gerado (código de 16 chars)", async () => {

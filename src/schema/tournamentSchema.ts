@@ -18,9 +18,11 @@ const pontos = z
   .max(PONTOS_MAX, "Pontuação fora do intervalo permitido.")
 
 /**
- * Criação de torneio: título, visibilidade e regras de pontuação. O refine
- * espelha a CHECK `tournaments_pontuacao_coerente` do banco — derrota valendo
- * mais que empate (ou empate mais que vitória) corromperia a classificação.
+ * Criação de torneio: título, visibilidade, regras de pontuação e formato.
+ * O refine espelha a CHECK `tournaments_pontuacao_coerente` do banco — derrota
+ * valendo mais que empate (ou empate mais que vitória) corromperia a
+ * classificação. `formato` espelha o enum `tournament_format`; `idaEVolta` só
+ * é significativo em liga (no avulso fica false, default do banco).
  */
 export const createTournamentSchema = z
   .object({
@@ -30,6 +32,10 @@ export const createTournamentSchema = z
       .min(2, "Informe um título com ao menos 2 caracteres.")
       .max(80, "Título muito longo."),
     isPublic: z.boolean().default(true),
+    formato: z
+      .enum(["avulso", "liga"], { error: "Formato de torneio inválido." })
+      .default("avulso"),
+    idaEVolta: z.boolean().default(false),
     pontosVitoria: pontos.default(PONTUACAO_PADRAO.vitoria),
     pontosEmpate: pontos.default(PONTUACAO_PADRAO.empate),
     pontosDerrota: pontos.default(PONTUACAO_PADRAO.derrota),
