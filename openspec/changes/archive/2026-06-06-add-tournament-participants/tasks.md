@@ -38,6 +38,6 @@
 ## 6. Validação e gates
 
 - [x] 6.1 Suíte completa verde (`pnpm test`), `pnpm typecheck`, `pnpm lint`
-- [ ] 6.2 Workflow adversarial multi-lente (RLS/security definer, actions, UI/rotas, specs-vs-código) antes de commitar; aplicar must_fix/should_fix
-- [ ] 6.3 Commits (proposal / implementação / archive), push e CI verde
-- [ ] 6.4 Atualizar memória persistente e destacar a pendência manual (seção 8) ao usuário
+- [x] 6.2 Workflow adversarial multi-lente (RLS/security definer, actions, UI/rotas, specs-vs-código) antes de commitar; aplicar must_fix/should_fix
+- [x] 6.3 Commits (proposal / implementação / archive), push e CI verde
+- [x] 6.4 Atualizar memória persistente e destacar a pendência manual (seção 8) ao usuário
