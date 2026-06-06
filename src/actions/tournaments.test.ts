@@ -13,6 +13,8 @@ import { createClient } from "@/lib/supabase/server"
 
 const mockCreateClient = vi.mocked(createClient)
 
+const TORNEIO = "11111111-1111-4111-8111-111111111111"
+
 function formData(campos: Record<string, string>) {
   const fd = new FormData()
   for (const [k, v] of Object.entries(campos)) fd.set(k, v)
@@ -24,12 +26,42 @@ interface Cenario {
   authError?: boolean
   insertError?: boolean
   insertThrows?: boolean
+  participanteError?: boolean
+  /** Códigos de erro devolvidos pelos inserts SUCESSIVOS do invite. */
+  inviteErrosPorTentativa?: (string | null)[]
 }
 
+/**
+ * Cliente falso para as três escritas da action:
+ *  - tournaments: insert().select().single() — devolve o id criado.
+ *  - participants: insert() — entrada automática do dono.
+ *  - tournament_invites: insert() — geração do código (com retry de colisão).
+ */
 function montarClient(c: Cenario) {
-  const insertSpy = vi.fn(async () => {
+  const insertSpy = vi.fn((payload: unknown) => {
     if (c.insertThrows) throw new Error("conexão caiu")
-    return { error: c.insertError ? { message: "rls", code: "42501" } : null }
+    void payload
+    return {
+      select: vi.fn(() => ({
+        single: vi.fn(async () => ({
+          data: c.insertError ? null : { id: TORNEIO },
+          error: c.insertError ? { message: "rls", code: "42501" } : null,
+        })),
+      })),
+    }
+  })
+  const participanteInsertSpy = vi.fn(async (_payload: unknown) => {
+    void _payload
+    return {
+      error: c.participanteError ? { message: "down", code: "XX000" } : null,
+    }
+  })
+  let tentativaInvite = 0
+  const inviteInsertSpy = vi.fn(async (_payload: unknown) => {
+    void _payload
+    const codigo = c.inviteErrosPorTentativa?.[tentativaInvite] ?? null
+    tentativaInvite++
+    return { error: codigo ? { message: "erro", code: codigo } : null }
   })
   const client = {
     auth: {
@@ -38,10 +70,14 @@ function montarClient(c: Cenario) {
         error: c.authError ? { message: "jwt expired" } : null,
       })),
     },
-    from: vi.fn(() => ({ insert: insertSpy })),
+    from: vi.fn((tabela: string) => {
+      if (tabela === "tournaments") return { insert: insertSpy }
+      if (tabela === "participants") return { insert: participanteInsertSpy }
+      return { insert: inviteInsertSpy }
+    }),
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
-  return { insertSpy, fromSpy: client.from }
+  return { insertSpy, participanteInsertSpy, inviteInsertSpy, fromSpy: client.from }
 }
 
 beforeEach(() => vi.clearAllMocks())
@@ -75,7 +111,7 @@ describe("createTournament", () => {
         {},
         formData({ titulo: "Copa", isPublic: "on", created_by: "atacante" })
       )
-    ).rejects.toThrow("NEXT_REDIRECT:/dashboard")
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
 
     expect(insertSpy).toHaveBeenCalledWith({
       titulo: "Copa",
@@ -87,19 +123,83 @@ describe("createTournament", () => {
     })
   })
 
+  it("dono entra como participante e o convite é gerado (código de 16 chars)", async () => {
+    const { participanteInsertSpy, inviteInsertSpy } = montarClient({
+      user: { id: "dono-1" },
+    })
+    await expect(
+      createTournament({}, formData({ titulo: "Copa", isPublic: "on" }))
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+
+    expect(participanteInsertSpy).toHaveBeenCalledWith({
+      tournament_id: TORNEIO,
+      user_id: "dono-1",
+    })
+    expect(inviteInsertSpy).toHaveBeenCalledTimes(1)
+    const payload = inviteInsertSpy.mock.calls[0][0] as {
+      tournament_id: string
+      code: string
+    }
+    expect(payload.tournament_id).toBe(TORNEIO)
+    expect(payload.code).toMatch(/^[0-9a-z]{16}$/)
+  })
+
+  it("falha nas escritas complementares NÃO derruba a criação (recuperável na UI)", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    montarClient({
+      user: { id: "dono-1" },
+      participanteError: true,
+      inviteErrosPorTentativa: ["XX000"],
+    })
+    // O torneio foi criado → redirect normal, apesar dos erros complementares.
+    await expect(
+      createTournament({}, formData({ titulo: "Copa", isPublic: "on" }))
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(consoleSpy).toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
+
+  it("colisão de código (23505) ganha UM retry com código novo", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { inviteInsertSpy } = montarClient({
+      user: { id: "dono-1" },
+      inviteErrosPorTentativa: ["23505", null],
+    })
+    await expect(
+      createTournament({}, formData({ titulo: "Copa", isPublic: "on" }))
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(inviteInsertSpy).toHaveBeenCalledTimes(2)
+    const c1 = (inviteInsertSpy.mock.calls[0][0] as { code: string }).code
+    const c2 = (inviteInsertSpy.mock.calls[1][0] as { code: string }).code
+    expect(c1).not.toBe(c2)
+    consoleSpy.mockRestore()
+  })
+
+  it("erro de invite que NÃO é colisão não ganha retry", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { inviteInsertSpy } = montarClient({
+      user: { id: "dono-1" },
+      inviteErrosPorTentativa: ["42501"],
+    })
+    await expect(
+      createTournament({}, formData({ titulo: "Copa", isPublic: "on" }))
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(inviteInsertSpy).toHaveBeenCalledTimes(1)
+    consoleSpy.mockRestore()
+  })
+
   it("checkbox ausente grava torneio privado", async () => {
     const { insertSpy } = montarClient({ user: { id: "dono-1" } })
     await expect(
       createTournament({}, formData({ titulo: "Privado" }))
-    ).rejects.toThrow("NEXT_REDIRECT:/dashboard")
-    expect(insertSpy).toHaveBeenCalledWith({
-      titulo: "Privado",
-      is_public: false,
-      created_by: "dono-1",
-      pontos_vitoria: 3,
-      pontos_empate: 1,
-      pontos_derrota: 0,
-    })
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        titulo: "Privado",
+        is_public: false,
+        created_by: "dono-1",
+      })
+    )
   })
 
   it("pontuação customizada do form é convertida e gravada", async () => {
@@ -115,7 +215,7 @@ describe("createTournament", () => {
           pontosDerrota: "0",
         })
       )
-    ).rejects.toThrow("NEXT_REDIRECT:/dashboard")
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
     expect(insertSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         pontos_vitoria: 2,
@@ -138,7 +238,7 @@ describe("createTournament", () => {
           pontosDerrota: "",
         })
       )
-    ).rejects.toThrow("NEXT_REDIRECT:/dashboard")
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
     expect(insertSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         pontos_vitoria: 3,
@@ -168,11 +268,18 @@ describe("createTournament", () => {
   })
 
   it("erro do banco (RLS) vira mensagem genérica, sem redirect", async () => {
-    montarClient({ user: { id: "dono-1" }, insertError: true })
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { participanteInsertSpy } = montarClient({
+      user: { id: "dono-1" },
+      insertError: true,
+    })
     const r = await createTournament({}, formData({ titulo: "Copa", isPublic: "on" }))
     expect(r).toEqual({
       error: "Não foi possível criar o torneio agora. Tente novamente.",
     })
+    // Sem torneio criado, nenhuma escrita complementar acontece.
+    expect(participanteInsertSpy).not.toHaveBeenCalled()
+    consoleSpy.mockRestore()
   })
 
   it("exceção no insert é tratada (não vira 500), sem redirect", async () => {

@@ -21,6 +21,8 @@ const DONO = "22222222-2222-4222-8222-222222222222"
 const P1 = "33333333-3333-4333-8333-333333333333"
 const P2 = "44444444-4444-4444-8444-444444444444"
 
+const REDIRECT_TORNEIO = `NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`
+
 function formData(campos: Record<string, string>) {
   const fd = new FormData()
   for (const [k, v] of Object.entries(campos)) fd.set(k, v)
@@ -33,18 +35,24 @@ interface Cenario {
   /** Resultado do lookup de torneio (dono + não encerrado). */
   torneio?: { id: string } | null
   torneioError?: boolean
+  /** user_ids confirmados que a query de participants devolve. */
+  confirmados?: string[]
+  participantesError?: boolean
   insertError?: boolean
   insertThrows?: boolean
 }
 
 /**
- * Cliente falso com as duas formas que a action usa:
+ * Cliente falso com as três formas que a action usa:
  *  - tournaments: select().eq().eq().neq().maybeSingle() — spies nos filtros
  *    provam que a propriedade é conferida por FILTRO no servidor.
+ *  - participants: select().eq().in() — prova que o consentimento (lista de
+ *    confirmados do torneio) é conferido no servidor.
  *  - matches: insert() — spy no payload prova que só os campos permitidos vão.
  */
 function montarClient(c: Cenario) {
   const filtroSpy = vi.fn()
+  const participantesSpy = vi.fn()
   const insertSpy = vi.fn(async () => {
     if (c.insertThrows) throw new Error("conexão caiu")
     return { error: c.insertError ? { message: "rls", code: "42501" } : null }
@@ -53,16 +61,31 @@ function montarClient(c: Cenario) {
     data: c.torneio ?? null,
     error: c.torneioError ? { message: "down" } : null,
   }))
-  const cadeia = {
+  const cadeiaTorneio = {
     eq: vi.fn((col: string, val: unknown) => {
       filtroSpy("eq", col, val)
-      return cadeia
+      return cadeiaTorneio
     }),
     neq: vi.fn((col: string, val: unknown) => {
       filtroSpy("neq", col, val)
-      return cadeia
+      return cadeiaTorneio
     }),
     maybeSingle,
+  }
+  const cadeiaParticipantes = {
+    eq: vi.fn((col: string, val: unknown) => {
+      participantesSpy("eq", col, val)
+      return cadeiaParticipantes
+    }),
+    in: vi.fn(async (col: string, val: unknown) => {
+      participantesSpy("in", col, val)
+      return {
+        data: c.participantesError
+          ? null
+          : (c.confirmados ?? []).map((id) => ({ user_id: id })),
+        error: c.participantesError ? { message: "down" } : null,
+      }
+    }),
   }
   const client = {
     auth: {
@@ -71,14 +94,15 @@ function montarClient(c: Cenario) {
         error: c.authError ? { message: "jwt expired" } : null,
       })),
     },
-    from: vi.fn((tabela: string) =>
-      tabela === "tournaments"
-        ? { select: vi.fn(() => cadeia) }
-        : { insert: insertSpy }
-    ),
+    from: vi.fn((tabela: string) => {
+      if (tabela === "tournaments") return { select: vi.fn(() => cadeiaTorneio) }
+      if (tabela === "participants")
+        return { select: vi.fn(() => cadeiaParticipantes) }
+      return { insert: insertSpy }
+    }),
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
-  return { insertSpy, filtroSpy, fromSpy: client.from }
+  return { insertSpy, filtroSpy, participantesSpy, fromSpy: client.from }
 }
 
 beforeEach(() => vi.clearAllMocks())
@@ -134,10 +158,42 @@ describe("createMatch", () => {
     expect(insertSpy).not.toHaveBeenCalled()
   })
 
-  it("insere só os campos permitidos e redireciona; '' vira null", async () => {
+  it("participante fora da lista de confirmados rejeita, sem inserir", async () => {
+    const { insertSpy, participantesSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO },
+      confirmados: [P1], // P2 não confirmou
+    })
+    const r = await createMatch(
+      {},
+      formData({ tournamentId: TORNEIO, participante1: P1, participante2: P2 })
+    )
+    expect(r.error).toMatch(/participantes confirmados/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+    // Consentimento conferido por FILTRO no servidor (torneio + lista).
+    expect(participantesSpy).toHaveBeenCalledWith("eq", "tournament_id", TORNEIO)
+    expect(participantesSpy).toHaveBeenCalledWith("in", "user_id", [P1, P2])
+  })
+
+  it("erro na query de participants vira mensagem genérica, sem inserir", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO },
+      participantesError: true,
+    })
+    const r = await createMatch(
+      {},
+      formData({ tournamentId: TORNEIO, participante1: P1 })
+    )
+    expect(r.error).toMatch(/não foi possível/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("insere só os campos permitidos e redireciona ao torneio; '' vira null", async () => {
     const { insertSpy, fromSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO },
+      confirmados: [P1],
     })
     await expect(
       createMatch(
@@ -151,46 +207,50 @@ describe("createMatch", () => {
           status: "encerrada",
         })
       )
-    ).rejects.toThrow("NEXT_REDIRECT:/dashboard")
+    ).rejects.toThrow(REDIRECT_TORNEIO)
 
     expect(insertSpy).toHaveBeenCalledWith({
       tournament_id: TORNEIO,
       participante_1: P1,
       participante_2: null,
     })
-    // As DUAS tabelas certas, na ordem lookup → insert.
+    // As TRÊS tabelas certas, na ordem lookup → consentimento → insert.
     expect(fromSpy).toHaveBeenCalledWith("tournaments")
+    expect(fromSpy).toHaveBeenCalledWith("participants")
     expect(fromSpy).toHaveBeenCalledWith("matches")
-    // Dashboard é revalidado antes do redirect.
+    // Dashboard E página do torneio revalidados antes do redirect.
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
+    expect(mockRevalidate).toHaveBeenCalledWith(`/dashboard/torneios/${TORNEIO}`)
   })
 
-  it("partida sem participantes é aceita (lados a definir)", async () => {
-    const { insertSpy } = montarClient({
+  it("partida sem participantes é aceita SEM consultar participants", async () => {
+    const { insertSpy, fromSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO },
     })
     await expect(
       createMatch({}, formData({ tournamentId: TORNEIO }))
-    ).rejects.toThrow("NEXT_REDIRECT:/dashboard")
+    ).rejects.toThrow(REDIRECT_TORNEIO)
     expect(insertSpy).toHaveBeenCalledWith({
       tournament_id: TORNEIO,
       participante_1: null,
       participante_2: null,
     })
+    expect(fromSpy).not.toHaveBeenCalledWith("participants")
   })
 
-  it("participantes distintos preenchidos passam", async () => {
+  it("participantes distintos confirmados passam", async () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO },
+      confirmados: [P1, P2],
     })
     await expect(
       createMatch(
         {},
         formData({ tournamentId: TORNEIO, participante1: P1, participante2: P2 })
       )
-    ).rejects.toThrow("NEXT_REDIRECT:/dashboard")
+    ).rejects.toThrow(REDIRECT_TORNEIO)
     expect(insertSpy).toHaveBeenCalledWith({
       tournament_id: TORNEIO,
       participante_1: P1,
@@ -199,7 +259,12 @@ describe("createMatch", () => {
   })
 
   it("erro do banco (RLS) vira mensagem genérica, sem redirect", async () => {
-    montarClient({ user: { id: DONO }, torneio: { id: TORNEIO }, insertError: true })
+    montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO },
+      confirmados: [P1, P2],
+      insertError: true,
+    })
     const r = await createMatch({}, formData({ tournamentId: TORNEIO }))
     expect(r).toEqual({
       error: "Não foi possível criar a partida agora. Tente novamente.",

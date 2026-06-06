@@ -325,3 +325,316 @@ create trigger matches_lock_lifecycle
 ```
 
 > Fonte de verdade: `supabase/schema.sql` (policy + função/trigger de lifecycle).
+
+---
+
+## 8. Supabase — participantes e convite (`add-tournament-participants`)
+
+Participação por torneio com convite por link. **Sem isto, criar torneio pela
+app falha** (a action insere em `participants`/`tournament_invites`, que ainda
+não existem) **e a página do torneio quebra** (lista de participantes). Aplicar
+no **SQL Editor** (idempotente):
+
+- [ ] **8.1 — Tabelas + funções + policies:**
+
+```sql
+-- Participante CONFIRMADO (linha = aceitou; sem estado pendente).
+create table if not exists public.participants (
+  tournament_id uuid not null references public.tournaments (id) on delete cascade,
+  user_id       uuid not null references public.users (id) on delete cascade,
+  created_at    timestamptz not null default now(),
+  primary key (tournament_id, user_id)
+);
+
+create index if not exists participants_user_id_idx on public.participants (user_id);
+
+-- Código de convite (SEGREDO do dono — fora de tournaments de propósito:
+-- a RLS de SELECT público do torneio vazaria a coluna).
+create table if not exists public.tournament_invites (
+  tournament_id uuid primary key references public.tournaments (id) on delete cascade,
+  code          text not null unique,
+  created_at    timestamptz not null default now()
+);
+
+alter table public.participants       enable row level security;
+alter table public.tournament_invites enable row level security;
+
+-- Helper anti-recursão (policy de tournaments lendo participants cuja policy
+-- lê tournaments dispararia "infinite recursion detected in policy").
+create or replace function public.eh_participante(t_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.participants p
+    where p.tournament_id = t_id
+      and p.user_id = (select auth.uid())
+  );
+$$;
+
+-- Aceite do convite: valida o código secreto e insere SÓ o próprio auth.uid().
+create or replace function public.aceitar_convite(codigo text)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_tournament uuid;
+  v_status public.tournament_status;
+begin
+  if v_uid is null then
+    raise exception 'Você precisa estar autenticado para aceitar um convite';
+  end if;
+
+  select i.tournament_id, t.status
+    into v_tournament, v_status
+    from public.tournament_invites i
+    join public.tournaments t on t.id = i.tournament_id
+   where i.code = codigo;
+
+  if v_tournament is null then
+    raise exception 'Convite inválido ou expirado';
+  end if;
+  if v_status = 'encerrado' then
+    raise exception 'Este torneio está encerrado e não aceita novos participantes';
+  end if;
+
+  insert into public.participants (tournament_id, user_id)
+  values (v_tournament, v_uid)
+  on conflict do nothing;
+
+  return v_tournament;
+end;
+$$;
+
+-- Preview do convite (página /convite/[codigo]): o código é a credencial.
+create or replace function public.info_convite(codigo text)
+returns table (
+  tournament_id uuid,
+  titulo text,
+  status public.tournament_status,
+  ja_participa boolean
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    t.id,
+    t.titulo,
+    t.status,
+    exists (
+      select 1 from public.participants p
+      where p.tournament_id = t.id
+        and p.user_id = (select auth.uid())
+    ) as ja_participa
+  from public.tournament_invites i
+  join public.tournaments t on t.id = i.tournament_id
+  where i.code = codigo;
+$$;
+
+-- GRANTs (CREATE FUNCTION dá EXECUTE a PUBLIC por padrão):
+-- eh_participante fica com anon+authenticated (as policies a avaliam com o
+-- role da query — revogar deles quebraria todo SELECT de tournaments/matches);
+-- as funções de convite ficam só com authenticated.
+revoke execute on function public.eh_participante(uuid) from public;
+grant execute on function public.eh_participante(uuid) to anon, authenticated;
+revoke execute on function public.aceitar_convite(text) from public, anon;
+grant execute on function public.aceitar_convite(text) to authenticated;
+revoke execute on function public.info_convite(text) from public, anon;
+grant execute on function public.info_convite(text) to authenticated;
+
+-- tournaments/matches: visibilidade também para o PARTICIPANTE.
+drop policy if exists tournaments_select_public on public.tournaments;
+drop policy if exists tournaments_select_visivel on public.tournaments;
+create policy tournaments_select_visivel on public.tournaments
+  for select to anon, authenticated
+  using (is_public or created_by = auth.uid() or public.eh_participante(id));
+
+drop policy if exists matches_select_public on public.matches;
+drop policy if exists matches_select_visivel on public.matches;
+create policy matches_select_visivel on public.matches
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and (t.is_public
+             or t.created_by = auth.uid()
+             or public.eh_participante(t.id))
+    )
+    or auth.uid() = participante_1
+    or auth.uid() = participante_2
+  );
+
+-- INSERT de partida: participantes informados precisam estar CONFIRMADOS.
+drop policy if exists matches_insert_tournament_owner on public.matches;
+create policy matches_insert_tournament_owner on public.matches
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+        and t.status <> 'encerrado'
+    )
+    and (participante_1 is null or exists (
+      select 1 from public.participants p
+      where p.tournament_id = matches.tournament_id
+        and p.user_id = matches.participante_1
+    ))
+    and (participante_2 is null or exists (
+      select 1 from public.participants p
+      where p.tournament_id = matches.tournament_id
+        and p.user_id = matches.participante_2
+    ))
+  );
+
+-- participants: leitura acompanha o torneio; INSERT direto só dono-si-mesmo
+-- (convidado entra SÓ pela função); DELETE = sair (próprio) ou remover (dono).
+drop policy if exists participants_select_visivel on public.participants;
+create policy participants_select_visivel on public.participants
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and (t.is_public
+             or t.created_by = auth.uid()
+             or public.eh_participante(t.id))
+    )
+  );
+
+drop policy if exists participants_insert_owner_self on public.participants;
+create policy participants_insert_owner_self on public.participants
+  for insert to authenticated
+  with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+        and t.status <> 'encerrado'
+    )
+  );
+
+drop policy if exists participants_delete_self_or_owner on public.participants;
+create policy participants_delete_self_or_owner on public.participants
+  for delete to authenticated
+  using (
+    user_id = auth.uid()
+    or exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+-- tournament_invites: TUDO restrito ao dono do torneio.
+drop policy if exists tournament_invites_select_owner on public.tournament_invites;
+create policy tournament_invites_select_owner on public.tournament_invites
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+drop policy if exists tournament_invites_insert_owner on public.tournament_invites;
+create policy tournament_invites_insert_owner on public.tournament_invites
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+drop policy if exists tournament_invites_update_owner on public.tournament_invites;
+create policy tournament_invites_update_owner on public.tournament_invites
+  for update to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+drop policy if exists tournament_invites_delete_owner on public.tournament_invites;
+create policy tournament_invites_delete_owner on public.tournament_invites
+  for delete to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+```
+
+- [ ] **8.2 — (recomendado) Backfill**: donos atuais viram participantes dos
+  próprios torneios (a entrada automática só vale para torneios novos):
+
+```sql
+insert into public.participants (tournament_id, user_id)
+select t.id, t.created_by
+  from public.tournaments t
+ where t.created_by is not null
+on conflict do nothing;
+```
+
+  (Convites de torneios existentes não precisam de backfill: o dono gera o
+  primeiro link pelo botão "Gerar link de convite" na página do torneio.)
+
+- [ ] **8.3 — (opcional) Conferir o caminho feliz**: crie um torneio pela app
+  (você deve nascer participante e com link de convite); abra o link numa
+  janela anônima com OUTRA conta e aceite; confira que o convidado aparece na
+  lista e nos selects de nova partida.
+
+- [ ] **8.4 — (recomendado) Conferir as TRAVAS** (as funções/policies são a
+  única barreira contra POST direto — os testes unitários não as executam).
+  Com o token de um usuário comum (não dono):
+
+```sql
+-- Deve FALHAR/0 linhas (entrar sem convite por INSERT direto):
+-- insert into public.participants (tournament_id, user_id) values ('<torneio-alheio>', auth.uid());
+
+-- Deve devolver VAZIO (enumerar códigos de convite):
+-- select * from public.tournament_invites;
+
+-- Deve FALHAR (aceitar código inexistente):
+-- select public.aceitar_convite('codigo-que-nao-existe');
+
+-- Deve FALHAR com permission denied (anon não chama as RPCs de convite —
+-- testar SEM token, via /rest/v1/rpc/info_convite):
+-- select public.info_convite('<codigo-valido>');
+
+-- Deve FALHAR (partida com participante NÃO confirmado, como dono):
+-- insert into public.matches (tournament_id, participante_1) values ('<seu-torneio>', '<user-fora-da-lista>');
+```
+
+> Fonte de verdade: `supabase/schema.sql` (tabelas, funções e RLS de
+> participants/tournament_invites).
+>
+> Rollback: `drop table public.tournament_invites; drop table public.participants;`
+> `drop function public.aceitar_convite(text), public.info_convite(text);` e
+> recriar `tournaments_select_visivel` / `matches_select_visivel` /
+> `matches_insert_tournament_owner` sem as cláusulas de participante (versões
+> nas seções 4 e 5 acima); por fim `drop function public.eh_participante(uuid);`.

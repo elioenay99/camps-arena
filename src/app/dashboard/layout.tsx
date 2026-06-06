@@ -8,7 +8,10 @@ import { NavLinks, type NavLink } from "@/features/nav/components/NavLinks";
 const LINKS: NavLink[] = [
   // "/dashboard" com igualdade exata — por prefixo ativaria em todo o segmento.
   { href: "/dashboard", rotulo: "Painel", exato: true },
-  { href: "/dashboard/torneios/novo", rotulo: "Novo torneio" },
+  // "Torneios" cobre o índice e as sub-rotas (novo, página do torneio) por
+  // prefixo — o antigo item "Novo torneio" virou o botão "Criar torneio" do
+  // índice (dois itens do nav ativos ao mesmo tempo confundem).
+  { href: "/dashboard/torneios", rotulo: "Torneios" },
   { href: "/dashboard/partidas/nova", rotulo: "Nova partida" },
 ];
 

@@ -11,14 +11,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { MatchCreateForm } from "@/features/match/components/MatchCreateForm";
-import { getParticipantesDisponiveis } from "@/features/match/data/getParticipantesDisponiveis";
 import { getOwnTournaments } from "@/features/tournament/data/getOwnTournaments";
 
 export const metadata: Metadata = {
   title: "Nova partida · Arena",
 };
 
+/**
+ * Seletor de torneio: o form de partida mora na rota aninhada do torneio
+ * (os selects de participante dependem do torneio escolhido). Lista de LINKS
+ * em vez de select+submit — navegação pura, zero JS.
+ */
 export default async function NovaPartidaPage() {
   const supabase = await createClient();
   const {
@@ -40,7 +43,7 @@ export default async function NovaPartidaPage() {
         <CardHeader>
           <CardTitle className="text-2xl">Nova partida</CardTitle>
           <CardDescription>
-            Crie uma partida em um dos seus torneios.
+            Escolha o torneio que vai receber a partida.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -55,10 +58,17 @@ export default async function NovaPartidaPage() {
               </Button>
             </div>
           ) : (
-            <MatchCreateForm
-              torneios={torneios}
-              participantes={await getParticipantesDisponiveis()}
-            />
+            <ul className="grid list-none gap-2 p-0">
+              {torneios.map((t) => (
+                <li key={t.id}>
+                  <Button asChild variant="outline" className="w-full justify-start">
+                    <Link href={`/dashboard/torneios/${t.id}/partidas/nova`}>
+                      {t.titulo.trim() || "Torneio"}
+                    </Link>
+                  </Button>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>

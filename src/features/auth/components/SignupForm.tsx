@@ -20,7 +20,7 @@ function SubmitButton() {
   )
 }
 
-export function SignupForm() {
+export function SignupForm({ redirectTo }: { redirectTo?: string }) {
   const [state, formAction] = useActionState(signup, initialState)
 
   // Estado terminal: cadastro feito, confirmação pendente no e-mail.
@@ -34,6 +34,10 @@ export function SignupForm() {
 
   return (
     <form action={formAction} className="grid gap-4" noValidate>
+      {/* Destino pós-confirmação (sanitizado na action e no /auth/confirm). */}
+      {redirectTo ? (
+        <input type="hidden" name="redirectTo" value={redirectTo} />
+      ) : null}
       <div className="grid gap-2">
         <Label htmlFor="nome">Nome</Label>
         <Input

@@ -1,12 +1,18 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
 import { createClient } from "@/lib/supabase/server";
+import { Button } from "@/components/ui/button";
 import { MatchHistoryList } from "@/features/match/components/MatchHistoryList";
 import { OpenMatchesList } from "@/features/match/components/OpenMatchesList";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
 import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao";
+import { InviteSection } from "@/features/tournament/components/InviteSection";
+import { ParticipantsSection } from "@/features/tournament/components/ParticipantsSection";
+import { getConviteDoTorneio } from "@/features/tournament/data/getConviteDoTorneio";
+import { getParticipantesDoTorneio } from "@/features/tournament/data/getParticipantesDoTorneio";
 import type { TournamentStatus } from "@/lib/supabase/database.types";
 
 // Título por torneio (padrão do app: toda rota tem título específico). O
@@ -72,13 +78,30 @@ export default async function TorneioPage({
   const ehDono = torneio.created_by !== null && torneio.created_by === user.id;
   const podeGerirPartidas = ehDono && torneio.status !== "encerrado";
 
+  // Lista de participantes (visível a quem vê o torneio) e, SÓ para o dono de
+  // torneio aberto, o código de convite (a RLS de tournament_invites já
+  // restringe — o gate aqui evita uma query inútil para os demais).
+  const [participantes, codigoConvite] = await Promise.all([
+    getParticipantesDoTorneio(id),
+    podeGerirPartidas ? getConviteDoTorneio(id) : Promise.resolve(null),
+  ]);
+
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{titulo}</h1>
-        <p className="text-muted-foreground text-sm">
-          {`Torneio ${LABEL_STATUS[torneio.status]} • vitória ${torneio.pontos_vitoria} · empate ${torneio.pontos_empate} · derrota ${torneio.pontos_derrota}`}
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">{titulo}</h1>
+          <p className="text-muted-foreground text-sm">
+            {`Torneio ${LABEL_STATUS[torneio.status]} • vitória ${torneio.pontos_vitoria} · empate ${torneio.pontos_empate} · derrota ${torneio.pontos_derrota}`}
+          </p>
+        </div>
+        {podeGerirPartidas ? (
+          <Button asChild size="sm">
+            <Link href={`/dashboard/torneios/${id}/partidas/nova`}>
+              Nova partida
+            </Link>
+          </Button>
+        ) : null}
       </header>
 
       <section aria-labelledby="classificacao-titulo" className="flex flex-col gap-4">
@@ -129,6 +152,20 @@ export default async function TorneioPage({
           </h2>
           <StandingsTable linhas={clubes} rotuloLado="Clube" />
         </section>
+      ) : null}
+
+      <ParticipantsSection
+        tournamentId={id}
+        participantes={participantes}
+        userId={user.id}
+        ehDono={ehDono}
+        torneioEncerrado={torneio.status === "encerrado"}
+      />
+
+      {/* Convite: só o dono de torneio aberto gerencia (encerrado não aceita
+          entrada — exibir o link seria um beco sem saída). */}
+      {podeGerirPartidas ? (
+        <InviteSection tournamentId={id} code={codigoConvite} />
       ) : null}
     </main>
   );

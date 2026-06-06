@@ -135,9 +135,48 @@ describe("signup", () => {
       options: {
         // celularBR normaliza para dígitos: o trigger grava o perfil com isso.
         data: { nome: "Maria Silva", celular: "11912345678" },
-        emailRedirectTo: "http://localhost:3000/auth/confirm?next=/dashboard",
+        emailRedirectTo: "http://localhost:3000/auth/confirm?next=%2Fdashboard",
       },
     })
+  })
+
+  it("redirectTo interno (ex.: convite) viaja no next do e-mail de confirmação", async () => {
+    const { signUpSpy } = montarAuthClient({ signUp: { session: null } })
+    await signup(
+      {},
+      formData({ ...CADASTRO_OK, redirectTo: "/convite/abc123def456ghj7" })
+    )
+    expect(signUpSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          emailRedirectTo:
+            "http://localhost:3000/auth/confirm?next=%2Fconvite%2Fabc123def456ghj7",
+        }),
+      })
+    )
+  })
+
+  it("redirectTo externo é sanitizado para /dashboard (anti open-redirect)", async () => {
+    const { signUpSpy } = montarAuthClient({ signUp: { session: null } })
+    await signup(
+      {},
+      formData({ ...CADASTRO_OK, redirectTo: "https://evil.example/phish" })
+    )
+    expect(signUpSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          emailRedirectTo:
+            "http://localhost:3000/auth/confirm?next=%2Fdashboard",
+        }),
+      })
+    )
+  })
+
+  it("com sessão, redirectTo interno é o destino do redirect", async () => {
+    montarAuthClient({ signUp: { session: { access_token: "t" } } })
+    await expect(
+      signup({}, formData({ ...CADASTRO_OK, redirectTo: "/convite/abc123def456ghj7" }))
+    ).rejects.toThrow("NEXT_REDIRECT:/convite/abc123def456ghj7")
   })
 
   it("sem sessão (confirmação ligada) retorna estado de sucesso, sem redirect", async () => {

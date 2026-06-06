@@ -15,7 +15,13 @@ export const metadata: Metadata = {
   title: "Criar conta · Arena",
 };
 
-export default function CadastroPage() {
+export default async function CadastroPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ redirectTo?: string }>;
+}) {
+  const { redirectTo } = await searchParams;
+
   return (
     <main className="flex flex-1 items-center justify-center px-6 py-16">
       <Card className="w-full max-w-sm">
@@ -26,12 +32,19 @@ export default function CadastroPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <SignupForm />
+          <SignupForm redirectTo={redirectTo} />
         </CardContent>
         <CardFooter>
           <p className="text-muted-foreground text-sm">
             Já tem conta?{" "}
-            <Link href="/login" className="underline underline-offset-4">
+            <Link
+              href={
+                redirectTo
+                  ? `/login?redirectTo=${encodeURIComponent(redirectTo)}`
+                  : "/login"
+              }
+              className="underline underline-offset-4"
+            >
               Entrar
             </Link>
           </p>

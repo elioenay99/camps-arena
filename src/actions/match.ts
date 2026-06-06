@@ -183,6 +183,29 @@ export async function createMatch(
       }
     }
 
+    // Consentimento: cada participante informado precisa estar na lista de
+    // participantes CONFIRMADOS do torneio (entrou pelo convite). Espelha a
+    // cláusula da policy matches_insert_tournament_owner — aqui a mensagem é
+    // precisa; o banco é a segunda barreira.
+    const informados = [parsed.data.participante1, parsed.data.participante2]
+      .filter((id): id is string => id !== null)
+    if (informados.length > 0) {
+      const { data: confirmados, error: participantesError } = await supabase
+        .from("participants")
+        .select("user_id")
+        .eq("tournament_id", parsed.data.tournamentId)
+        .in("user_id", informados)
+      if (participantesError) {
+        return { error: "Não foi possível criar a partida agora. Tente novamente." }
+      }
+      const confirmadosSet = new Set((confirmados ?? []).map((p) => p.user_id))
+      if (!informados.every((id) => confirmadosSet.has(id))) {
+        return {
+          error: "Selecione apenas participantes confirmados do torneio.",
+        }
+      }
+    }
+
     const { error } = await supabase.from("matches").insert({
       tournament_id: parsed.data.tournamentId,
       participante_1: parsed.data.participante1,
@@ -196,9 +219,11 @@ export async function createMatch(
     return { error: "Não foi possível criar a partida agora. Tente novamente." }
   }
 
-  // redirect() fora do try/catch (lança NEXT_REDIRECT).
+  // redirect() fora do try/catch (lança NEXT_REDIRECT). Destino: a página do
+  // torneio — é onde a partida recém-criada aparece (em aberto).
   revalidatePath("/dashboard")
-  redirect("/dashboard")
+  revalidatePath(`/dashboard/torneios/${parsed.data.tournamentId}`)
+  redirect(`/dashboard/torneios/${parsed.data.tournamentId}`)
 }
 
 export type UpdateMatchTeamsResult =

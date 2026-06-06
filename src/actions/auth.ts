@@ -88,6 +88,11 @@ export async function signup(
   const { nome, email, celular, password } = parsed.data
   const supabase = await createClient()
 
+  // Destino pós-cadastro opcional (ex.: cadastro vindo de /convite/[codigo]
+  // volta ao convite após confirmar o e-mail) — sanitizado contra open-redirect
+  // e propagado pelo `next` do /auth/confirm, que valida de novo.
+  const destino = safeRedirectPath(formData.get("redirectTo"))
+
   let comSessao = false
   try {
     const { data, error } = await supabase.auth.signUp({
@@ -95,7 +100,7 @@ export async function signup(
       password,
       options: {
         data: { nome, celular },
-        emailRedirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/confirm?next=/dashboard`,
+        emailRedirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/confirm?next=${encodeURIComponent(destino)}`,
       },
     })
     if (error) {
@@ -115,7 +120,7 @@ export async function signup(
   }
 
   revalidatePath("/", "layout")
-  redirect("/dashboard")
+  redirect(destino)
 }
 
 /**

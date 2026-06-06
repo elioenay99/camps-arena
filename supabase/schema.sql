@@ -78,6 +78,30 @@ create table if not exists public.teams (
   constraint teams_provider_external_unico unique (provider, external_id)
 );
 
+-- ---------- Tabela: participants (participação CONFIRMADA em torneio) ----------
+-- Linha = participante confirmado; não existe convite "pendente" persistido
+-- (o aceite É a ação de entrar pelo link). PK composta evita duplicata;
+-- cascade: participação não sobrevive ao torneio nem ao usuário.
+create table if not exists public.participants (
+  tournament_id uuid not null references public.tournaments (id) on delete cascade,
+  user_id       uuid not null references public.users (id) on delete cascade,
+  created_at    timestamptz not null default now(),
+  primary key (tournament_id, user_id)
+);
+
+create index if not exists participants_user_id_idx on public.participants (user_id);
+
+-- ---------- Tabela: tournament_invites (código de convite, 1:1) ----------
+-- O código é SEGREDO do dono e por isso mora FORA de `tournaments`: a policy
+-- de SELECT público do torneio vazaria a coluna para qualquer visitante.
+-- PK = tournament_id: regenerar é UPDATE do code (o link antigo morre
+-- atomicamente; o torneio nunca tem dois códigos válidos).
+create table if not exists public.tournament_invites (
+  tournament_id uuid primary key references public.tournaments (id) on delete cascade,
+  code          text not null unique,
+  created_at    timestamptz not null default now()
+);
+
 -- ---------- Tabela: matches ----------
 create table if not exists public.matches (
   id             uuid primary key default gen_random_uuid(),
@@ -255,13 +279,124 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- ---------- Participação: helper anti-recursão de RLS ----------
+-- Usada DENTRO das policies de tournaments/matches. SECURITY DEFINER é
+-- obrigatório: policy de tournaments lendo participants (cuja policy lê
+-- tournaments de volta) dispara "infinite recursion detected in policy" —
+-- como definer (owner), a leitura de participants não reentra nas policies.
+create or replace function public.eh_participante(t_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.participants p
+    where p.tournament_id = t_id
+      and p.user_id = (select auth.uid())
+  );
+$$;
+
+-- ---------- Convite: aceite e preview via SECURITY DEFINER ----------
+-- A RLS de INSERT de participants não consegue validar um segredo que não
+-- está na linha inserida, e o convidado não pode ler tournament_invites.
+-- Estas funções são o ÚNICO caminho do convidado: validam o código e agem
+-- em nome do próprio auth.uid(), nada além.
+
+-- Aceita o convite: exige sessão, código válido e torneio não-encerrado.
+-- Idempotente (on conflict do nothing): reabrir o link não duplica nem falha.
+create or replace function public.aceitar_convite(codigo text)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_tournament uuid;
+  v_status public.tournament_status;
+begin
+  if v_uid is null then
+    raise exception 'Você precisa estar autenticado para aceitar um convite';
+  end if;
+
+  select i.tournament_id, t.status
+    into v_tournament, v_status
+    from public.tournament_invites i
+    join public.tournaments t on t.id = i.tournament_id
+   where i.code = codigo;
+
+  -- Mensagem única: não distingue código inexistente de revogado.
+  if v_tournament is null then
+    raise exception 'Convite inválido ou expirado';
+  end if;
+  if v_status = 'encerrado' then
+    raise exception 'Este torneio está encerrado e não aceita novos participantes';
+  end if;
+
+  insert into public.participants (tournament_id, user_id)
+  values (v_tournament, v_uid)
+  on conflict do nothing;
+
+  return v_tournament;
+end;
+$$;
+
+-- Preview do convite para a página /convite/[codigo]: o torneio pode ser
+-- privado e invisível ao convidado até o aceite — o CÓDIGO é a credencial.
+-- Expõe apenas o mínimo (id, título, status, se já participa); código
+-- inválido devolve zero linhas (mesma resposta que revogado).
+create or replace function public.info_convite(codigo text)
+returns table (
+  tournament_id uuid,
+  titulo text,
+  status public.tournament_status,
+  ja_participa boolean
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    t.id,
+    t.titulo,
+    t.status,
+    exists (
+      select 1 from public.participants p
+      where p.tournament_id = t.id
+        and p.user_id = (select auth.uid())
+    ) as ja_participa
+  from public.tournament_invites i
+  join public.tournaments t on t.id = i.tournament_id
+  where i.code = codigo;
+$$;
+
+-- ---------- GRANTs das funções (CREATE FUNCTION dá EXECUTE a PUBLIC) ----------
+-- eh_participante: as policies de tournaments/matches a avaliam COM O ROLE DA
+-- QUERY (anon/authenticated) — revogar deles quebraria todo SELECT. Revoga-se
+-- PUBLIC e concede-se explicitamente aos dois roles; a exposição via
+-- /rest/v1/rpc resultante é inócua (só responde sobre o PRÓPRIO auth.uid()).
+revoke execute on function public.eh_participante(uuid) from public;
+grant execute on function public.eh_participante(uuid) to anon, authenticated;
+
+-- Convite: só logado (espelha o design — deslogado não vê preview nem aceita;
+-- aceitar_convite já exige auth.uid(), o revoke de anon é defesa em camada).
+revoke execute on function public.aceitar_convite(text) from public, anon;
+grant execute on function public.aceitar_convite(text) to authenticated;
+revoke execute on function public.info_convite(text) from public, anon;
+grant execute on function public.info_convite(text) to authenticated;
+
 -- =====================================================================
 -- Row Level Security
 -- =====================================================================
-alter table public.users       enable row level security;
-alter table public.tournaments enable row level security;
-alter table public.matches     enable row level security;
-alter table public.teams       enable row level security;
+alter table public.users              enable row level security;
+alter table public.tournaments        enable row level security;
+alter table public.matches            enable row level security;
+alter table public.teams              enable row level security;
+alter table public.participants       enable row level security;
+alter table public.tournament_invites enable row level security;
 
 -- ----- users: leitura completa só para logados (protege PII como celular) -----
 drop policy if exists users_select_public on public.users;
@@ -290,14 +425,17 @@ create or replace view public.users_public
 
 grant select on public.users_public to anon, authenticated;
 
--- ----- tournaments: visibilidade por dono/público; escrita restrita ao dono -----
--- SELECT: público vê os públicos; o dono vê também os seus privados.
+-- ----- tournaments: visibilidade por dono/público/participante; escrita do dono -----
+-- SELECT: público vê os públicos; o dono vê os seus privados; o PARTICIPANTE
+-- confirmado vê o torneio mesmo privado (descoberta pós-convite). A checagem
+-- de participação usa eh_participante() (security definer) — ver o comentário
+-- da função: referência direta a participants aqui criaria recursão de policy.
 -- (anon tem auth.uid() nulo → enxerga apenas is_public.)
 drop policy if exists tournaments_select_public on public.tournaments;
 drop policy if exists tournaments_select_visivel on public.tournaments;
 create policy tournaments_select_visivel on public.tournaments
   for select to anon, authenticated
-  using (is_public or created_by = auth.uid());
+  using (is_public or created_by = auth.uid() or public.eh_participante(id));
 
 -- INSERT/UPDATE/DELETE: só o dono. with check impede criar em nome de outro
 -- e transferir a posse num UPDATE.
@@ -344,7 +482,9 @@ create policy matches_select_visivel on public.matches
     exists (
       select 1 from public.tournaments t
       where t.id = tournament_id
-        and (t.is_public or t.created_by = auth.uid())
+        and (t.is_public
+             or t.created_by = auth.uid()
+             or public.eh_participante(t.id))
     )
     or auth.uid() = participante_1
     or auth.uid() = participante_2
@@ -353,8 +493,11 @@ create policy matches_select_visivel on public.matches
 -- INSERT: só o dono do torneio cria partidas nele, e nunca em torneio
 -- encerrado. `<> 'encerrado'` (em vez de `= 'ativo'`) é falha-segura: rascunho
 -- recebe partidas (montagem antes de ativar) e um status futuro não bloqueia
--- silenciosamente. A Server Action createMatch repete a checagem (mensagem
--- precisa); esta policy é a segunda barreira contra POST direto.
+-- silenciosamente. Cada participante informado precisa ser participante
+-- CONFIRMADO do torneio (consentiu via convite) — partidas legadas não são
+-- afetadas (a policy só vale para INSERTs novos). A Server Action createMatch
+-- repete as checagens (mensagem precisa); esta policy é a segunda barreira
+-- contra POST direto.
 drop policy if exists matches_insert_tournament_owner on public.matches;
 create policy matches_insert_tournament_owner on public.matches
   for insert to authenticated
@@ -365,6 +508,16 @@ create policy matches_insert_tournament_owner on public.matches
         and t.created_by = auth.uid()
         and t.status <> 'encerrado'
     )
+    and (participante_1 is null or exists (
+      select 1 from public.participants p
+      where p.tournament_id = matches.tournament_id
+        and p.user_id = matches.participante_1
+    ))
+    and (participante_2 is null or exists (
+      select 1 from public.participants p
+      where p.tournament_id = matches.tournament_id
+        and p.user_id = matches.participante_2
+    ))
   );
 
 drop policy if exists matches_update_participant on public.matches;
@@ -388,6 +541,109 @@ create policy matches_update_tournament_owner on public.matches
     )
   )
   with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+-- ----- participants: leitura acompanha o torneio; entrada controlada -----
+-- SELECT: quem enxerga o torneio enxerga a lista (página do torneio, selects
+-- de nova partida). A subquery espelha tournaments_select_visivel; a cláusula
+-- de participação usa eh_participante() (definer) — sem recursão.
+drop policy if exists participants_select_visivel on public.participants;
+create policy participants_select_visivel on public.participants
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and (t.is_public
+             or t.created_by = auth.uid()
+             or public.eh_participante(t.id))
+    )
+  );
+
+-- INSERT direto: SÓ o dono inserindo A SI MESMO (entrada automática ao criar
+-- o torneio / botão "Participar"). Convidado NUNCA insere direto — entra pela
+-- função aceitar_convite (security definer), que valida o código secreto.
+-- Torneio encerrado não recebe ninguém (espelha a regra do aceite).
+drop policy if exists participants_insert_owner_self on public.participants;
+create policy participants_insert_owner_self on public.participants
+  for insert to authenticated
+  with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+        and t.status <> 'encerrado'
+    )
+  );
+
+-- DELETE: o próprio participante sai; o dono remove qualquer um. Partidas já
+-- criadas NÃO são tocadas (histórico) — o removido só deixa de ser elegível
+-- para novas partidas. Sem policy de UPDATE: não há coluna mutável.
+drop policy if exists participants_delete_self_or_owner on public.participants;
+create policy participants_delete_self_or_owner on public.participants
+  for delete to authenticated
+  using (
+    user_id = auth.uid()
+    or exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+-- ----- tournament_invites: TUDO restrito ao dono do torneio -----
+-- O código é o segredo que dá entrada — convidado não lê a tabela (valida o
+-- código apenas via aceitar_convite/info_convite, security definer).
+drop policy if exists tournament_invites_select_owner on public.tournament_invites;
+create policy tournament_invites_select_owner on public.tournament_invites
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+drop policy if exists tournament_invites_insert_owner on public.tournament_invites;
+create policy tournament_invites_insert_owner on public.tournament_invites
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+drop policy if exists tournament_invites_update_owner on public.tournament_invites;
+create policy tournament_invites_update_owner on public.tournament_invites
+  for update to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+drop policy if exists tournament_invites_delete_owner on public.tournament_invites;
+create policy tournament_invites_delete_owner on public.tournament_invites
+  for delete to authenticated
+  using (
     exists (
       select 1 from public.tournaments t
       where t.id = tournament_id

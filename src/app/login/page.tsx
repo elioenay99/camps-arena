@@ -48,7 +48,14 @@ export default async function LoginPage({
         <CardFooter>
           <p className="text-muted-foreground text-sm">
             Ainda não tem conta?{" "}
-            <Link href="/cadastro" className="underline underline-offset-4">
+            <Link
+              href={
+                redirectTo
+                  ? `/cadastro?redirectTo=${encodeURIComponent(redirectTo)}`
+                  : "/cadastro"
+              }
+              className="underline underline-offset-4"
+            >
               Criar conta
             </Link>
           </p>

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { z } from "zod"
 
+import { gerarCodigoConvite } from "@/lib/invite-code"
 import { createClient } from "@/lib/supabase/server"
 import { createTournamentSchema } from "@/schema/tournamentSchema"
 
@@ -58,26 +59,62 @@ export async function createTournament(
     return { error: "Sessão expirada. Entre novamente para criar um torneio." }
   }
 
+  let torneioId: string
   try {
-    const { error } = await supabase.from("tournaments").insert({
-      titulo: parsed.data.titulo,
-      is_public: parsed.data.isPublic,
-      created_by: user.id,
-      // Sempre enviados (defaults do Zod): o default do DDL é só para
-      // torneios legados/escritas administrativas.
-      pontos_vitoria: parsed.data.pontosVitoria,
-      pontos_empate: parsed.data.pontosEmpate,
-      pontos_derrota: parsed.data.pontosDerrota,
-    })
-    if (error) {
-      console.error("createTournament falhou", error.code ?? error.message)
+    const { data: torneio, error } = await supabase
+      .from("tournaments")
+      .insert({
+        titulo: parsed.data.titulo,
+        is_public: parsed.data.isPublic,
+        created_by: user.id,
+        // Sempre enviados (defaults do Zod): o default do DDL é só para
+        // torneios legados/escritas administrativas.
+        pontos_vitoria: parsed.data.pontosVitoria,
+        pontos_empate: parsed.data.pontosEmpate,
+        pontos_derrota: parsed.data.pontosDerrota,
+      })
+      .select("id")
+      .single()
+    if (error || !torneio) {
+      console.error("createTournament falhou", error?.code ?? error?.message)
       return { error: "Não foi possível criar o torneio agora. Tente novamente." }
+    }
+    torneioId = torneio.id
+
+    // Escritas complementares (sem transação via PostgREST): falha aqui NÃO
+    // derruba o torneio já criado — os estados são recuperáveis na UI da
+    // página do torneio ("Participar" / "Gerar link de convite").
+    const { error: participanteError } = await supabase
+      .from("participants")
+      .insert({ tournament_id: torneio.id, user_id: user.id })
+    if (participanteError) {
+      console.error(
+        "createTournament: dono não entrou como participante",
+        participanteError.code ?? participanteError.message
+      )
+    }
+
+    // Colisão do UNIQUE global do code (23505, ~impossível com 80 bits):
+    // um retry com código novo; depois desiste (recuperável na UI).
+    for (let i = 0; i < 2; i++) {
+      const { error: inviteError } = await supabase
+        .from("tournament_invites")
+        .insert({ tournament_id: torneio.id, code: gerarCodigoConvite() })
+      if (!inviteError) break
+      console.error(
+        "createTournament: convite não gerado",
+        inviteError.code ?? inviteError.message
+      )
+      if (inviteError.code !== "23505") break
     }
   } catch {
     return { error: "Não foi possível criar o torneio agora. Tente novamente." }
   }
 
-  // redirect() fora do try/catch (lança NEXT_REDIRECT).
+  // redirect() fora do try/catch (lança NEXT_REDIRECT). Destino: a página do
+  // torneio — é onde estão o link de convite recém-gerado e, se alguma escrita
+  // complementar falhou, os botões de recuperação (Participar / Gerar link).
   revalidatePath("/dashboard")
-  redirect("/dashboard")
+  revalidatePath("/dashboard/torneios")
+  redirect(`/dashboard/torneios/${torneioId}`)
 }

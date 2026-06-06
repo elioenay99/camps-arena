@@ -174,6 +174,62 @@ export interface Database {
           },
         ]
       }
+      participants: {
+        Row: {
+          tournament_id: string
+          user_id: string
+          created_at: string
+        }
+        Insert: {
+          tournament_id: string
+          user_id: string
+          created_at?: string
+        }
+        Update: {
+          tournament_id?: string
+          user_id?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participants_tournament_id_fkey"
+            columns: ["tournament_id"]
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "participants_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tournament_invites: {
+        Row: {
+          tournament_id: string
+          code: string
+          created_at: string
+        }
+        Insert: {
+          tournament_id: string
+          code: string
+          created_at?: string
+        }
+        Update: {
+          tournament_id?: string
+          code?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_invites_tournament_id_fkey"
+            columns: ["tournament_id"]
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       users_public: {
@@ -185,7 +241,25 @@ export interface Database {
         Relationships: []
       }
     }
-    Functions: Record<string, never>
+    Functions: {
+      eh_participante: {
+        Args: { t_id: string }
+        Returns: boolean
+      }
+      aceitar_convite: {
+        Args: { codigo: string }
+        Returns: string
+      }
+      info_convite: {
+        Args: { codigo: string }
+        Returns: {
+          tournament_id: string
+          titulo: string
+          status: TournamentStatus
+          ja_participa: boolean
+        }[]
+      }
+    }
     Enums: {
       tournament_status: TournamentStatus
       match_status: MatchStatus

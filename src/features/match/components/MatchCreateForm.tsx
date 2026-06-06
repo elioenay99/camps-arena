@@ -6,8 +6,7 @@ import { useFormStatus } from "react-dom"
 import { createMatch, type CreateMatchFormState } from "@/actions/match"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import type { ParticipanteDisponivel } from "@/features/match/data/getParticipantesDisponiveis"
-import type { TorneioProprio } from "@/features/tournament/data/getOwnTournaments"
+import type { ParticipanteDoTorneio } from "@/features/tournament/data/getParticipantesDoTorneio"
 
 const initialState: CreateMatchFormState = {}
 
@@ -34,7 +33,7 @@ function ParticipanteSelect({
 }: {
   campo: string
   rotulo: string
-  participantes: ParticipanteDisponivel[]
+  participantes: ParticipanteDoTorneio[]
   erro?: string
 }) {
   return (
@@ -50,7 +49,9 @@ function ParticipanteSelect({
         <option value="">Definir depois</option>
         {participantes.map((p) => (
           <option key={p.id} value={p.id}>
-            {p.nome ?? "Sem nome"}
+            {/* trim||: nome "" ou whitespace também vira "Sem nome" (o
+                trigger handle_new_user grava o metadata cru, sem trim). */}
+            {p.nome?.trim() || "Sem nome"}
           </option>
         ))}
       </select>
@@ -59,42 +60,23 @@ function ParticipanteSelect({
   )
 }
 
+/**
+ * Form de nova partida de UM torneio (rota aninhada): o torneio vem fixo da
+ * página (hidden) e os selects listam SÓ os participantes confirmados dele —
+ * a escolha de torneio acontece antes, no seletor /dashboard/partidas/nova.
+ */
 export function MatchCreateForm({
-  torneios,
+  tournamentId,
   participantes,
 }: {
-  torneios: TorneioProprio[]
-  participantes: ParticipanteDisponivel[]
+  tournamentId: string
+  participantes: ParticipanteDoTorneio[]
 }) {
   const [state, formAction] = useActionState(createMatch, initialState)
 
   return (
     <form action={formAction} className="grid gap-4" noValidate>
-      <div className="grid gap-2">
-        <Label htmlFor="tournamentId">Torneio</Label>
-        <select
-          id="tournamentId"
-          name="tournamentId"
-          defaultValue={torneios.length === 1 ? torneios[0].id : ""}
-          className={selectClassName}
-          aria-invalid={Boolean(state.fieldErrors?.tournamentId)}
-          required
-        >
-          <option value="" disabled>
-            Selecione um torneio
-          </option>
-          {torneios.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.titulo}
-            </option>
-          ))}
-        </select>
-        {state.fieldErrors?.tournamentId ? (
-          <p className="text-destructive text-sm">
-            {state.fieldErrors.tournamentId[0]}
-          </p>
-        ) : null}
-      </div>
+      <input type="hidden" name="tournamentId" value={tournamentId} />
 
       <ParticipanteSelect
         campo="participante1"
@@ -109,9 +91,9 @@ export function MatchCreateForm({
         erro={state.fieldErrors?.participante2?.[0]}
       />
 
-      {state.error ? (
+      {state.error || state.fieldErrors?.tournamentId ? (
         <p className="text-destructive text-sm" role="alert">
-          {state.error}
+          {state.error ?? state.fieldErrors?.tournamentId?.[0]}
         </p>
       ) : null}
 
