@@ -4,7 +4,7 @@
 TBD - created by archiving change add-tournament-ownership. Update Purpose after archive.
 ## Requirements
 ### Requirement: Criação de torneio com dono
-O sistema SHALL permitir que um usuário autenticado crie um torneio via Server Action, validando `titulo`, visibilidade, regras de pontuação (vitória/empate/derrota, inteiros 0–100, coerência `derrota <= empate <= vitoria`) e formato (`avulso` ou `liga`; em liga, a opção `ida_e_volta`) com Zod antes de gravar. O torneio criado SHALL registrar como dono (`created_by`) o usuário da sessão, definido no servidor — a aplicação NÃO SHALL confiar em um dono informado pelo cliente. Torneio de formato `liga` SHALL nascer com `status = 'rascunho'` (período de adesão por convite); torneio `avulso` SHALL continuar nascendo `ativo`. A action SHALL exigir sessão válida (defesa em profundidade além da RLS). Após gravar o torneio, a action SHALL inserir o dono como participante e gerar o código de convite (gerado no servidor); falha nessas escritas complementares NÃO SHALL impedir a criação do torneio (estados recuperáveis pela UI: "Participar" e "Gerar link").
+O sistema SHALL permitir que um usuário autenticado crie um torneio via Server Action, validando `titulo`, visibilidade, regras de pontuação (vitória/empate/derrota, inteiros 0–100, coerência `derrota <= empate <= vitoria`) e formato (`avulso`, `liga` ou `mata_mata`; em liga e mata-mata, a opção `ida_e_volta`; em mata-mata, a opção `terceiro_lugar`) com Zod antes de gravar. O torneio criado SHALL registrar como dono (`created_by`) o usuário da sessão, definido no servidor — a aplicação NÃO SHALL confiar em um dono informado pelo cliente. Torneios de formato `liga` e `mata_mata` SHALL nascer com `status = 'rascunho'` (período de adesão por convite); torneio `avulso` SHALL continuar nascendo `ativo`. `ida_e_volta` e `terceiro_lugar` SHALL ser normalizados no servidor para `false` nos formatos em que não se aplicam. A action SHALL exigir sessão válida (defesa em profundidade além da RLS). Após gravar o torneio, a action SHALL inserir o dono como participante e gerar o código de convite (gerado no servidor); falha nessas escritas complementares NÃO SHALL impedir a criação do torneio (estados recuperáveis pela UI: "Participar" e "Gerar link").
 
 #### Scenario: Torneio criado pelo dono
 - **WHEN** um usuário autenticado submete um título válido
@@ -46,11 +46,19 @@ O sistema SHALL permitir que um usuário autenticado crie um torneio via Server 
 - **WHEN** o usuário cria um torneio escolhendo o formato liga (ida simples ou ida-e-volta)
 - **THEN** o torneio é gravado com `formato = 'liga'`, a opção `ida_e_volta` escolhida e `status = 'rascunho'`
 
+#### Scenario: Mata-mata nasce em rascunho com as opções escolhidas
+- **WHEN** o usuário cria um torneio escolhendo o formato mata-mata (com ou sem ida-e-volta e 3º lugar)
+- **THEN** o torneio é gravado com `formato = 'mata_mata'`, as opções escolhidas e `status = 'rascunho'`
+
+#### Scenario: Opções de formato não se aplicam fora dele
+- **WHEN** a criação chega com `terceiro_lugar` marcado num formato que não é mata-mata (ou `ida_e_volta` em avulso)
+- **THEN** o servidor grava `false` para a opção inaplicável
+
 #### Scenario: Avulso preserva o comportamento atual
-- **WHEN** o usuário cria um torneio sem escolher liga (default avulso)
+- **WHEN** o usuário cria um torneio sem escolher formato (default avulso)
 - **THEN** o torneio é gravado com `formato = 'avulso'` e `status = 'ativo'`, como antes
 
 #### Scenario: Formato inválido é rejeitado
-- **WHEN** a criação é submetida com um formato fora de avulso/liga
+- **WHEN** a criação é submetida com um formato fora de avulso/liga/mata-mata
 - **THEN** a action retorna erro por campo e nenhuma escrita é feita
 

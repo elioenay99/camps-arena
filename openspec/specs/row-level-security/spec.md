@@ -30,7 +30,7 @@ O sistema SHALL permitir SELECT em uma partida quando o torneio dela for visíve
 - **THEN** a partida é retornada
 
 ### Requirement: Escrita restrita ao dono da partida
-O sistema SHALL permitir UPDATE em uma partida para o usuário autenticado que é um dos participantes daquela partida OU para o dono do torneio da partida. Um trigger SHALL garantir que (a) a coluna `status` só mude quando o autor é o dono do torneio (`service_role` isento) e (b) o placar de partida `encerrada` não mude para nenhum papel, exceto `service_role`.
+O sistema SHALL permitir UPDATE em uma partida para o usuário autenticado que é um dos participantes daquela partida OU para o dono do torneio da partida. Triggers SHALL garantir que (a) a coluna `status` só mude quando o autor é o dono do torneio (`service_role` isento); (b) o placar de partida `encerrada` não mude para nenhum papel, exceto `service_role`; (c) `participante_1/2`, `tournament_id`, `rodada`, `posicao` e `perna` sejam imutáveis após o INSERT (exceto `service_role`); e (d) em torneio `mata_mata`, o encerramento exija resultado decisivo e a reabertura seja bloqueada com fase posterior gerada ou em partida-bye (trigger `valida_resultado_mata_mata`).
 
 #### Scenario: Participante atualiza placar
 - **WHEN** um participante autenticado da partida envia um UPDATE de placar em partida não-encerrada
@@ -51,6 +51,14 @@ O sistema SHALL permitir UPDATE em uma partida para o usuário autenticado que �
 #### Scenario: Placar de encerrada bloqueado no banco
 - **WHEN** qualquer usuário (exceto `service_role`) tenta alterar placar de partida encerrada
 - **THEN** o trigger bloqueia a operação
+
+#### Scenario: Empate decisivo bloqueado no banco
+- **WHEN** um UPDATE direto tenta encerrar jogo decisivo de mata-mata sem vencedor (jogo único empatado; volta com agregado igual; volta antes da ida)
+- **THEN** o trigger `valida_resultado_mata_mata` rejeita a operação
+
+#### Scenario: Reabertura pós-avanço bloqueada no banco
+- **WHEN** um UPDATE direto tenta reabrir partida de mata-mata com fase posterior existente ou partida-bye
+- **THEN** o trigger rejeita a operação
 
 ### Requirement: Visibilidade de torneios por dono e público
 O sistema SHALL permitir SELECT em um torneio quando ele for público (`is_public`), quando o solicitante autenticado for o dono (`created_by = auth.uid()`) ou quando o solicitante for PARTICIPANTE do torneio (avaliado via função `eh_participante()` `SECURITY DEFINER`, que lê `participants` sem reentrar nas policies — evita recursão). Torneios privados de terceiros sem participação NÃO SHALL ser visíveis.
@@ -87,7 +95,7 @@ O sistema SHALL permitir INSERT de torneio apenas quando `created_by` for o pró
 - **THEN** a política RLS rejeita a operação
 
 ### Requirement: Criação de partida restrita ao dono do torneio
-O sistema SHALL permitir INSERT em `matches` apenas quando o usuário autenticado for o dono (`created_by`) do torneio referenciado em `tournament_id`, o torneio não estiver `encerrado`, cada participante informado (não nulo) for participante confirmado do torneio em `participants` E o formato for respeitado: em torneio `avulso`, INSERT livre dessas condições; em torneio `liga`, apenas INSERT com `rodada` preenchida (caminho da geração da tabela — partida manual sem rodada é barrada). As demais operações de escrita não cobertas por policy permanecem negadas.
+O sistema SHALL permitir INSERT em `matches` apenas quando o usuário autenticado for o dono (`created_by`) do torneio referenciado em `tournament_id`, o torneio não estiver `encerrado`, cada participante informado (não nulo) for participante confirmado do torneio em `participants` E o formato for respeitado: em torneio `avulso`, INSERT livre dessas condições; em formato GERADO (`liga`, `mata_mata`), apenas INSERT com `rodada` preenchida (caminho da geração de tabela/chave — partida manual sem rodada é barrada). As demais operações de escrita não cobertas por policy permanecem negadas.
 
 #### Scenario: Dono cria partida no próprio torneio
 - **WHEN** o dono de um torneio avulso não encerrado insere uma partida com participantes do torneio (ou nulos)
@@ -105,12 +113,12 @@ O sistema SHALL permitir INSERT em `matches` apenas quando o usuário autenticad
 - **WHEN** um INSERT direto referencia como participante um usuário que não está em `participants` do torneio
 - **THEN** a política RLS rejeita a operação
 
-#### Scenario: Geração da liga passa pela policy
-- **WHEN** o dono insere as partidas geradas (com `rodada`) numa liga em rascunho
+#### Scenario: Geração de liga e de chave passam pela policy
+- **WHEN** o dono insere as partidas geradas (com `rodada`) numa liga ou mata-mata em rascunho, ou avança a fase de um mata-mata ativo
 - **THEN** a inserção é aceita
 
-#### Scenario: Partida manual em liga é barrada no banco
-- **WHEN** um INSERT direto sem `rodada` é tentado em torneio de formato liga
+#### Scenario: Partida manual em formato gerado é barrada no banco
+- **WHEN** um INSERT direto sem `rodada` é tentado em torneio de formato liga ou mata-mata
 - **THEN** a política RLS rejeita a operação
 
 ### Requirement: Políticas de participants
@@ -118,7 +126,9 @@ O sistema SHALL permitir SELECT em `participants` quando o torneio
 correspondente for visível ao solicitante; INSERT direto apenas para o DONO do
 torneio inserindo a si mesmo (`user_id = auth.uid()`) — convidados entram
 exclusivamente pela função `aceitar_convite`; DELETE para o próprio
-participante (sair) ou para o dono do torneio (remover). UPDATE NÃO SHALL ser
+participante (sair) ou para o dono do torneio (remover), EXCETO em torneio
+`mata_mata` com `status = 'ativo'` (a chave em andamento depende de cada
+participante — ver capability `knockout-format`). UPDATE NÃO SHALL ser
 permitido.
 
 #### Scenario: Lista visível junto com o torneio
@@ -130,8 +140,12 @@ permitido.
 - **THEN** a política RLS rejeita a operação
 
 #### Scenario: Sair e remover cobertos por DELETE
-- **WHEN** o próprio participante (ou o dono do torneio) executa DELETE da linha
+- **WHEN** o próprio participante (ou o dono do torneio) executa DELETE da linha em torneio que não é mata-mata ativo
 - **THEN** a operação é aceita; para qualquer outro usuário é rejeitada
+
+#### Scenario: Mata-mata ativo bloqueia DELETE no banco
+- **WHEN** um DELETE direto em `participants` referencia torneio mata-mata com status ativo
+- **THEN** a política RLS rejeita a operação, mesmo para o dono ou o próprio participante
 
 ### Requirement: Políticas de tournament_invites
 O sistema SHALL restringir TODAS as operações em `tournament_invites` ao dono
@@ -150,13 +164,14 @@ direta da tabela pelo convidado (a validação do código ocorre nas funções
 ### Requirement: Funções SECURITY DEFINER de convite
 O sistema SHALL definir as funções `eh_participante(uuid)`, `aceitar_convite(text)` e `info_convite(text)` como `SECURITY DEFINER` com `search_path = ''`.
 `aceitar_convite` SHALL exigir usuário autenticado, validar o código, rejeitar
-torneio `encerrado`, rejeitar liga já iniciada (`formato = 'liga'` com
-`status <> 'rascunho'`) e inserir SOMENTE o próprio `auth.uid()` de forma
-idempotente. `info_convite` SHALL expor apenas dados mínimos do torneio
-(id, título, status, formato, se já participa) a partir de um código válido.
-A recriação das funções SHALL re-aplicar REVOKE/GRANT explícitos (CREATE
-FUNCTION concede EXECUTE a PUBLIC): `eh_participante` para anon+authenticated;
-funções de convite apenas para authenticated.
+torneio `encerrado`, rejeitar formato gerado já iniciado (`formato` em
+`('liga', 'mata_mata')` com `status <> 'rascunho'`) e inserir SOMENTE o
+próprio `auth.uid()` de forma idempotente. `info_convite` SHALL expor apenas
+dados mínimos do torneio (id, título, status, formato, se já participa) a
+partir de um código válido. A recriação das funções SHALL re-aplicar
+REVOKE/GRANT explícitos (CREATE FUNCTION concede EXECUTE a PUBLIC):
+`eh_participante` para anon+authenticated; funções de convite apenas para
+authenticated.
 
 #### Scenario: Aceite sem sessão é rejeitado
 - **WHEN** `aceitar_convite` é chamada sem usuário autenticado
@@ -172,6 +187,10 @@ funções de convite apenas para authenticated.
 
 #### Scenario: Liga iniciada rejeita aceite no banco
 - **WHEN** `aceitar_convite` é chamada com código de liga cujo status não é `rascunho`
+- **THEN** a função falha com mensagem clara e nada é inserido
+
+#### Scenario: Mata-mata iniciado rejeita aceite no banco
+- **WHEN** `aceitar_convite` é chamada com código de mata-mata cujo status não é `rascunho`
 - **THEN** a função falha com mensagem clara e nada é inserido
 
 #### Scenario: Grants re-aplicados na recriação
