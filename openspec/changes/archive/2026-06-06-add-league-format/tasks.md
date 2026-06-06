@@ -85,6 +85,6 @@
 - [x] 8.2 Workflow adversarial multi-lente (RLS/integridade, motor/matemática,
       Next/Server Actions, UX/pt-BR) + juiz; aplicar must_fix/should_fix
 - [x] 8.3 Gates: `pnpm typecheck` + `pnpm lint` + `pnpm test` + `pnpm build`
-- [ ] 8.4 Commits (proposal / impl / archive), push, CI verde
-- [ ] 8.5 `openspec archive add-league-format`; atualizar memória e validar
+- [x] 8.4 Commits (proposal / impl / archive), push, CI verde
+- [x] 8.5 `openspec archive add-league-format`; atualizar memória e validar
       que a seção 9 das pendências está completa
