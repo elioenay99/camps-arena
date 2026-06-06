@@ -4,11 +4,19 @@
 TBD - created by archiving change add-tournament-ownership. Update Purpose after archive.
 ## Requirements
 ### Requirement: Criação de torneio com dono
-O sistema SHALL permitir que um usuário autenticado crie um torneio via Server Action, validando `titulo`, visibilidade e regras de pontuação (vitória/empate/derrota, inteiros 0–100, coerência `derrota <= empate <= vitoria`) com Zod antes de gravar. O torneio criado SHALL registrar como dono (`created_by`) o usuário da sessão, definido no servidor — a aplicação NÃO SHALL confiar em um dono informado pelo cliente. A action SHALL exigir sessão válida (defesa em profundidade além da RLS).
+O sistema SHALL permitir que um usuário autenticado crie um torneio via Server Action, validando `titulo`, visibilidade e regras de pontuação (vitória/empate/derrota, inteiros 0–100, coerência `derrota <= empate <= vitoria`) com Zod antes de gravar. O torneio criado SHALL registrar como dono (`created_by`) o usuário da sessão, definido no servidor — a aplicação NÃO SHALL confiar em um dono informado pelo cliente. A action SHALL exigir sessão válida (defesa em profundidade além da RLS). Após gravar o torneio, a action SHALL inserir o dono como participante e gerar o código de convite (gerado no servidor); falha nessas escritas complementares NÃO SHALL impedir a criação do torneio (estados recuperáveis pela UI: "Participar" e "Gerar link").
 
 #### Scenario: Torneio criado pelo dono
 - **WHEN** um usuário autenticado submete um título válido
-- **THEN** o torneio é gravado com `created_by` igual ao id da sessão e o usuário é levado ao painel
+- **THEN** o torneio é gravado com `created_by` igual ao id da sessão e o usuário é levado à página do torneio (onde estão o link de convite e, em caso de falha complementar, os controles de recuperação)
+
+#### Scenario: Dono nasce participante com convite pronto
+- **WHEN** a criação conclui sem falhas
+- **THEN** o dono consta em `participants` e o torneio possui código de convite
+
+#### Scenario: Falha complementar não perde o torneio
+- **WHEN** o INSERT do participante ou do convite falha após o torneio ser gravado
+- **THEN** o torneio permanece criado e a UI permite completar (participar / gerar link)
 
 #### Scenario: Pontuação customizada é gravada
 - **WHEN** o usuário submete vitória/empate/derrota customizados e coerentes
