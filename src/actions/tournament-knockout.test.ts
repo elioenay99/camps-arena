@@ -1,0 +1,889 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }))
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+// randInt determinístico: Fisher-Yates com j = randInt(i+1) = i (sem troca) =
+// identidade. Permite asserir o payload EXATO do INSERT — a única fonte de
+// aleatoriedade das actions é esse gerador injetado.
+vi.mock("@/lib/rand", () => ({ randIntCrypto: (n: number) => n - 1 }))
+
+import { revalidatePath } from "next/cache"
+
+import { avancarFase, iniciarMataMata } from "@/actions/tournaments"
+import { MATA_MATA_MAX_PARTICIPANTES } from "@/features/knockout/gerarChaveMataMata"
+import { createClient } from "@/lib/supabase/server"
+
+const mockCreateClient = vi.mocked(createClient)
+const mockRevalidate = vi.mocked(revalidatePath)
+
+const TORNEIO = "11111111-1111-4111-8111-111111111111"
+const DONO = "22222222-2222-4222-8222-222222222222"
+
+/** Ids com ordem de code-point conhecida (a..f) para asserções da chave. */
+const A = "aaaaaaaa-0000-4000-8000-000000000000"
+const B = "bbbbbbbb-0000-4000-8000-000000000000"
+const C = "cccccccc-0000-4000-8000-000000000000"
+const D = "dddddddd-0000-4000-8000-000000000000"
+
+interface PartidaInserida {
+  tournament_id: string
+  participante_1: string
+  participante_2: string | null
+  rodada: number
+  posicao: number
+  perna: number | null
+  status?: string
+}
+
+interface PartidaPersistida {
+  rodada: number | null
+  posicao: number | null
+  perna: number | null
+  participante_1: string | null
+  participante_2: string | null
+  placar_1: number
+  placar_2: number
+  status: string
+}
+
+interface Cenario {
+  user?: { id: string } | null
+  authError?: boolean
+  /** Lookup do torneio (dono + mata_mata + estado). */
+  torneio?:
+    | { id: string; ida_e_volta: boolean; terceiro_lugar: boolean }
+    | null
+  torneioError?: boolean
+  /** Partidas com rodada já existentes (detecção de chave gerada). */
+  jaGeradas?: boolean
+  geradasError?: boolean
+  /** user_ids confirmados devolvidos por participants. */
+  confirmados?: string[]
+  participantesError?: boolean
+  insertError?: boolean
+  /** Código do erro de insert (23505 = corrida; default 42501 = rls). */
+  insertCode?: string
+  /** Resultado do UPDATE de promoção. */
+  updateData?: { id: string }[] | null
+  updateError?: boolean
+  /** Partidas persistidas devolvidas no avancarFase (select da chave atual). */
+  partidas?: PartidaPersistida[] | null
+  partidasError?: boolean
+}
+
+/**
+ * Cliente falso espelhando as interações das duas actions:
+ *  - tournaments select: eq(id).eq(created_by).eq(formato).eq(status) —
+ *    spies provam propriedade/formato/estado por FILTRO.
+ *  - matches select com .not('rodada','is',null).limit(1) → detecção de retry
+ *    (iniciarMataMata); o mesmo from('matches').select(...).not(...) sem limit
+ *    devolve a chave persistida no avancarFase. Distinguimos pela presença de
+ *    `partidas` no cenário (avancarFase) vs `jaGeradas` (iniciarMataMata).
+ *  - participants select: eq(tournament_id) — elenco confirmado.
+ *  - matches insert: payload em lote (a chave / a fase nova).
+ *  - tournaments update: promoção a 'ativo' com filtros + select de confirmação.
+ */
+function montarClient(c: Cenario) {
+  const filtroTorneioSpy = vi.fn()
+  const filtroUpdateSpy = vi.fn()
+  const geradasSpy = vi.fn()
+  const insertSpy = vi.fn(async (rows: PartidaInserida[]) => {
+    void rows
+    return {
+      error: c.insertError
+        ? { message: "boom", code: c.insertCode ?? "42501" }
+        : null,
+    }
+  })
+
+  const cadeiaTorneioSelect = {
+    eq: vi.fn((col: string, val: unknown) => {
+      filtroTorneioSpy("eq", col, val)
+      return cadeiaTorneioSelect
+    }),
+    maybeSingle: vi.fn(async () => ({
+      data: c.torneio ?? null,
+      error: c.torneioError ? { message: "down" } : null,
+    })),
+  }
+
+  // matches select é usado de dois jeitos: com .limit(1) (detecção) e como
+  // promise direta após .not(...) (a chave do avancarFase). A cadeia abaixo é
+  // thenable: `await cadeia` resolve a chave; `.limit(1)` resolve a detecção.
+  const cadeiaMatchesSelect = {
+    eq: vi.fn(() => cadeiaMatchesSelect),
+    not: vi.fn((col: string, op: string, val: unknown) => {
+      geradasSpy(col, op, val)
+      return cadeiaMatchesSelect
+    }),
+    limit: vi.fn(async () => ({
+      data: c.geradasError ? null : c.jaGeradas ? [{ id: "m1" }] : [],
+      error: c.geradasError ? { message: "down" } : null,
+    })),
+    then: (
+      resolve: (v: {
+        data: PartidaPersistida[] | null
+        error: { message: string } | null
+      }) => unknown
+    ) =>
+      resolve({
+        data: c.partidasError ? null : (c.partidas ?? []),
+        error: c.partidasError ? { message: "down" } : null,
+      }),
+  }
+
+  // participants é consultada de DOIS jeitos: iniciarMataMata dá await após
+  // .eq(...) (elenco completo); avancarFase encadeia .eq(...).in(...) (pré-
+  // checagem dos semeados). Cadeia thenable cobre os dois.
+  const respostaParticipantes = () => ({
+    data: c.participantesError
+      ? null
+      : (c.confirmados ?? []).map((id) => ({ user_id: id })),
+    error: c.participantesError ? { message: "down" } : null,
+  })
+  const cadeiaParticipantes = {
+    eq: vi.fn(() => cadeiaParticipantes),
+    in: vi.fn(async (_col: string, ids: string[]) => {
+      const r = respostaParticipantes()
+      return {
+        ...r,
+        // .in filtra de verdade: só os semeados que constam no elenco.
+        data: r.data?.filter((linha) => ids.includes(linha.user_id)) ?? null,
+      }
+    }),
+    then: (
+      resolve: (v: {
+        data: { user_id: string }[] | null
+        error: { message: string } | null
+      }) => unknown
+    ) => resolve(respostaParticipantes()),
+  }
+
+  const cadeiaUpdate = {
+    eq: vi.fn((col: string, val: unknown) => {
+      filtroUpdateSpy("eq", col, val)
+      return cadeiaUpdate
+    }),
+    select: vi.fn(async () => ({
+      data: c.updateError ? null : (c.updateData ?? [{ id: TORNEIO }]),
+      error: c.updateError ? { message: "down" } : null,
+    })),
+  }
+  const updateSpy = vi.fn(() => cadeiaUpdate)
+  const matchesSelectSpy = vi.fn(() => cadeiaMatchesSelect)
+
+  const client = {
+    auth: {
+      getUser: vi.fn(async () => ({
+        data: { user: c.user ?? null },
+        error: c.authError ? { message: "jwt expired" } : null,
+      })),
+    },
+    from: vi.fn((tabela: string) => {
+      if (tabela === "tournaments")
+        return { select: vi.fn(() => cadeiaTorneioSelect), update: updateSpy }
+      if (tabela === "participants")
+        return { select: vi.fn(() => cadeiaParticipantes) }
+      return { select: matchesSelectSpy, insert: insertSpy }
+    }),
+  }
+  mockCreateClient.mockResolvedValue(client as unknown as never)
+  return {
+    insertSpy,
+    updateSpy,
+    filtroTorneioSpy,
+    filtroUpdateSpy,
+    geradasSpy,
+    matchesSelectSpy,
+    fromSpy: client.from,
+  }
+}
+
+/** Monta um FormData de início de mata-mata (campos do painel). */
+function formInicio(campos: {
+  tournamentId?: string
+  modo?: string
+  cabecas?: string[]
+  /** Pares [lado1, lado2] do modo manual — "" vira lado vazio (bye). */
+  slots?: [string, string][]
+}): FormData {
+  const fd = new FormData()
+  if (campos.tournamentId !== undefined)
+    fd.set("tournamentId", campos.tournamentId)
+  if (campos.modo !== undefined) fd.set("modo", campos.modo)
+  for (const cabeca of campos.cabecas ?? []) fd.append("cabecas", cabeca)
+  campos.slots?.forEach(([l1, l2], i) => {
+    fd.set(`slot_${i + 1}_1`, l1)
+    fd.set(`slot_${i + 1}_2`, l2)
+  })
+  return fd
+}
+
+/** Linha encerrada com lado 1 vencendo (ou bye/volta 0x0). */
+function jogada(p: Partial<PartidaPersistida>): PartidaPersistida {
+  return {
+    rodada: 1,
+    posicao: 1,
+    perna: null,
+    participante_1: A,
+    participante_2: B,
+    placar_1: 1,
+    placar_2: 0,
+    status: "encerrada",
+    ...p,
+  }
+}
+
+beforeEach(() => vi.clearAllMocks())
+
+describe("iniciarMataMata", () => {
+  it("FormData sem modo válido rejeita no Zod, sem tocar o banco", async () => {
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "invalido" })
+    )
+    expect(r.error).toMatch(/inválidos/i)
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("sem sessão rejeita sem escrever", async () => {
+    const { insertSpy, updateSpy } = montarClient({ user: null })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toMatch(/autenticado/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("não-dono/alheio/não-rascunho: resposta única via FILTRO, sem escrever", async () => {
+    const { insertSpy, updateSpy, filtroTorneioSpy } = montarClient({
+      user: { id: DONO },
+      torneio: null,
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toBe(
+      "Torneio não encontrado, já iniciado ou você não é o dono dele."
+    )
+    expect(insertSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+    // Propriedade + formato + estado conferidos por FILTRO no servidor.
+    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
+    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
+    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "formato", "mata_mata")
+    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "status", "rascunho")
+  })
+
+  it("erro no lookup do torneio vira mensagem genérica, sem escrever", async () => {
+    const { insertSpy, updateSpy } = montarClient({
+      user: { id: DONO },
+      torneioError: true,
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toMatch(/não foi possível/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("retry idempotente: chave já gerada não insere de novo, só promove", async () => {
+    const { insertSpy, updateSpy, geradasSpy, fromSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      jaGeradas: true,
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r).toEqual({})
+    expect(insertSpy).not.toHaveBeenCalled()
+    // Não consulta participants (não há o que gerar).
+    expect(fromSpy).not.toHaveBeenCalledWith("participants")
+    expect(updateSpy).toHaveBeenCalledWith({ status: "ativo" })
+    // A detecção olha partidas com rodada preenchida.
+    expect(geradasSpy).toHaveBeenCalledWith("rodada", "is", null)
+  })
+
+  it("erro na detecção de chave gerada vira mensagem genérica, sem escrever", async () => {
+    const { insertSpy, updateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      geradasError: true,
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toMatch(/não foi possível/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("erro na query de participants vira mensagem genérica, sem escrever", async () => {
+    const { insertSpy, updateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      participantesError: true,
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toMatch(/não foi possível/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("menos de 2 participantes rejeita com orientação, sem escrever", async () => {
+    const { insertSpy, updateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A],
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toMatch(/pelo menos 2/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("acima de 32 participantes rejeita, sem escrever", async () => {
+    const muitos = Array.from(
+      { length: MATA_MATA_MAX_PARTICIPANTES + 1 },
+      (_, i) => `${String(i).padStart(8, "0")}-0000-4000-8000-000000000000`
+    )
+    const { insertSpy, updateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: muitos,
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toMatch(/no máximo/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("sorteio N=3: insere bye encerrado + confronto e promove (payload determinístico)", async () => {
+    const { insertSpy, updateSpy, filtroUpdateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      // Desordenados: a action ordena por code-point antes do motor.
+      confirmados: [C, A, B],
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r).toEqual({})
+
+    expect(insertSpy).toHaveBeenCalledTimes(1)
+    const rows = insertSpy.mock.calls[0][0]
+    // Chave de 4 (s=4), 2 slots, 1 bye no slot 1; identidade preserva [A,B,C].
+    expect(rows).toHaveLength(2)
+    // Bye: lado 1 = A, lado 2 nulo, nasce encerrada (memória durável do slot).
+    expect(rows[0]).toEqual({
+      tournament_id: TORNEIO,
+      participante_1: A,
+      participante_2: null,
+      rodada: 1,
+      posicao: 1,
+      perna: null,
+      status: "encerrada",
+    })
+    // Confronto real: B x C, sem status (fica com o default 'agendada').
+    expect(rows[1]).toEqual({
+      tournament_id: TORNEIO,
+      participante_1: B,
+      participante_2: C,
+      rodada: 1,
+      posicao: 2,
+      perna: null,
+    })
+    expect(rows[1]).not.toHaveProperty("status")
+
+    expect(updateSpy).toHaveBeenCalledWith({ status: "ativo" })
+    expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
+    expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
+    expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "status", "rascunho")
+
+    expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
+    expect(mockRevalidate).toHaveBeenCalledWith("/dashboard/torneios")
+    expect(mockRevalidate).toHaveBeenCalledWith(
+      `/dashboard/torneios/${TORNEIO}`
+    )
+  })
+
+  it("potes N=4 com 2 cabeças: todo confronto cruza cabeça × não-cabeça", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D],
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "potes", cabecas: [A, B] })
+    )
+    expect(r).toEqual({})
+    const rows = insertSpy.mock.calls[0][0]
+    expect(rows).toHaveLength(2)
+    const cabecasSet = new Set([A, B])
+    for (const p of rows) {
+      // Exatamente um lado é cabeça (estreia nunca cruza duas cabeças).
+      const c1 = cabecasSet.has(p.participante_1)
+      const c2 = p.participante_2 !== null && cabecasSet.has(p.participante_2)
+      expect(c1).not.toBe(c2)
+    }
+    // Sorteado por potes determinístico: A×C (pos1), B×D (pos2).
+    expect(rows[0]).toMatchObject({
+      participante_1: A,
+      participante_2: C,
+      posicao: 1,
+    })
+    expect(rows[1]).toMatchObject({
+      participante_1: B,
+      participante_2: D,
+      posicao: 2,
+    })
+  })
+
+  it("potes com cabeças != metade rejeita (motor exige metade exata)", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D],
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "potes", cabecas: [A] })
+    )
+    expect(r.error).toMatch(/metade/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("potes com N=6 (fora de 4/8/16/32) rejeita, sem escrever", async () => {
+    const E = "eeeeeeee-0000-4000-8000-000000000000"
+    const F = "ffffffff-0000-4000-8000-000000000000"
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D, E, F],
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({
+        tournamentId: TORNEIO,
+        modo: "potes",
+        cabecas: [A, B, C],
+      })
+    )
+    expect(r.error).toMatch(/4, 8, 16, 32/)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("potes com cabeça fora da lista de participantes rejeita", async () => {
+    const FORA = "ffffffff-0000-4000-8000-000000000000"
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D],
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({
+        tournamentId: TORNEIO,
+        modo: "potes",
+        cabecas: [A, FORA],
+      })
+    )
+    expect(r.error).toMatch(/fora da lista/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("potes com cabeça repetida rejeita", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D],
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({
+        tournamentId: TORNEIO,
+        modo: "potes",
+        cabecas: [A, A],
+      })
+    )
+    expect(r.error).toMatch(/repetida/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("manual com partição válida: insere os confrontos do form e promove", async () => {
+    const { insertSpy, updateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D],
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({
+        tournamentId: TORNEIO,
+        modo: "manual",
+        slots: [
+          [A, D],
+          [B, C],
+        ],
+      })
+    )
+    expect(r).toEqual({})
+    const rows = insertSpy.mock.calls[0][0]
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({
+      participante_1: A,
+      participante_2: D,
+      posicao: 1,
+    })
+    expect(rows[1]).toMatchObject({
+      participante_1: B,
+      participante_2: C,
+      posicao: 2,
+    })
+    expect(updateSpy).toHaveBeenCalledWith({ status: "ativo" })
+  })
+
+  it("manual com partição inválida (participante de fora) rejeita, sem escrever", async () => {
+    const FORA = "ffffffff-0000-4000-8000-000000000000"
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D],
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({
+        tournamentId: TORNEIO,
+        modo: "manual",
+        slots: [
+          [A, FORA],
+          [B, C],
+        ],
+      })
+    )
+    expect(r.error).toMatch(/somente eles|confronto/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("23505 no INSERT da chave vira mensagem 'já foi gerada'", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { updateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D],
+      insertError: true,
+      insertCode: "23505",
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toMatch(/já foi gerada/i)
+    expect(updateSpy).not.toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
+
+  it("erro genérico no INSERT da chave vira mensagem genérica e NÃO promove", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { updateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D],
+      insertError: true,
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toMatch(/não foi possível/i)
+    expect(updateSpy).not.toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
+
+  it("promoção sem linha afetada (corrida/RLS) pede recarga e não revalida", async () => {
+    montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D],
+      updateData: [],
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toMatch(/alterado/i)
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it("falha na promoção (erro do update) vira mensagem genérica", async () => {
+    montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      confirmados: [A, B, C, D],
+      updateError: true,
+    })
+    const r = await iniciarMataMata(
+      {},
+      formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
+    )
+    expect(r.error).toMatch(/não foi possível/i)
+  })
+})
+
+describe("avancarFase", () => {
+  it("uuid inválido rejeita sem tocar o banco", async () => {
+    const r = await avancarFase("nao-uuid")
+    expect(r).toEqual({ ok: false, error: "Torneio inválido." })
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("sem sessão rejeita", async () => {
+    const { insertSpy } = montarClient({ user: null })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/autenticado/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("torneio filtrado por dono + mata_mata + ATIVO: resposta única, sem escrever", async () => {
+    const { insertSpy, filtroTorneioSpy } = montarClient({
+      user: { id: DONO },
+      torneio: null,
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r).toEqual({
+      ok: false,
+      error: "Torneio não encontrado, não iniciado ou você não é o dono dele.",
+    })
+    expect(insertSpy).not.toHaveBeenCalled()
+    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
+    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
+    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "formato", "mata_mata")
+    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "status", "ativo")
+  })
+
+  it("chave não gerada (0 partidas) vira erro próprio, sem escrever", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [],
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/ainda não foi gerada/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("fase incompleta vira a mensagem do motor (sem vencedor), sem escrever", async () => {
+    // Chave de 4: slot 1 encerrado, slot 2 ainda em andamento → sem vencedor.
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [
+        jogada({ posicao: 1, participante_1: A, participante_2: B }),
+        jogada({
+          posicao: 2,
+          participante_1: C,
+          participante_2: D,
+          status: "em_andamento",
+        }),
+      ],
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/sem vencedor/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("chave de 4 encerrada gera a final com os vencedores certos", async () => {
+    const { insertSpy, updateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [
+        jogada({ posicao: 1, participante_1: A, participante_2: B }), // A vence
+        jogada({ posicao: 2, participante_1: C, participante_2: D }), // C vence
+      ],
+      confirmados: [A, B, C, D],
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r).toEqual({ ok: true })
+    const rows = insertSpy.mock.calls[0][0]
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      tournament_id: TORNEIO,
+      rodada: 2,
+      posicao: 1,
+      perna: null,
+      participante_1: A,
+      participante_2: C,
+    })
+    // avancarFase NÃO promove status (já está ativo).
+    expect(updateSpy).not.toHaveBeenCalled()
+    expect(mockRevalidate).toHaveBeenCalledWith(
+      `/dashboard/torneios/${TORNEIO}`
+    )
+  })
+
+  it("semifinais + terceiro_lugar gera final E disputa de 3º com os perdedores", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: true },
+      partidas: [
+        jogada({ posicao: 1, participante_1: A, participante_2: B }), // A vence, B perde
+        jogada({ posicao: 2, participante_1: C, participante_2: D }), // C vence, D perde
+      ],
+      confirmados: [A, B, C, D],
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r).toEqual({ ok: true })
+    const rows = insertSpy.mock.calls[0][0]
+    expect(rows).toHaveLength(2)
+    const final = rows.find((p) => p.posicao === 1)
+    const terceiro = rows.find((p) => p.posicao === 2)
+    expect(final).toMatchObject({ participante_1: A, participante_2: C })
+    // 3º lugar reúne os perdedores das semis (jogo único).
+    expect(terceiro).toMatchObject({
+      rodada: 2,
+      perna: null,
+      participante_1: B,
+      participante_2: D,
+    })
+  })
+
+  it("final já disputada vira 'já está decidido', sem escrever", async () => {
+    // Chave de 2: a 1ª fase JÁ é a final encerrada → nada a gerar.
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [
+        jogada({ rodada: 1, posicao: 1, participante_1: A, participante_2: B }),
+      ],
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/já está decidido/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("23505 no INSERT da fase vira 'já foi avançada'", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [
+        jogada({ posicao: 1, participante_1: A, participante_2: B }),
+        jogada({ posicao: 2, participante_1: C, participante_2: D }),
+      ],
+      confirmados: [A, B, C, D],
+      insertError: true,
+      insertCode: "23505",
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/já foi avançada/i)
+    expect(insertSpy).toHaveBeenCalledTimes(1)
+    consoleSpy.mockRestore()
+  })
+
+  it("erro genérico no INSERT da fase vira mensagem genérica", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [
+        jogada({ posicao: 1, participante_1: A, participante_2: B }),
+        jogada({ posicao: 2, participante_1: C, participante_2: D }),
+      ],
+      confirmados: [A, B, C, D],
+      insertError: true,
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/não foi possível/i)
+    consoleSpy.mockRestore()
+  })
+
+  it("erro no select das partidas vira mensagem genérica, sem escrever", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidasError: true,
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/não foi possível/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("semeado que sumiu de participants vira mensagem acionável, sem escrever", async () => {
+    // A RLS de INSERT exigiria cada vencedor em participants — sem a
+    // pré-checagem o dono receberia erro genérico permanente (mascarado).
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [
+        jogada({ posicao: 1, participante_1: A, participante_2: B }),
+        jogada({ posicao: 2, participante_1: C, participante_2: D }),
+      ],
+      confirmados: [A, B, D], // C (vencedor do slot 2) saiu por via administrativa
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/não está mais no torneio/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("erro na pré-checagem de participants vira mensagem genérica, sem escrever", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [
+        jogada({ posicao: 1, participante_1: A, participante_2: B }),
+        jogada({ posicao: 2, participante_1: C, participante_2: D }),
+      ],
+      participantesError: true,
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/não foi possível/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("caminho feliz revalida as três rotas", async () => {
+    montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [
+        jogada({ posicao: 1, participante_1: A, participante_2: B }),
+        jogada({ posicao: 2, participante_1: C, participante_2: D }),
+      ],
+      confirmados: [A, B, C, D],
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r).toEqual({ ok: true })
+    expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
+    expect(mockRevalidate).toHaveBeenCalledWith("/dashboard/torneios")
+    expect(mockRevalidate).toHaveBeenCalledWith(
+      `/dashboard/torneios/${TORNEIO}`
+    )
+  })
+})

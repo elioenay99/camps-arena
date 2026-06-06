@@ -151,17 +151,20 @@ describe("createMatch", () => {
     expect(filtroSpy).toHaveBeenCalledWith("neq", "status", "encerrado")
   })
 
-  it("torneio de formato liga é rejeitado com mensagem clara, sem inserir", async () => {
-    const { insertSpy, fromSpy } = montarClient({
-      user: { id: DONO },
-      torneio: { id: TORNEIO, formato: "liga" },
-    })
-    const r = await createMatch({}, formData({ tournamentId: TORNEIO }))
-    expect(r.error).toMatch(/liga.*tabela/i)
-    expect(insertSpy).not.toHaveBeenCalled()
-    // Nem chega à checagem de consentimento.
-    expect(fromSpy).not.toHaveBeenCalledWith("participants")
-  })
+  it.each(["liga", "mata_mata"])(
+    "torneio de formato gerado (%s) é rejeitado com mensagem clara, sem inserir",
+    async (formato) => {
+      const { insertSpy, fromSpy } = montarClient({
+        user: { id: DONO },
+        torneio: { id: TORNEIO, formato },
+      })
+      const r = await createMatch({}, formData({ tournamentId: TORNEIO }))
+      expect(r.error).toMatch(/não aceita partida manual/i)
+      expect(insertSpy).not.toHaveBeenCalled()
+      // Nem chega à checagem de consentimento.
+      expect(fromSpy).not.toHaveBeenCalledWith("participants")
+    }
+  )
 
   it("erro no lookup do torneio vira mensagem genérica, sem inserir", async () => {
     const { insertSpy } = montarClient({ user: { id: DONO }, torneioError: true })
@@ -173,7 +176,7 @@ describe("createMatch", () => {
   it("participante fora da lista de confirmados rejeita, sem inserir", async () => {
     const { insertSpy, participantesSpy } = montarClient({
       user: { id: DONO },
-      torneio: { id: TORNEIO },
+      torneio: { id: TORNEIO, formato: "avulso" },
       confirmados: [P1], // P2 não confirmou
     })
     const r = await createMatch(
@@ -190,7 +193,7 @@ describe("createMatch", () => {
   it("erro na query de participants vira mensagem genérica, sem inserir", async () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
-      torneio: { id: TORNEIO },
+      torneio: { id: TORNEIO, formato: "avulso" },
       participantesError: true,
     })
     const r = await createMatch(
@@ -204,7 +207,7 @@ describe("createMatch", () => {
   it("insere só os campos permitidos e redireciona ao torneio; '' vira null", async () => {
     const { insertSpy, fromSpy } = montarClient({
       user: { id: DONO },
-      torneio: { id: TORNEIO },
+      torneio: { id: TORNEIO, formato: "avulso" },
       confirmados: [P1],
     })
     await expect(
@@ -238,7 +241,7 @@ describe("createMatch", () => {
   it("partida sem participantes é aceita SEM consultar participants", async () => {
     const { insertSpy, fromSpy } = montarClient({
       user: { id: DONO },
-      torneio: { id: TORNEIO },
+      torneio: { id: TORNEIO, formato: "avulso" },
     })
     await expect(
       createMatch({}, formData({ tournamentId: TORNEIO }))
@@ -254,7 +257,7 @@ describe("createMatch", () => {
   it("participantes distintos confirmados passam", async () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
-      torneio: { id: TORNEIO },
+      torneio: { id: TORNEIO, formato: "avulso" },
       confirmados: [P1, P2],
     })
     await expect(
@@ -273,7 +276,7 @@ describe("createMatch", () => {
   it("erro do banco (RLS) vira mensagem genérica, sem redirect", async () => {
     montarClient({
       user: { id: DONO },
-      torneio: { id: TORNEIO },
+      torneio: { id: TORNEIO, formato: "avulso" },
       confirmados: [P1, P2],
       insertError: true,
     })
@@ -284,7 +287,7 @@ describe("createMatch", () => {
   })
 
   it("exceção no insert é tratada (não vira 500), sem redirect", async () => {
-    montarClient({ user: { id: DONO }, torneio: { id: TORNEIO }, insertThrows: true })
+    montarClient({ user: { id: DONO }, torneio: { id: TORNEIO, formato: "avulso" }, insertThrows: true })
     const r = await createMatch({}, formData({ tournamentId: TORNEIO }))
     expect(r).toEqual({
       error: "Não foi possível criar a partida agora. Tente novamente.",

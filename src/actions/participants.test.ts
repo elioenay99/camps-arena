@@ -40,8 +40,8 @@ interface Cenario {
   rpcData?: string | null
   rpcError?: string | null
   rpcThrows?: boolean
-  /** Lookup de tournaments (propriedade por filtro). */
-  torneio?: { id: string } | null
+  /** Lookup de tournaments (propriedade por filtro / gate de chave ativa). */
+  torneio?: { id: string; formato?: string; status?: string } | null
   torneioError?: boolean
   /** Linhas afetadas pelo delete (select de confirmação). */
   deleteLinhas?: Array<{ user_id: string }>
@@ -213,6 +213,29 @@ describe("sairDoTorneio", () => {
     const r = await sairDoTorneio(TORNEIO)
     expect(r.ok).toBe(false)
   })
+
+  it("mata-mata ATIVO congela a saída (chave depende de todos), sem deletar", async () => {
+    // O lookup do gate filtra formato=mata_mata + status=ativo: linha
+    // encontrada = chave em andamento → sair travaria o avanço de fase.
+    const { deleteSpy, filtroSpy } = montarClient({
+      user: { id: ALVO },
+      torneio: { id: TORNEIO },
+    })
+    const r = await sairDoTorneio(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/já começou/i)
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(filtroSpy).toHaveBeenCalledWith("eq", "formato", "mata_mata")
+    expect(filtroSpy).toHaveBeenCalledWith("eq", "status", "ativo")
+  })
+
+  it("erro no lookup do gate vira mensagem genérica, sem deletar", async () => {
+    const { deleteSpy } = montarClient({ user: { id: ALVO }, torneioError: true })
+    const r = await sairDoTorneio(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/não foi possível/i)
+    expect(deleteSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe("removerParticipante", () => {
@@ -260,6 +283,27 @@ describe("removerParticipante", () => {
       ok: false,
       error: "Este usuário não participa do torneio.",
     })
+  })
+
+  it("mata-mata ATIVO congela a remoção (mesmo sendo o dono), sem deletar", async () => {
+    const { deleteSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, formato: "mata_mata", status: "ativo" },
+    })
+    const r = await removerParticipante({ tournamentId: TORNEIO, userId: ALVO })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/já começou/i)
+    expect(deleteSpy).not.toHaveBeenCalled()
+  })
+
+  it("mata-mata em RASCUNHO segue removível (chave ainda não gerada)", async () => {
+    montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, formato: "mata_mata", status: "rascunho" },
+      deleteLinhas: [{ user_id: ALVO }],
+    })
+    const r = await removerParticipante({ tournamentId: TORNEIO, userId: ALVO })
+    expect(r).toEqual({ ok: true })
   })
 })
 

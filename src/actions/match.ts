@@ -182,12 +182,15 @@ export async function createMatch(
         error: "Torneio não encontrado, encerrado ou você não é o dono dele.",
       }
     }
-    // Liga não aceita partida manual: a tabela é gerada ao iniciar (mensagem
-    // precisa — o torneio é do próprio dono, não há oráculo a proteger).
-    // Espelha a cláusula de formato da policy matches_insert_tournament_owner.
-    if (torneio.formato === "liga") {
+    // Formato GERADO (liga, mata-mata) não aceita partida manual: tabela/chave
+    // nascem ao iniciar (mensagem precisa — o torneio é do próprio dono, não
+    // há oráculo a proteger). `!== "avulso"` é falha-seguro: formato futuro
+    // gerado herda o bloqueio. Espelha a cláusula de formato da policy
+    // matches_insert_tournament_owner.
+    if (torneio.formato !== "avulso") {
       return {
-        error: "Torneios de liga não aceitam partida manual — a tabela é gerada ao iniciar o torneio.",
+        error:
+          "Este formato de torneio não aceita partida manual — as partidas são geradas ao iniciar o torneio.",
       }
     }
 
@@ -354,10 +357,12 @@ async function mudarStatusComoDono(
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
-  // Partida (status atual + torneio dela).
+  // Partida (status atual + torneio dela + insumos das regras de mata-mata).
   const { data: match, error: fetchError } = await supabase
     .from("matches")
-    .select("id, status, tournament_id")
+    .select(
+      "id, status, tournament_id, rodada, posicao, perna, participante_1, participante_2, placar_1, placar_2"
+    )
     .eq("id", parsed.data)
     .maybeSingle()
   if (fetchError) {
@@ -375,7 +380,7 @@ async function mudarStatusComoDono(
   }
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
-    .select("id")
+    .select("id, formato")
     .eq("id", match.tournament_id)
     .eq("created_by", user.id)
     .neq("status", "encerrado")
@@ -389,6 +394,15 @@ async function mudarStatusComoDono(
 
   if (!opts.podePartirDe(match.status)) {
     return { ok: false, error: opts.erroTransicao }
+  }
+
+  // Regras de eliminatória (mensagem precisa; o trigger
+  // valida_resultado_mata_mata é a barreira final contra POST direto).
+  if (torneio.formato === "mata_mata" && match.rodada !== null) {
+    const erro = await validarLifecycleMataMata(supabase, match, opts.novoStatus)
+    if (erro) {
+      return { ok: false, error: erro }
+    }
   }
 
   // `.select()` confirma a escrita: corrida (status mudou entre a checagem e
@@ -411,6 +425,108 @@ async function mudarStatusComoDono(
   revalidatePath("/dashboard")
   revalidatePath(`/dashboard/torneios/${match.tournament_id}`)
   return { ok: true }
+}
+
+/**
+ * Regras de lifecycle específicas do mata-mata (partida com rodada em torneio
+ * `mata_mata`). Devolve a mensagem de erro ou null quando a transição é
+ * válida. Espelha o trigger `valida_resultado_mata_mata` (banco = backstop):
+ *   - encerrar jogo único exige vencedor (eliminatória não empata);
+ *   - encerrar a volta exige a ida encerrada e agregado desempatado
+ *     (a volta tem lados invertidos: agregado A = ida.placar_1 + volta.placar_2);
+ *   - bye nunca reabre (não há placar a corrigir);
+ *   - fase posterior gerada congela as anteriores (o vencedor já foi semeado).
+ */
+async function validarLifecycleMataMata(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  match: {
+    tournament_id: string
+    rodada: number | null
+    posicao: number | null
+    perna: number | null
+    participante_1: string | null
+    participante_2: string | null
+    placar_1: number
+    placar_2: number
+  },
+  novoStatus: "encerrada" | "em_andamento"
+): Promise<string | null> {
+  const erroGenerico = "Não foi possível validar o confronto. Tente novamente."
+
+  if (novoStatus === "encerrada") {
+    // Bye (lado nulo) nasce encerrado — não há placar a validar.
+    if (match.participante_1 === null || match.participante_2 === null) {
+      return null
+    }
+    if (match.perna === null) {
+      if (match.placar_1 === match.placar_2) {
+        return "Jogo decisivo de mata-mata não pode terminar empatado. Inclua a decisão (prorrogação/pênaltis) no placar."
+      }
+      return null
+    }
+    if (match.perna === 2) {
+      const { data: ida, error } = await supabase
+        .from("matches")
+        .select("status, placar_1, placar_2")
+        .eq("tournament_id", match.tournament_id)
+        .eq("rodada", match.rodada as number)
+        .eq("posicao", match.posicao as number)
+        .eq("perna", 1)
+        .maybeSingle()
+      if (error) {
+        return erroGenerico
+      }
+      if (!ida || ida.status !== "encerrada") {
+        return "Encerre o jogo de ida antes do jogo de volta."
+      }
+      if (ida.placar_1 + match.placar_2 === ida.placar_2 + match.placar_1) {
+        return "Agregado empatado: o placar da volta deve incluir a decisão (prorrogação/pênaltis)."
+      }
+    }
+    if (match.perna === 1) {
+      // Re-encerramento da ida com a volta JÁ fechada (fluxo reabrir →
+      // corrigir → re-encerrar): revalida o agregado completo — sem isso o
+      // slot persistiria "fechado" com agregado empatado e o avanço de fase
+      // recusaria sem explicar. Volta ainda aberta/inexistente segue livre.
+      const { data: volta, error } = await supabase
+        .from("matches")
+        .select("status, placar_1, placar_2")
+        .eq("tournament_id", match.tournament_id)
+        .eq("rodada", match.rodada as number)
+        .eq("posicao", match.posicao as number)
+        .eq("perna", 2)
+        .maybeSingle()
+      if (error) {
+        return erroGenerico
+      }
+      if (
+        volta &&
+        volta.status === "encerrada" &&
+        match.placar_1 + volta.placar_2 === match.placar_2 + volta.placar_1
+      ) {
+        return "Agregado empatado: corrija o placar antes de encerrar (prorrogação/pênaltis no jogo de volta)."
+      }
+    }
+    return null
+  }
+
+  // Reabertura.
+  if (match.participante_1 === null || match.participante_2 === null) {
+    return "Partida de avanço direto (bye) não pode ser reaberta."
+  }
+  const { data: posteriores, error } = await supabase
+    .from("matches")
+    .select("id")
+    .eq("tournament_id", match.tournament_id)
+    .gt("rodada", match.rodada as number)
+    .limit(1)
+  if (error) {
+    return erroGenerico
+  }
+  if (posteriores && posteriores.length > 0) {
+    return "A fase seguinte já foi gerada — as partidas das fases anteriores estão congeladas."
+  }
+  return null
 }
 
 /** Encerra uma partida em aberto (status → encerrada). Só o dono do torneio. */

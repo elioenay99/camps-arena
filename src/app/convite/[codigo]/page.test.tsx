@@ -109,21 +109,24 @@ describe("ConvitePage", () => {
     expect(screen.queryByRole("button", { name: "Entrar no torneio" })).toBeNull()
   })
 
-  it("liga INICIADA explica o bloqueio ANTES do clique, sem botão de aceite", async () => {
-    montarClient({
-      user: { id: "u1" },
-      info: {
-        tournament_id: TORNEIO,
-        titulo: "Liga da Firma",
-        status: "ativo",
-        formato: "liga",
-        ja_participa: false,
-      },
-    })
-    await renderPage()
-    expect(screen.getByRole("status")).toHaveTextContent(/já foi iniciada/)
-    expect(screen.queryByRole("button", { name: "Entrar no torneio" })).toBeNull()
-  })
+  it.each(["liga", "mata_mata"])(
+    "formato gerado (%s) INICIADO explica o bloqueio ANTES do clique, sem botão de aceite",
+    async (formato) => {
+      montarClient({
+        user: { id: "u1" },
+        info: {
+          tournament_id: TORNEIO,
+          titulo: "Copa da Firma",
+          status: "ativo",
+          formato,
+          ja_participa: false,
+        },
+      })
+      await renderPage()
+      expect(screen.getByRole("status")).toHaveTextContent(/já foi iniciado/)
+      expect(screen.queryByRole("button", { name: "Entrar no torneio" })).toBeNull()
+    }
+  )
 
   it("liga em RASCUNHO segue aceitando: convite válido mostra o botão", async () => {
     montarClient({

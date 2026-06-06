@@ -119,6 +119,7 @@ describe("createTournament", () => {
       created_by: "dono-1",
       formato: "avulso",
       ida_e_volta: false,
+      terceiro_lugar: false,
       pontos_vitoria: 3,
       pontos_empate: 1,
       pontos_derrota: 0,
@@ -170,6 +171,66 @@ describe("createTournament", () => {
       expect.objectContaining({ formato: "avulso", ida_e_volta: false })
     )
     expect(insertSpy.mock.calls[0][0]).not.toHaveProperty("status")
+  })
+
+  it("formato mata_mata nasce rascunho com ida_e_volta e terceiro_lugar dos checkboxes", async () => {
+    const { insertSpy } = montarClient({ user: { id: "dono-1" } })
+    await expect(
+      createTournament(
+        {},
+        formData({
+          titulo: "Copa",
+          isPublic: "on",
+          formato: "mata_mata",
+          idaEVolta: "on",
+          terceiroLugar: "on",
+        })
+      )
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formato: "mata_mata",
+        ida_e_volta: true,
+        terceiro_lugar: true,
+        status: "rascunho",
+      })
+    )
+  })
+
+  it("terceiroLugar marcado em LIGA é normalizado para false (opção exclusiva do mata-mata)", async () => {
+    const { insertSpy } = montarClient({ user: { id: "dono-1" } })
+    await expect(
+      createTournament(
+        {},
+        formData({
+          titulo: "Liga",
+          isPublic: "on",
+          formato: "liga",
+          terceiroLugar: "on",
+        })
+      )
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ formato: "liga", terceiro_lugar: false })
+    )
+  })
+
+  it("idaEVolta marcado em mata_mata grava ida_e_volta true (vale no formato gerado)", async () => {
+    const { insertSpy } = montarClient({ user: { id: "dono-1" } })
+    await expect(
+      createTournament(
+        {},
+        formData({
+          titulo: "Copa",
+          isPublic: "on",
+          formato: "mata_mata",
+          idaEVolta: "on",
+        })
+      )
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ formato: "mata_mata", ida_e_volta: true })
+    )
   })
 
   it("formato inválido não toca o banco", async () => {

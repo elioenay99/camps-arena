@@ -850,3 +850,302 @@ grant execute on function public.info_convite(text) to authenticated;
 > `alter table public.matches drop column rodada;`
 > `alter table public.tournaments drop column formato, drop column ida_e_volta;`
 > `drop type public.tournament_format;`
+
+---
+
+## 10. Supabase — formato de torneio Mata-mata (`add-knockout-format`)
+
+Formato Mata-mata (eliminatórias): o torneio nasce em rascunho, participantes
+entram pelo convite, o dono "inicia" escolhendo o chaveamento (sorteio, potes
+ou montagem manual) — a 1ª fase é gerada com slots (`posicao`/`perna`) e o
+torneio fica ativo; o dono avança fase a fase. **Sem isto, criar torneio pela
+app FALHA** (a action passa a enviar `terceiro_lugar`, que ainda não existe)
+**e a página do torneio quebra** (o fetcher seleciona `terceiro_lugar`,
+`posicao` e `perna`). Aplicar no **SQL Editor** em **DOIS Runs separados** —
+o Postgres proíbe usar um valor novo de enum na mesma transação que o criou:
+
+- [ ] **10.1 — Bloco A (rode SOZINHO e primeiro):**
+
+```sql
+-- Novo valor do enum de formato (aditivo; idempotente).
+alter type public.tournament_format add value if not exists 'mata_mata';
+```
+
+- [ ] **10.2 — Bloco B (colunas + CHECKs + índice + triggers + função):**
+
+```sql
+-- Disputa de 3º lugar (só significativo em mata-mata; default preserva tudo).
+alter table public.tournaments
+  add column if not exists terceiro_lugar boolean not null default false;
+
+-- Slot na chave: posicao = confronto dentro da fase (pareamento da fase
+-- seguinte é função dela: vencedor do slot 2i-1 × slot 2i → slot i);
+-- perna = 1|2 em ida-e-volta (NULL em jogo único/bye).
+alter table public.matches
+  add column if not exists posicao integer;
+alter table public.matches
+  add column if not exists perna smallint;
+
+alter table public.matches drop constraint if exists matches_posicao_positiva;
+alter table public.matches
+  add constraint matches_posicao_positiva
+  check (posicao is null or posicao >= 1);
+
+alter table public.matches drop constraint if exists matches_perna_valida;
+alter table public.matches
+  add constraint matches_perna_valida
+  check (perna is null or perna in (1, 2));
+
+-- Unicidade do slot: barra dupla geração de fase (corrida) e slot duplicado
+-- por POST direto. NULLS NOT DISTINCT é essencial: com o default, perna NULL
+-- duplicaria slots de jogo único silenciosamente.
+create unique index if not exists matches_mata_mata_slot_unico
+  on public.matches (tournament_id, rodada, posicao, perna)
+  nulls not distinct
+  where posicao is not null;
+
+-- lock_match_relations passa a travar também posicao/perna (renumerar slot
+-- reescreveria a chave). Assinatura inalterada: OR REPLACE preserva grants.
+create or replace function public.lock_match_relations()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if new.participante_1 is distinct from old.participante_1
+       or new.participante_2 is distinct from old.participante_2
+       or new.tournament_id is distinct from old.tournament_id
+       or new.rodada is distinct from old.rodada
+       or new.posicao is distinct from old.posicao
+       or new.perna is distinct from old.perna
+    then
+      raise exception 'Não é permitido alterar participantes, torneio, rodada ou slot da partida';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+-- Resultado decisivo + chave congelada após avanço (backstop de POST direto;
+-- as Server Actions repetem as checagens com mensagem precisa).
+create or replace function public.valida_resultado_mata_mata()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_formato public.tournament_format;
+  v_outra_status public.match_status;
+  v_outra_placar_1 integer;
+  v_outra_placar_2 integer;
+  v_encerrando boolean := new.status = 'encerrada' and old.status <> 'encerrada';
+  v_reabrindo boolean := old.status = 'encerrada' and new.status <> 'encerrada';
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) = 'service_role'
+  then
+    return new;
+  end if;
+
+  if new.rodada is null or not (v_encerrando or v_reabrindo) then
+    return new;
+  end if;
+
+  select t.formato into v_formato
+    from public.tournaments t
+   where t.id = new.tournament_id;
+  if v_formato is distinct from 'mata_mata'::public.tournament_format then
+    return new;
+  end if;
+
+  if v_encerrando then
+    if new.participante_1 is null or new.participante_2 is null then
+      return new; -- bye: avanço direto, sem placar a validar
+    end if;
+    if new.perna is null then
+      if new.placar_1 = new.placar_2 then
+        raise exception 'Jogo decisivo de mata-mata não pode terminar empatado';
+      end if;
+    elsif new.perna = 2 then
+      select m.status, m.placar_1, m.placar_2
+        into v_outra_status, v_outra_placar_1, v_outra_placar_2
+        from public.matches m
+       where m.tournament_id = new.tournament_id
+         and m.rodada = new.rodada
+         and m.posicao = new.posicao
+         and m.perna = 1;
+      if not found or v_outra_status <> 'encerrada' then
+        raise exception 'Encerre o jogo de ida antes do jogo de volta';
+      end if;
+      if (v_outra_placar_1 + new.placar_2) = (v_outra_placar_2 + new.placar_1) then
+        raise exception 'Agregado empatado: o placar da volta deve incluir a decisão';
+      end if;
+    elsif new.perna = 1 then
+      -- Re-encerramento da ida com a volta já fechada (reabrir→corrigir→
+      -- re-encerrar): revalida o agregado completo. Aqui NEW é a ida, então
+      -- agregado do mandante = new.placar_1 + volta.placar_2.
+      select m.status, m.placar_1, m.placar_2
+        into v_outra_status, v_outra_placar_1, v_outra_placar_2
+        from public.matches m
+       where m.tournament_id = new.tournament_id
+         and m.rodada = new.rodada
+         and m.posicao = new.posicao
+         and m.perna = 2;
+      if found and v_outra_status = 'encerrada'
+         and (new.placar_1 + v_outra_placar_2) = (new.placar_2 + v_outra_placar_1)
+      then
+        raise exception 'Agregado empatado: corrija o placar antes de encerrar';
+      end if;
+    end if;
+  end if;
+
+  if v_reabrindo then
+    if new.participante_1 is null or new.participante_2 is null then
+      raise exception 'Partida de avanço direto (bye) não pode ser reaberta';
+    end if;
+    if exists (
+      select 1 from public.matches m
+      where m.tournament_id = new.tournament_id
+        and m.rodada > new.rodada
+    ) then
+      raise exception 'A fase seguinte já foi gerada — as fases anteriores estão congeladas';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists matches_valida_resultado_mata_mata on public.matches;
+create trigger matches_valida_resultado_mata_mata
+  before update on public.matches
+  for each row execute function public.valida_resultado_mata_mata();
+
+-- aceitar_convite generaliza o bloqueio de adesão tardia: qualquer formato
+-- GERADO (<> 'avulso') fora de rascunho rejeita — formato futuro herda a
+-- regra (falha-segura). Assinatura inalterada: OR REPLACE preserva grants.
+create or replace function public.aceitar_convite(codigo text)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_tournament uuid;
+  v_status public.tournament_status;
+  v_formato public.tournament_format;
+begin
+  if v_uid is null then
+    raise exception 'Você precisa estar autenticado para aceitar um convite';
+  end if;
+
+  select i.tournament_id, t.status, t.formato
+    into v_tournament, v_status, v_formato
+    from public.tournament_invites i
+    join public.tournaments t on t.id = i.tournament_id
+   where i.code = codigo;
+
+  if v_tournament is null then
+    raise exception 'Convite inválido ou expirado';
+  end if;
+  if v_status = 'encerrado' then
+    raise exception 'Este torneio está encerrado e não aceita novos participantes';
+  end if;
+  if v_formato <> 'avulso' and v_status <> 'rascunho' then
+    raise exception 'Este torneio já foi iniciado e não aceita novos participantes';
+  end if;
+
+  insert into public.participants (tournament_id, user_id)
+  values (v_tournament, v_uid)
+  on conflict do nothing;
+
+  return v_tournament;
+end;
+$$;
+
+-- Mata-mata ATIVO congela a lista de participantes: a chave avança fase a
+-- fase e o INSERT da fase seguinte exige cada vencedor em participants —
+-- uma saída no meio travaria o "Avançar fase" PARA SEMPRE. Rascunho e
+-- encerrado seguem livres. (Este é o motivo de o ALTER TYPE do bloco A
+-- precisar de um Run separado: esta policy usa 'mata_mata' em DDL.)
+drop policy if exists participants_delete_self_or_owner on public.participants;
+create policy participants_delete_self_or_owner on public.participants
+  for delete to authenticated
+  using (
+    (
+      user_id = auth.uid()
+      or exists (
+        select 1 from public.tournaments t
+        where t.id = tournament_id
+          and t.created_by = auth.uid()
+      )
+    )
+    and not exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.formato = 'mata_mata'
+        and t.status = 'ativo'
+    )
+  );
+```
+
+- [ ] **10.3 — (recomendado) Conferir o caminho feliz**: crie um torneio
+  Mata-mata pela app (deve nascer "em rascunho"); entre com OUTRA conta pelo
+  link de convite; como dono, inicie por **sorteio** e confira a chave gerada
+  (página do torneio mostra a seção "Chave" com as fases); lance um placar com
+  vencedor, encerre, clique **Avançar fase** e confira a fase seguinte. Com 3
+  participantes, confira o bye ("Avança direto") na chave.
+
+- [ ] **10.4 — (recomendado) Conferir as TRAVAS** (triggers/índice são a única
+  barreira contra POST direto — os testes unitários não os executam):
+
+```sql
+-- Deve FALHAR (encerrar jogo único de mata-mata empatado, mesmo sendo dono):
+-- update public.matches set status = 'encerrada'
+--   where id = '<partida-de-mata-mata-0x0>';
+
+-- Deve FALHAR (reabrir partida com fase posterior já gerada):
+-- update public.matches set status = 'em_andamento'
+--   where id = '<partida-da-fase-1-apos-avancar>';
+
+-- Deve FALHAR (renumerar slot por POST direto):
+-- update public.matches set posicao = 99 where id = '<partida-de-mata-mata>';
+
+-- Deve FALHAR (aceitar convite de mata-mata já iniciado):
+-- select public.aceitar_convite('<codigo-de-mata-mata-ativo>');
+
+-- Deve FALHAR (sair/remover de mata-mata ATIVO — 0 linhas deletadas):
+-- delete from public.participants
+--   where tournament_id = '<mata-mata-ativo>' and user_id = auth.uid();
+
+-- Deve FALHAR (23505 — slot duplicado; via service_role):
+-- insert into public.matches (tournament_id, rodada, posicao)
+--   values ('<torneio>', 1, 1);
+```
+
+> Fonte de verdade: `supabase/schema.sql` (enum/colunas/CHECKs/índice,
+> lock_match_relations, valida_resultado_mata_mata, aceitar_convite, policy
+> de DELETE de participants).
+>
+> Rollback: recriar `aceitar_convite`/`lock_match_relations` nas versões da
+> seção 9 (assinaturas inalteradas — CREATE OR REPLACE basta, grants
+> preservados) e a policy `participants_delete_self_or_owner` na versão da
+> seção 8 (sem a cláusula de mata-mata). Depois:
+> `drop trigger if exists matches_valida_resultado_mata_mata on public.matches;`
+> `drop function if exists public.valida_resultado_mata_mata();`
+> `drop index if exists public.matches_mata_mata_slot_unico;`
+> `alter table public.matches drop constraint matches_posicao_positiva, drop constraint matches_perna_valida;`
+> `alter table public.matches drop column posicao, drop column perna;`
+> `alter table public.tournaments drop column terceiro_lugar;`
+> O valor `'mata_mata'` do enum NÃO é removível (limitação do Postgres) —
+> fica órfão e inofensivo (nenhuma linha o usa após o rollback).

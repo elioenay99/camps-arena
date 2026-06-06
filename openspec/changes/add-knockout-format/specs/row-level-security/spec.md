@@ -60,6 +60,32 @@ O sistema SHALL permitir INSERT em `matches` apenas quando o usuário autenticad
 - **WHEN** um INSERT direto sem `rodada` é tentado em torneio de formato liga ou mata-mata
 - **THEN** a política RLS rejeita a operação
 
+### Requirement: Políticas de participants
+O sistema SHALL permitir SELECT em `participants` quando o torneio
+correspondente for visível ao solicitante; INSERT direto apenas para o DONO do
+torneio inserindo a si mesmo (`user_id = auth.uid()`) — convidados entram
+exclusivamente pela função `aceitar_convite`; DELETE para o próprio
+participante (sair) ou para o dono do torneio (remover), EXCETO em torneio
+`mata_mata` com `status = 'ativo'` (a chave em andamento depende de cada
+participante — ver capability `knockout-format`). UPDATE NÃO SHALL ser
+permitido.
+
+#### Scenario: Lista visível junto com o torneio
+- **WHEN** um usuário que enxerga o torneio consulta os participantes dele
+- **THEN** as linhas são retornadas
+
+#### Scenario: Entrada direta de terceiro é negada
+- **WHEN** um usuário tenta INSERT direto em `participants` de torneio que não é dele (sem passar pela função de aceite)
+- **THEN** a política RLS rejeita a operação
+
+#### Scenario: Sair e remover cobertos por DELETE
+- **WHEN** o próprio participante (ou o dono do torneio) executa DELETE da linha em torneio que não é mata-mata ativo
+- **THEN** a operação é aceita; para qualquer outro usuário é rejeitada
+
+#### Scenario: Mata-mata ativo bloqueia DELETE no banco
+- **WHEN** um DELETE direto em `participants` referencia torneio mata-mata com status ativo
+- **THEN** a política RLS rejeita a operação, mesmo para o dono ou o próprio participante
+
 ### Requirement: Funções SECURITY DEFINER de convite
 O sistema SHALL definir as funções `eh_participante(uuid)`, `aceitar_convite(text)` e `info_convite(text)` como `SECURITY DEFINER` com `search_path = ''`.
 `aceitar_convite` SHALL exigir usuário autenticado, validar o código, rejeitar

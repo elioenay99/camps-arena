@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest"
 import { z } from "zod"
 
-import { createTournamentSchema, PONTOS_MAX } from "@/schema/tournamentSchema"
+import {
+  createTournamentSchema,
+  iniciarMataMataSchema,
+  PONTOS_MAX,
+} from "@/schema/tournamentSchema"
+
+const UUID_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+const UUID_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 const PADRAO = {
   pontosVitoria: 3,
@@ -9,6 +16,7 @@ const PADRAO = {
   pontosDerrota: 0,
   formato: "avulso",
   idaEVolta: false,
+  terceiroLugar: false,
 }
 
 describe("createTournamentSchema", () => {
@@ -30,6 +38,16 @@ describe("createTournamentSchema", () => {
     })
     expect(r.formato).toBe("liga")
     expect(r.idaEVolta).toBe(true)
+  })
+
+  it("aceita formato mata_mata com terceiroLugar (opção exclusiva do mata-mata)", () => {
+    const r = createTournamentSchema.parse({
+      titulo: "Copa",
+      formato: "mata_mata",
+      terceiroLugar: true,
+    })
+    expect(r.formato).toBe("mata_mata")
+    expect(r.terceiroLugar).toBe(true)
   })
 
   it("rejeita formato fora do enum", () => {
@@ -161,5 +179,57 @@ describe("createTournamentSchema", () => {
       createTournamentSchema.safeParse({ titulo: "Copa", pontosVitoria: Number.NaN })
         .success
     ).toBe(false)
+  })
+})
+
+describe("iniciarMataMataSchema", () => {
+  it("valida o modo sorteio e aplica defaults vazios em cabecas/confrontos", () => {
+    const r = iniciarMataMataSchema.parse({ tournamentId: UUID_A, modo: "sorteio" })
+    expect(r).toEqual({
+      tournamentId: UUID_A,
+      modo: "sorteio",
+      cabecas: [],
+      confrontos: [],
+    })
+  })
+
+  it("rejeita modo de chaveamento fora do enum", () => {
+    expect(
+      iniciarMataMataSchema.safeParse({ tournamentId: UUID_A, modo: "chaveio" }).success
+    ).toBe(false)
+  })
+
+  it("rejeita tournamentId que não é uuid", () => {
+    expect(
+      iniciarMataMataSchema.safeParse({ tournamentId: "nao-uuid", modo: "sorteio" })
+        .success
+    ).toBe(false)
+  })
+
+  it("rejeita cabeça de chave que não é uuid (modo potes)", () => {
+    expect(
+      iniciarMataMataSchema.safeParse({
+        tournamentId: UUID_A,
+        modo: "potes",
+        cabecas: [UUID_B, "lixo"],
+      }).success
+    ).toBe(false)
+  })
+
+  it("aceita confrontos como tuplas [uuid|null, uuid|null] (modo manual, com bye)", () => {
+    const r = iniciarMataMataSchema.parse({
+      tournamentId: UUID_A,
+      modo: "manual",
+      confrontos: [
+        [UUID_A, UUID_B],
+        [UUID_A, null],
+        [null, null],
+      ],
+    })
+    expect(r.confrontos).toEqual([
+      [UUID_A, UUID_B],
+      [UUID_A, null],
+      [null, null],
+    ])
   })
 })

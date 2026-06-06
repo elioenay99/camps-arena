@@ -403,4 +403,125 @@ describe("getTournamentClassificacao", () => {
     expect(r?.partidasAbertas[0]).toMatchObject({ rodada: 2 })
     expect(r?.torneio).toMatchObject({ formato: "liga", ida_e_volta: false })
   })
+
+  it("select do torneio inclui terceiro_lugar (insumo do mata-mata com 3º lugar)", async () => {
+    const torneioSelectSpy = vi.fn()
+    const client = {
+      from: vi.fn(() => ({
+        select: vi.fn((cols: unknown) => {
+          torneioSelectSpy(cols)
+          return {
+            eq: vi.fn(() => ({
+              maybeSingle: vi.fn(async () => ({ data: null, error: null })),
+            })),
+          }
+        }),
+      })),
+    }
+    mockCreateClient.mockResolvedValue(client as unknown as never)
+    await getTournamentClassificacao(TORNEIO.id)
+    // Coluna que habilita a disputa de 3º lugar na projeção do mata-mata.
+    const cols = String(torneioSelectSpy.mock.calls[0][0]).replace(/\s+/g, "")
+    expect(cols).toMatch(/(^|,)terceiro_lugar(,|$)/)
+  })
+
+  it("select de partidas inclui posicao e perna (slot e perna da chave)", async () => {
+    const client = montarClient({ torneio: TORNEIO, partidas: [] })
+    await getTournamentClassificacao(TORNEIO.id)
+    const cols = String(client.partidasSelectSpy.mock.calls[0][0]).replace(/\s+/g, "")
+    // Regex ancorada: `posicao`/`perna` são colunas cruas de TOPO (o embed
+    // `(id,nome)` não contém estas substrings, mas mantemos o padrão do arquivo).
+    expect(cols).toMatch(/(^|,)posicao(,|$)/)
+    expect(cols).toMatch(/(^|,)perna(,|$)/)
+  })
+
+  it("chave projeta partidas com rodada+posicao ordenadas por rodada/posicao/perna com nomes resolvidos", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    const caio = { id: "u3", nome: "Caio" }
+    const duda = { id: "u4", nome: "Duda" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "mata_mata", ida_e_volta: true },
+      partidas: [
+        // Embaralhadas na entrada para provar a ordenação rodada→posicao→perna.
+        { ...partidaEncerrada(caio, duda, 1, 0), rodada: 1, posicao: 2, perna: 1 }, // m1
+        { ...partidaEncerrada(ana, beto, 2, 1), rodada: 2, posicao: 1, perna: 1 }, // m2 (final)
+        { ...partidaEncerrada(ana, beto, 3, 0), rodada: 1, posicao: 1, perna: 1 }, // m3
+        { ...partidaEncerrada(beto, ana, 0, 2), rodada: 1, posicao: 1, perna: 2 }, // m4
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.chave.map((p) => p.id)).toEqual(["m3", "m4", "m1", "m2"])
+    expect(r?.chave[0]).toMatchObject({
+      rodada: 1,
+      posicao: 1,
+      perna: 1,
+      nome_1: "Ana",
+      nome_2: "Beto",
+      placar_1: 3,
+      placar_2: 0,
+      status: "encerrada",
+    })
+  })
+
+  it("partidas sem posicao (liga/avulso) ficam FORA da chave", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "liga" },
+      partidas: [
+        { ...partidaEncerrada(ana, beto, 1, 0), rodada: 1 }, // liga: rodada sem slot
+        partidaEncerrada(beto, ana, 2, 0), // avulsa: sem rodada nem slot
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.chave).toEqual([])
+  })
+
+  it("bye de chave (um lado nulo + posicao) fica DENTRO da chave mas FORA das encerradas/abertas", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "mata_mata" },
+      partidas: [
+        // Bye encerrado: avanço direto, não um jogo — ruído no histórico.
+        { ...partidaEncerrada(ana, null, 0, 0), rodada: 1, posicao: 1, perna: null }, // m1
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.partidasEncerradas).toEqual([])
+    expect(r?.partidasAbertas).toEqual([])
+    expect(r?.chave.map((p) => p.id)).toEqual(["m1"])
+    expect(r?.chave[0]).toMatchObject({ nome_1: "Ana", nome_2: "A definir" })
+  })
+
+  it("partidasAbertas de mata-mata ordenam por rodada→posicao→perna", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "mata_mata", ida_e_volta: true },
+      partidas: [
+        // Mesma rodada/slot, pernas trocadas: perna desempata.
+        { ...partidaEncerrada(ana, beto, 0, 0), status: "agendada", rodada: 1, posicao: 1, perna: 2 }, // m1
+        { ...partidaEncerrada(beto, ana, 0, 0), status: "agendada", rodada: 1, posicao: 2, perna: 1 }, // m2
+        { ...partidaEncerrada(ana, beto, 0, 0), status: "agendada", rodada: 1, posicao: 1, perna: 1 }, // m3
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.partidasAbertas.map((p) => p.id)).toEqual(["m3", "m1", "m2"])
+  })
+
+  it("perna chega às projeções de histórico e abertas (insumo do rótulo ida/volta)", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "mata_mata", ida_e_volta: true },
+      partidas: [
+        { ...partidaEncerrada(ana, beto, 2, 1), rodada: 1, posicao: 1, perna: 1 }, // encerrada
+        { ...partidaEncerrada(beto, ana, 0, 0), status: "agendada", rodada: 1, posicao: 1, perna: 2 }, // aberta
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.partidasEncerradas[0]).toMatchObject({ perna: 1 })
+    expect(r?.partidasAbertas[0]).toMatchObject({ perna: 2 })
+  })
 })

@@ -17,9 +17,11 @@ export interface TorneioClassificacao {
   id: string
   titulo: string
   status: TournamentStatus
-  /** Formato do torneio — liga habilita o painel de início e as rodadas. */
+  /** Formato do torneio — gerado (liga/mata-mata) habilita painel de início. */
   formato: TournamentFormat
   ida_e_volta: boolean
+  /** Disputa de 3º lugar (só significativo em mata-mata). */
+  terceiro_lugar: boolean
   /** Dono do torneio (anulável: semeados/legados) — habilita o console do dono. */
   created_by: string | null
   pontos_vitoria: number
@@ -40,8 +42,10 @@ export interface PartidaEncerrada {
   placar_2: number
   /** Aproximação de "encerrada em": último lançamento (`updated_at`). */
   encerradaEm: string
-  /** Rodada da liga; null em partida avulsa (sem rótulo na UI). */
+  /** Rodada/fase gerada; null em partida avulsa (sem rótulo na UI). */
   rodada: number | null
+  /** Perna do confronto ida-e-volta de mata-mata (1|2); null fora dele. */
+  perna: number | null
 }
 
 /** Partida ainda não encerrada — console do dono (encerrar) e contexto. */
@@ -52,8 +56,25 @@ export interface PartidaAberta {
   placar_1: number
   placar_2: number
   status: MatchStatus
-  /** Rodada da liga; null em partida avulsa (sem rótulo na UI). */
+  /** Rodada/fase gerada; null em partida avulsa (sem rótulo na UI). */
   rodada: number | null
+  /** Perna do confronto ida-e-volta de mata-mata (1|2); null fora dele. */
+  perna: number | null
+}
+
+/** Partida da chave de mata-mata (rodada e posicao presentes) — bracket. */
+export interface PartidaDaChave {
+  id: string
+  rodada: number
+  posicao: number
+  perna: number | null
+  participante_1: string | null
+  participante_2: string | null
+  nome_1: string
+  nome_2: string
+  placar_1: number
+  placar_2: number
+  status: MatchStatus
 }
 
 export interface ClassificacaoTorneio {
@@ -63,6 +84,8 @@ export interface ClassificacaoTorneio {
   /** Classificação de clubes: mesmo motor, chaveado por time_1/time_2. */
   clubes: LinhaComNome[]
   partidasAbertas: PartidaAberta[]
+  /** Chave do mata-mata (vazia fora dele) — MESMO snapshot das demais. */
+  chave: PartidaDaChave[]
 }
 
 interface ParticipanteEmbed {
@@ -85,6 +108,8 @@ interface PartidaComNomes {
   placar_2: number
   status: MatchStatus
   rodada: number | null
+  posicao: number | null
+  perna: number | null
   created_at: string
   updated_at: string
   p1: ParticipanteEmbed | null
@@ -130,7 +155,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select(
-      "id, titulo, status, formato, ida_e_volta, created_by, pontos_vitoria, pontos_empate, pontos_derrota"
+      "id, titulo, status, formato, ida_e_volta, terceiro_lugar, created_by, pontos_vitoria, pontos_empate, pontos_derrota"
     )
     .eq("id", tournamentId)
     .maybeSingle()
@@ -147,7 +172,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const { data: partidas, error: partidasError } = await supabase
     .from("matches")
     .select(
-      `id, participante_1, participante_2, time_1, time_2, placar_1, placar_2, status, rodada, created_at, updated_at,
+      `id, participante_1, participante_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, created_at, updated_at,
        p1:users!matches_participante_1_fkey ( id, nome ),
        p2:users!matches_participante_2_fkey ( id, nome ),
        t1:teams!matches_time_1_fkey ( id, nome ),
@@ -201,10 +226,19 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     nome: nomesClubes.get(linha.participanteId) ?? "Sem nome",
   }))
 
+  // Bye de chave (mata-mata): partida com slot e um lado vazio — avanço
+  // direto, não um jogo. Fica FORA do histórico e das abertas ("João 0 x 0
+  // A definir" seria ruído); a chave (BracketView) o exibe como avanço.
+  // `typeof === "number"` (e não `!== null`): nesta fronteira de cast um
+  // shape sem a coluna viraria bye silenciosamente.
+  const ehByeDeChave = (p: PartidaComNomes) =>
+    typeof p.posicao === "number" &&
+    (p.participante_1 === null || p.participante_2 === null)
+
   // Segunda projeção do MESMO snapshot: o histórico registra toda encerrada
   // (inclusive sem participante — diferente do motor, que exige os dois lados).
   const partidasEncerradas = linhasPartidas
-    .filter((p) => p.status === "encerrada")
+    .filter((p) => p.status === "encerrada" && !ehByeDeChave(p))
     .map((p) => ({
       id: p.id,
       nome_1: nomeDoLado(p.p1),
@@ -213,21 +247,29 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
       placar_2: p.placar_2,
       encerradaEm: p.updated_at,
       rodada: p.rodada,
+      perna: p.perna,
     }))
 
   // Quarta projeção: em aberto (console do dono — encerrar). `!==` falha-segura:
   // status novo aparece como "em aberto" em vez de sumir. Ordem: RODADA asc
-  // primeiro (ordem natural de disputa da liga; null = avulsa, fica depois) e
+  // primeiro (ordem natural de disputa da liga; null = avulsa, fica depois),
+  // slot/perna em seguida (chave do mata-mata em ordem de disputa) e
   // created_at ASC como desempate ESTÁVEL — a query ordena por updated_at
   // (pensada pro histórico) e reordenaria as abertas a cada lançamento de
   // placar (mesma decisão do dashboard em getActiveMatches).
   const partidasAbertas = linhasPartidas
-    .filter((p) => p.status !== "encerrada")
+    .filter((p) => p.status !== "encerrada" && !ehByeDeChave(p))
     .sort((a, b) => {
       if (a.rodada !== b.rodada) {
         if (a.rodada === null) return 1
         if (b.rodada === null) return -1
         return a.rodada - b.rodada
+      }
+      if (a.posicao !== b.posicao) {
+        return (a.posicao ?? 0) - (b.posicao ?? 0)
+      }
+      if (a.perna !== b.perna) {
+        return (a.perna ?? 0) - (b.perna ?? 0)
       }
       return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0
     })
@@ -239,7 +281,33 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
       placar_2: p.placar_2,
       status: p.status,
       rodada: p.rodada,
+      perna: p.perna,
     }))
 
-  return { torneio, linhas, partidasEncerradas, clubes, partidasAbertas }
+  // Quinta projeção: a CHAVE do mata-mata (partidas com rodada e slot) —
+  // insumo do BracketView. Vazia fora do mata-mata (nenhuma partida tem slot).
+  const chave = linhasPartidas
+    .filter(
+      (p): p is PartidaComNomes & { rodada: number; posicao: number } =>
+        typeof p.rodada === "number" && typeof p.posicao === "number"
+    )
+    .map((p) => ({
+      id: p.id,
+      rodada: p.rodada,
+      posicao: p.posicao,
+      perna: p.perna,
+      participante_1: p.participante_1,
+      participante_2: p.participante_2,
+      nome_1: nomeDoLado(p.p1),
+      nome_2: nomeDoLado(p.p2),
+      placar_1: p.placar_1,
+      placar_2: p.placar_2,
+      status: p.status,
+    }))
+    .sort(
+      (a, b) =>
+        a.rodada - b.rodada || a.posicao - b.posicao || (a.perna ?? 0) - (b.perna ?? 0)
+    )
+
+  return { torneio, linhas, partidasEncerradas, clubes, partidasAbertas, chave }
 })

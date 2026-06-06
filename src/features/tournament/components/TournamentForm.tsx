@@ -53,9 +53,10 @@ function SubmitButton() {
 
 export function TournamentForm() {
   const [state, formAction] = useActionState(createTournament, initialState)
-  // Estado local SÓ para progressive disclosure (ida-e-volta aparece em liga);
-  // o valor submetido é o do radio nativo — sem ele o form continua funcional.
-  const [formato, setFormato] = useState<"avulso" | "liga">("avulso")
+  // Estado local SÓ para progressive disclosure (ida-e-volta em liga e
+  // mata-mata; 3º lugar só em mata-mata); o valor submetido é o do radio
+  // nativo — sem ele o form continua funcional.
+  const [formato, setFormato] = useState<"avulso" | "liga" | "mata_mata">("avulso")
 
   return (
     <form action={formAction} className="grid gap-4" noValidate>
@@ -113,7 +114,26 @@ export function TournamentForm() {
             </span>
           </Label>
         </div>
-        {formato === "liga" ? (
+        <div className="flex items-start gap-2">
+          <input
+            id="formatoMataMata"
+            name="formato"
+            type="radio"
+            value="mata_mata"
+            checked={formato === "mata_mata"}
+            onChange={() => setFormato("mata_mata")}
+            className="mt-1 size-4 accent-primary"
+          />
+          <Label htmlFor="formatoMataMata" className="font-normal flex-col items-start gap-0.5">
+            Mata-mata (eliminatórias)
+            <span className="text-muted-foreground text-xs font-normal">
+              Quem perde está fora. O torneio nasce em rascunho: convide os
+              participantes e a chave é gerada quando você iniciar (sorteio,
+              potes ou montagem manual).
+            </span>
+          </Label>
+        </div>
+        {formato !== "avulso" ? (
           <div className="ml-6 flex items-center gap-2">
             <input
               id="idaEVolta"
@@ -122,7 +142,22 @@ export function TournamentForm() {
               className="size-4 rounded border-input accent-primary"
             />
             <Label htmlFor="idaEVolta" className="font-normal">
-              Ida e volta (dois turnos)
+              {formato === "liga"
+                ? "Ida e volta (dois turnos)"
+                : "Ida e volta (confrontos em dois jogos; final e 3º lugar em jogo único)"}
+            </Label>
+          </div>
+        ) : null}
+        {formato === "mata_mata" ? (
+          <div className="ml-6 flex items-center gap-2">
+            <input
+              id="terceiroLugar"
+              name="terceiroLugar"
+              type="checkbox"
+              className="size-4 rounded border-input accent-primary"
+            />
+            <Label htmlFor="terceiroLugar" className="font-normal">
+              Disputa de 3º lugar (perdedores das semifinais)
             </Label>
           </div>
         ) : null}

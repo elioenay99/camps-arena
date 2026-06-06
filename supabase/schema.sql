@@ -14,13 +14,22 @@ begin
   if not exists (select 1 from pg_type where typname = 'match_status') then
     create type public.match_status as enum ('agendada', 'em_andamento', 'encerrada');
   end if;
-  -- Formato do torneio: 'avulso' (partidas manuais, modelo original) ou
-  -- 'liga' (tabela round-robin gerada ao iniciar). Formatos futuros (grupos,
-  -- mata-mata) entram com ALTER TYPE ... ADD VALUE (aditivo).
+  -- Formato do torneio: 'avulso' (partidas manuais, modelo original), 'liga'
+  -- (tabela round-robin gerada ao iniciar) ou 'mata_mata' (chave eliminatória
+  -- gerada ao iniciar, avanço fase a fase). Formatos futuros (grupos) entram
+  -- com ALTER TYPE ... ADD VALUE (aditivo).
   if not exists (select 1 from pg_type where typname = 'tournament_format') then
-    create type public.tournament_format as enum ('avulso', 'liga');
+    create type public.tournament_format as enum ('avulso', 'liga', 'mata_mata');
   end if;
 end$$;
+
+-- Instalações que criaram o enum ANTES do mata-mata (aditivo; idempotente).
+-- ATENÇÃO: o Postgres proíbe USAR um valor de enum na MESMA transação que o
+-- adicionou — e a policy participants_delete_self_or_owner (abaixo) referencia
+-- 'mata_mata' em DDL. Num banco pré-existente, rode este ALTER TYPE num Run
+-- SEPARADO do restante (instalação nova não sofre: o CREATE TYPE acima já
+-- nasce com o valor).
+alter type public.tournament_format add value if not exists 'mata_mata';
 
 -- ---------- Tabela: users (perfil público, 1:1 com auth.users) ----------
 create table if not exists public.users (
@@ -66,6 +75,12 @@ alter table public.tournaments
   add column if not exists formato public.tournament_format not null default 'avulso';
 alter table public.tournaments
   add column if not exists ida_e_volta boolean not null default false;
+
+-- Disputa de 3º lugar (aditivo; idempotente). Só significativo em mata-mata:
+-- os perdedores das semifinais jogam uma partida extra junto com a final.
+-- Default false preserva os legados e os demais formatos.
+alter table public.tournaments
+  add column if not exists terceiro_lugar boolean not null default false;
 
 -- Coerência: derrota valendo mais que vitória corromperia toda classificação.
 -- Segunda barreira além do Zod (POST direto/edições futuras). Teto 100 = sanidade.
@@ -170,6 +185,40 @@ create unique index if not exists matches_liga_par_unico
   on public.matches (tournament_id, rodada, participante_1, participante_2)
   where rodada is not null;
 
+-- ---------- Mata-mata: slot na chave (aditivo; idempotente) ----------
+-- `posicao` = slot do confronto dentro da fase (1-based). O pareamento da
+-- fase seguinte é FUNÇÃO da posição: vencedor do slot 2i-1 × vencedor do
+-- slot 2i → slot i. `perna` = 1|2 num confronto ida-e-volta (NULL em jogo
+-- único/bye). Ambas NULL fora do mata-mata. Imutáveis via anon/authenticated
+-- (lock_match_relations) — renumerar slot reescreveria a chave.
+alter table public.matches
+  add column if not exists posicao integer;
+alter table public.matches
+  add column if not exists perna smallint;
+
+alter table public.matches drop constraint if exists matches_posicao_positiva;
+alter table public.matches
+  add constraint matches_posicao_positiva
+  check (posicao is null or posicao >= 1);
+
+alter table public.matches drop constraint if exists matches_perna_valida;
+alter table public.matches
+  add constraint matches_perna_valida
+  check (perna is null or perna in (1, 2));
+
+-- Unicidade do slot: barra dupla geração de fase (avancarFase em corrida) e
+-- slot duplicado por POST direto. NULLS NOT DISTINCT (PG15+) é essencial:
+-- com o default (nulls distinct), `perna` NULL duplicaria slots de jogo
+-- único silenciosamente. Parcial (posicao not null): liga e avulso fora.
+-- LIMITE CONHECIDO: o banco garante unicidade da COORDENADA do slot, não do
+-- PARTICIPANTE entre slots da mesma fase — o dono forjando o mesmo jogador
+-- em dois slots via POST direto é auto-sabotagem sem vítima terceira (risco
+-- aceito no design, D10); a partição exata é validada pela action/motor.
+create unique index if not exists matches_mata_mata_slot_unico
+  on public.matches (tournament_id, rodada, posicao, perna)
+  nulls not distinct
+  where posicao is not null;
+
 -- ---------- Hardening: integridade dos clubes (defesa em profundidade) ----------
 -- Segunda barreira além da validação nas Server Actions (searchTeams/selectTeam/
 -- updateMatchTeams). Idempotente via DROP + ADD (Postgres não tem ADD IF NOT EXISTS).
@@ -228,8 +277,10 @@ begin
        or new.participante_2 is distinct from old.participante_2
        or new.tournament_id is distinct from old.tournament_id
        or new.rodada is distinct from old.rodada
+       or new.posicao is distinct from old.posicao
+       or new.perna is distinct from old.perna
     then
-      raise exception 'Não é permitido alterar participantes, torneio ou rodada da partida';
+      raise exception 'Não é permitido alterar participantes, torneio, rodada ou slot da partida';
     end if;
   end if;
   return new;
@@ -290,6 +341,121 @@ create trigger matches_lock_lifecycle
   before update on public.matches
   for each row execute function public.lock_match_lifecycle();
 
+-- ---------- Mata-mata: resultado decisivo e chave congelada após avanço ----
+-- Eliminatória exige VENCEDOR e a chave gerada é função dos resultados —
+-- regras que a RLS (por linha) não expressa. Backstop contra POST direto
+-- (as Server Actions repetem as checagens com mensagem precisa):
+--   ENCERRANDO (status → encerrada) em partida de mata-mata com rodada:
+--     - bye (um lado nulo): passa (nasce encerrado; não há placar a validar);
+--     - jogo único (perna NULL): placar não pode empatar;
+--     - perna 1: livre QUANDO a volta ainda não encerrou (o agregado decide
+--       na volta); se a perna 2 JÁ está encerrada (fluxo reabrir→corrigir→
+--       re-encerrar a ida), o agregado completo é revalidado — sem isso o
+--       slot persistiria "fechado" com agregado empatado;
+--     - perna 2: exige a perna 1 encerrada E agregado desempatado (a volta
+--       tem lados invertidos: agregado A = ida.placar_1 + volta.placar_2).
+--   REABRINDO (encerrada → outro):
+--     - bye nunca reabre (não há placar a corrigir);
+--     - se já existe partida em fase posterior, as anteriores estão
+--       congeladas (o vencedor foi semeado adiante — reabrir tornaria a
+--       chave incoerente).
+-- service_role (admin/migrations) permanece livre.
+create or replace function public.valida_resultado_mata_mata()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_formato public.tournament_format;
+  v_outra_status public.match_status;
+  v_outra_placar_1 integer;
+  v_outra_placar_2 integer;
+  v_encerrando boolean := new.status = 'encerrada' and old.status <> 'encerrada';
+  v_reabrindo boolean := old.status = 'encerrada' and new.status <> 'encerrada';
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) = 'service_role'
+  then
+    return new;
+  end if;
+
+  if new.rodada is null or not (v_encerrando or v_reabrindo) then
+    return new;
+  end if;
+
+  select t.formato into v_formato
+    from public.tournaments t
+   where t.id = new.tournament_id;
+  if v_formato is distinct from 'mata_mata'::public.tournament_format then
+    return new;
+  end if;
+
+  if v_encerrando then
+    if new.participante_1 is null or new.participante_2 is null then
+      return new; -- bye: avanço direto, sem placar a validar
+    end if;
+    if new.perna is null then
+      if new.placar_1 = new.placar_2 then
+        raise exception 'Jogo decisivo de mata-mata não pode terminar empatado';
+      end if;
+    elsif new.perna = 2 then
+      select m.status, m.placar_1, m.placar_2
+        into v_outra_status, v_outra_placar_1, v_outra_placar_2
+        from public.matches m
+       where m.tournament_id = new.tournament_id
+         and m.rodada = new.rodada
+         and m.posicao = new.posicao
+         and m.perna = 1;
+      if not found or v_outra_status <> 'encerrada' then
+        raise exception 'Encerre o jogo de ida antes do jogo de volta';
+      end if;
+      if (v_outra_placar_1 + new.placar_2) = (v_outra_placar_2 + new.placar_1) then
+        raise exception 'Agregado empatado: o placar da volta deve incluir a decisão';
+      end if;
+    elsif new.perna = 1 then
+      -- Re-encerramento da ida com a volta já fechada (reabrir→corrigir→
+      -- re-encerrar): revalida o agregado completo. Aqui NEW é a ida, então
+      -- agregado do mandante = new.placar_1 + volta.placar_2.
+      select m.status, m.placar_1, m.placar_2
+        into v_outra_status, v_outra_placar_1, v_outra_placar_2
+        from public.matches m
+       where m.tournament_id = new.tournament_id
+         and m.rodada = new.rodada
+         and m.posicao = new.posicao
+         and m.perna = 2;
+      if found and v_outra_status = 'encerrada'
+         and (new.placar_1 + v_outra_placar_2) = (new.placar_2 + v_outra_placar_1)
+      then
+        raise exception 'Agregado empatado: corrija o placar antes de encerrar';
+      end if;
+    end if;
+  end if;
+
+  if v_reabrindo then
+    if new.participante_1 is null or new.participante_2 is null then
+      raise exception 'Partida de avanço direto (bye) não pode ser reaberta';
+    end if;
+    if exists (
+      select 1 from public.matches m
+      where m.tournament_id = new.tournament_id
+        and m.rodada > new.rodada
+    ) then
+      raise exception 'A fase seguinte já foi gerada — as fases anteriores estão congeladas';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists matches_valida_resultado_mata_mata on public.matches;
+create trigger matches_valida_resultado_mata_mata
+  before update on public.matches
+  for each row execute function public.valida_resultado_mata_mata();
+
 -- ---------- Cria o perfil público ao registrar no Auth ----------
 create or replace function public.handle_new_user()
 returns trigger
@@ -341,8 +507,10 @@ $$;
 -- em nome do próprio auth.uid(), nada além.
 
 -- Aceita o convite: exige sessão, código válido, torneio não-encerrado e —
--- em liga — torneio ainda em rascunho (a tabela é gerada ao iniciar; quem
--- entra depois ficaria órfão de partidas).
+-- em formato GERADO (liga, mata-mata) — torneio ainda em rascunho (tabela/
+-- chave são geradas ao iniciar; quem entra depois ficaria órfão de partidas).
+-- `<> 'avulso'` em vez de listar formatos: falha-segura — um formato futuro
+-- gerado herda o bloqueio em vez de furar a regra silenciosamente.
 -- Idempotente (on conflict do nothing): reabrir o link não duplica nem falha.
 create or replace function public.aceitar_convite(codigo text)
 returns uuid
@@ -373,8 +541,8 @@ begin
   if v_status = 'encerrado' then
     raise exception 'Este torneio está encerrado e não aceita novos participantes';
   end if;
-  if v_formato = 'liga' and v_status <> 'rascunho' then
-    raise exception 'Esta liga já foi iniciada e não aceita novos participantes';
+  if v_formato <> 'avulso' and v_status <> 'rascunho' then
+    raise exception 'Este torneio já foi iniciado e não aceita novos participantes';
   end if;
 
   insert into public.participants (tournament_id, user_id)
@@ -636,16 +804,28 @@ create policy participants_insert_owner_self on public.participants
 
 -- DELETE: o próprio participante sai; o dono remove qualquer um. Partidas já
 -- criadas NÃO são tocadas (histórico) — o removido só deixa de ser elegível
--- para novas partidas. Sem policy de UPDATE: não há coluna mutável.
+-- para novas partidas. EXCETO mata-mata ATIVO: a chave avança fase a fase e o
+-- INSERT da fase seguinte exige cada vencedor em participants (cláusula da
+-- policy de INSERT de matches) — uma saída no meio travaria o avanço PARA
+-- SEMPRE. Rascunho (chave não gerada) e encerrado (histórico) seguem livres.
+-- Sem policy de UPDATE: não há coluna mutável.
 drop policy if exists participants_delete_self_or_owner on public.participants;
 create policy participants_delete_self_or_owner on public.participants
   for delete to authenticated
   using (
-    user_id = auth.uid()
-    or exists (
+    (
+      user_id = auth.uid()
+      or exists (
+        select 1 from public.tournaments t
+        where t.id = tournament_id
+          and t.created_by = auth.uid()
+      )
+    )
+    and not exists (
       select 1 from public.tournaments t
       where t.id = tournament_id
-        and t.created_by = auth.uid()
+        and t.formato = 'mata_mata'
+        and t.status = 'ativo'
     )
   );
 

@@ -88,6 +88,35 @@ export async function aceitarConvite(
 }
 
 /**
+ * Mata-mata ATIVO congela a lista de participantes: a chave avança fase a
+ * fase e o INSERT da fase seguinte exige cada vencedor em `participants`
+ * (cláusula da RLS de INSERT de matches) — uma saída no meio travaria o
+ * "Avançar fase" PARA SEMPRE (RLS rejeita, retry nunca resolve). Liga não
+ * sofre (todas as partidas nascem no Iniciar); rascunho (chave ainda não
+ * gerada) e encerrado (histórico) seguem livres. A policy
+ * `participants_delete_self_or_owner` é o backstop no banco.
+ */
+async function chaveEmAndamento(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tournamentId: string
+): Promise<{ travado: boolean } | { erro: true }> {
+  const { data, error } = await supabase
+    .from("tournaments")
+    .select("id")
+    .eq("id", tournamentId)
+    .eq("formato", "mata_mata")
+    .eq("status", "ativo")
+    .maybeSingle()
+  if (error) {
+    return { erro: true }
+  }
+  return { travado: data !== null }
+}
+
+const ERRO_CHAVE_EM_ANDAMENTO =
+  "O mata-mata já começou — a chave depende de todos os participantes. Saídas e remoções só antes de iniciar ou depois de encerrar."
+
+/**
  * Sai do torneio por conta própria. O DELETE filtra pelo PRÓPRIO user.id —
  * não há como sair "pelos outros"; a RLS (`participants_delete_self_or_owner`)
  * é a segunda barreira. Partidas já criadas não são tocadas (histórico).
@@ -108,6 +137,14 @@ export async function sairDoTorneio(
   } = await supabase.auth.getUser()
   if (authError || !user) {
     return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const chave = await chaveEmAndamento(supabase, parsed.data.tournamentId)
+  if ("erro" in chave) {
+    return { ok: false, error: "Não foi possível sair do torneio agora. Tente novamente." }
+  }
+  if (chave.travado) {
+    return { ok: false, error: ERRO_CHAVE_EM_ANDAMENTO }
   }
 
   const { data: removidas, error } = await supabase
@@ -155,7 +192,7 @@ export async function removerParticipante(
   const erroPropriedade = "Torneio não encontrado ou você não é o dono dele."
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
-    .select("id")
+    .select("id, formato, status")
     .eq("id", parsed.data.tournamentId)
     .eq("created_by", user.id)
     .maybeSingle()
@@ -164,6 +201,11 @@ export async function removerParticipante(
   }
   if (!torneio) {
     return { ok: false, error: erroPropriedade }
+  }
+  // Mesmo congelamento de sairDoTorneio: remover participante de chave em
+  // andamento travaria o avanço de fase para sempre (ver chaveEmAndamento).
+  if (torneio.formato === "mata_mata" && torneio.status === "ativo") {
+    return { ok: false, error: ERRO_CHAVE_EM_ANDAMENTO }
   }
 
   const { data: removidas, error } = await supabase

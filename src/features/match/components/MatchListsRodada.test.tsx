@@ -27,6 +27,7 @@ describe("rótulo de rodada nas listas de partidas", () => {
             placar_2: 0,
             status: "agendada",
             rodada: 2,
+            perna: null,
           },
           {
             id: "m2",
@@ -36,6 +37,7 @@ describe("rótulo de rodada nas listas de partidas", () => {
             placar_2: 1,
             status: "em_andamento",
             rodada: null,
+            perna: null,
           },
         ]}
       />
@@ -45,6 +47,38 @@ describe("rótulo de rodada nas listas de partidas", () => {
     expect(screen.queryByText(/^R\d+$/u)?.textContent).toBe("R2")
     // E o texto acessível identifica a rodada.
     expect(screen.getByText(/Rodada 2: Placar atual/)).toBeInTheDocument()
+  })
+
+  it("OpenMatchesList identifica a perna do confronto ida-e-volta", () => {
+    render(
+      <OpenMatchesList
+        partidas={[
+          {
+            id: "m1",
+            nome_1: "Ana",
+            nome_2: "Beto",
+            placar_1: 0,
+            placar_2: 0,
+            status: "agendada",
+            rodada: 1,
+            perna: 1,
+          },
+          {
+            id: "m2",
+            nome_1: "Beto",
+            nome_2: "Ana",
+            placar_1: 0,
+            placar_2: 0,
+            status: "agendada",
+            rodada: 1,
+            perna: 2,
+          },
+        ]}
+      />
+    )
+    expect(screen.getByText("R1 ida")).toBeInTheDocument()
+    expect(screen.getByText("R1 volta")).toBeInTheDocument()
+    expect(screen.getByText(/Rodada 1 \(volta\): Placar atual/)).toBeInTheDocument()
   })
 
   it("MatchHistoryList mostra a rodada da encerrada quando presente", () => {
@@ -59,6 +93,7 @@ describe("rótulo de rodada nas listas de partidas", () => {
             placar_2: 1,
             encerradaEm: "2026-06-04T12:00:00Z",
             rodada: 5,
+            perna: null,
           },
           {
             id: "m2",
@@ -68,6 +103,7 @@ describe("rótulo de rodada nas listas de partidas", () => {
             placar_2: 3,
             encerradaEm: "2026-06-03T12:00:00Z",
             rodada: null,
+            perna: null,
           },
         ]}
       />

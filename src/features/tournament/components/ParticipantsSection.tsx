@@ -11,6 +11,8 @@ import {
  * - as demais linhas têm "Remover" quando o usuário é o DONO;
  * - dono fora da lista vê "Participar" (reentrada / torneio legado), só com
  *   torneio não-encerrado (espelha a policy de INSERT).
+ * `listaCongelada` (mata-mata ativo) esconde Sair/Remover: a chave em
+ * andamento depende de todos os participantes (action + RLS rejeitam).
  * Os botões são UX — a autorização real é action + RLS.
  */
 export function ParticipantsSection({
@@ -19,12 +21,14 @@ export function ParticipantsSection({
   userId,
   ehDono,
   torneioEncerrado,
+  listaCongelada = false,
 }: {
   tournamentId: string
   participantes: ParticipanteDoTorneio[]
   userId: string
   ehDono: boolean
   torneioEncerrado: boolean
+  listaCongelada?: boolean
 }) {
   const souParticipante = participantes.some((p) => p.id === userId)
 
@@ -57,7 +61,7 @@ export function ParticipantsSection({
                   <span className="text-muted-foreground"> (você)</span>
                 ) : null}
               </span>
-              {p.id === userId ? (
+              {listaCongelada ? null : p.id === userId ? (
                 <LeaveTournamentButton tournamentId={tournamentId} />
               ) : ehDono ? (
                 <RemoveParticipantButton

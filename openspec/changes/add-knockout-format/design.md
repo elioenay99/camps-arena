@@ -116,8 +116,10 @@ BEFORE UPDATE em `matches`, só quando o torneio é `mata_mata` e a partida tem
 `rodada` (service_role isento, padrão dos locks):
 
 - **Encerrando** (status → `encerrada`): bye (p2 NULL) passa; jogo único exige
-  `placar_1 <> placar_2`; perna 1 passa (empate ok); perna 2 exige perna 1
-  encerrada E agregado não-empatado.
+  `placar_1 <> placar_2`; perna 1 passa (empate ok) — EXCETO quando a perna 2
+  já está encerrada (fluxo reabrir→corrigir→re-encerrar a ida): o agregado
+  completo é revalidado, senão o slot persistiria "fechado" empatado; perna 2
+  exige perna 1 encerrada E agregado não-empatado.
 - **Reabrindo** (encerrada → outro): rejeita se existir partida do torneio com
   `rodada > OLD.rodada` (vencedor já semeado adiante — reabrir tornaria a
   chave incoerente); rejeita bye sempre.
@@ -148,6 +150,20 @@ mata-mata é barrada porque `createMatch` não envia rodada. Na action, o gate
 `formato === "liga"` generaliza para `formato !== "avulso"`. `computeStandings`
 e `gerarTabelaLiga` ficam intocados.
 
+### D11 — Mata-mata ativo CONGELA a lista de participantes (achado da validação adversarial)
+
+A chave avança fase a fase e o INSERT da fase seguinte exige cada vencedor em
+`participants` (cláusula da RLS de INSERT de matches). Sair/ser removido com
+o torneio ativo tornaria o "Avançar fase" permanentemente impossível (RLS
+rejeita, retry nunca resolve — e o convite não readmite, pois mata-mata fora
+de rascunho rejeita aceite). Decisão: `sairDoTorneio`/`removerParticipante`
+rejeitam mata-mata ativo (mensagem precisa) + cláusula na policy
+`participants_delete_self_or_owner` (backstop) + botões ocultos na UI. Liga
+não precisa (todas as partidas nascem no Iniciar); rascunho e encerrado
+seguem livres. Defesa em profundidade adicional: `avancarFase` pré-verifica
+os semeados em `participants` e devolve mensagem ACIONÁVEL caso uma linha
+tenha sumido por via administrativa (em vez de erro genérico de RLS).
+
 ## Riscos / Trade-offs
 
 - **[ALTER TYPE ADD VALUE no mesmo script que usa o valor]** → PG não permite
@@ -173,6 +189,11 @@ e `gerarTabelaLiga` ficam intocados.
   pênaltis) é embutido no placar do jogo; o app não registra a disputa de
   pênaltis em separado. Limitação honesta do MVP (campos de pênaltis foram
   opção rejeitada pelo usuário).
+- **[Listas planas rotulam fase como "R{n}"]** → "Partidas em aberto" e o
+  histórico mostram `R1/R2` (+ ida/volta) em vez de "Semifinais"/"Final", e
+  não distinguem final de 3º lugar — as listas não recebem `posicao`. Baixo
+  valor corrigir agora: o BracketView é a visão primária da chave (rótulos
+  corretos). Tratar se feedback de usuário apontar confusão.
 
 ## Migration Plan
 

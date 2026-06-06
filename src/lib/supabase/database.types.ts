@@ -2,7 +2,7 @@
 // Fonte de verdade do schema é o SQL; estes tipos dão type-safety ao client.
 
 export type TournamentStatus = "rascunho" | "ativo" | "encerrado"
-export type TournamentFormat = "avulso" | "liga"
+export type TournamentFormat = "avulso" | "liga" | "mata_mata"
 export type MatchStatus = "agendada" | "em_andamento" | "encerrada"
 
 export interface Database {
@@ -39,6 +39,7 @@ export interface Database {
           status: TournamentStatus
           formato: TournamentFormat
           ida_e_volta: boolean
+          terceiro_lugar: boolean
           created_by: string | null
           is_public: boolean
           pontos_vitoria: number
@@ -52,6 +53,7 @@ export interface Database {
           status?: TournamentStatus
           formato?: TournamentFormat
           ida_e_volta?: boolean
+          terceiro_lugar?: boolean
           created_by?: string | null
           is_public?: boolean
           pontos_vitoria?: number
@@ -65,6 +67,7 @@ export interface Database {
           status?: TournamentStatus
           formato?: TournamentFormat
           ida_e_volta?: boolean
+          terceiro_lugar?: boolean
           created_by?: string | null
           is_public?: boolean
           pontos_vitoria?: number
@@ -120,6 +123,8 @@ export interface Database {
           placar_2: number
           status: MatchStatus
           rodada: number | null
+          posicao: number | null
+          perna: number | null
           created_at: string
           updated_at: string
         }
@@ -134,6 +139,8 @@ export interface Database {
           placar_2?: number
           status?: MatchStatus
           rodada?: number | null
+          posicao?: number | null
+          perna?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -148,6 +155,8 @@ export interface Database {
           placar_2?: number
           status?: MatchStatus
           rodada?: number | null
+          posicao?: number | null
+          perna?: number | null
           created_at?: string
           updated_at?: string
         }

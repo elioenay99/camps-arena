@@ -21,8 +21,9 @@ const pontos = z
  * Criação de torneio: título, visibilidade, regras de pontuação e formato.
  * O refine espelha a CHECK `tournaments_pontuacao_coerente` do banco — derrota
  * valendo mais que empate (ou empate mais que vitória) corromperia a
- * classificação. `formato` espelha o enum `tournament_format`; `idaEVolta` só
- * é significativo em liga (no avulso fica false, default do banco).
+ * classificação. `formato` espelha o enum `tournament_format`; `idaEVolta`
+ * vale em liga e mata-mata; `terceiroLugar` só em mata-mata (a action
+ * normaliza para false nos formatos em que a opção não se aplica).
  */
 export const createTournamentSchema = z
   .object({
@@ -33,9 +34,12 @@ export const createTournamentSchema = z
       .max(80, "Título muito longo."),
     isPublic: z.boolean().default(true),
     formato: z
-      .enum(["avulso", "liga"], { error: "Formato de torneio inválido." })
+      .enum(["avulso", "liga", "mata_mata"], {
+        error: "Formato de torneio inválido.",
+      })
       .default("avulso"),
     idaEVolta: z.boolean().default(false),
+    terceiroLugar: z.boolean().default(false),
     pontosVitoria: pontos.default(PONTUACAO_PADRAO.vitoria),
     pontosEmpate: pontos.default(PONTUACAO_PADRAO.empate),
     pontosDerrota: pontos.default(PONTUACAO_PADRAO.derrota),
@@ -50,3 +54,22 @@ export const createTournamentSchema = z
   })
 
 export type CreateTournamentInput = z.infer<typeof createTournamentSchema>
+
+/**
+ * Início de mata-mata: o modo de chaveamento NÃO persiste — é parâmetro da
+ * action. `cabecas` (modo potes) e `confrontos` (modo manual) chegam do form
+ * do painel de início; a action valida a coerência com os participantes
+ * confirmados (o Zod valida só a FORMA — uuids e pares).
+ */
+export const iniciarMataMataSchema = z.object({
+  tournamentId: z.uuid({ error: "Torneio inválido." }),
+  modo: z.enum(["sorteio", "potes", "manual"], {
+    error: "Modo de chaveamento inválido.",
+  }),
+  cabecas: z.array(z.uuid()).default([]),
+  confrontos: z
+    .array(z.tuple([z.uuid().nullable(), z.uuid().nullable()]))
+    .default([]),
+})
+
+export type IniciarMataMataInput = z.infer<typeof iniciarMataMataSchema>
