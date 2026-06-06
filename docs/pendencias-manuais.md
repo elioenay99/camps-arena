@@ -239,7 +239,7 @@ encerrar/reabrir pela app falha** (a RLS nega UPDATE ao dono) e **fica aberto o
 buraco** de participante mudar status/placar-de-encerrada por POST direto (a RLS
 de UPDATE é por linha, não por coluna). Aplicar no **SQL Editor** (idempotente):
 
-- [ ] **7.1 — Policy de UPDATE para o dono + trigger de lifecycle:**
+- [x] **7.1 — Policy de UPDATE para o dono + trigger de lifecycle:**
 
 ```sql
 -- UPDATE também para o DONO do torneio (policies são OR).
