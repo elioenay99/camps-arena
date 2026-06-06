@@ -650,7 +650,7 @@ a enviar `formato`/`ida_e_volta`, que ainda não existem) **e a página do
 torneio quebra** (o fetcher seleciona as colunas novas). Aplicar no **SQL
 Editor** (idempotente; rode o bloco INTEIRO):
 
-- [ ] **9.1 — Enum + colunas + CHECK + policy + funções:**
+- [x] **9.1 — Enum + colunas + CHECK + policy + funções:**
 
 ```sql
 -- Enum de formato (formatos futuros entram com ADD VALUE).
@@ -812,12 +812,12 @@ revoke execute on function public.info_convite(text) from public, anon;
 grant execute on function public.info_convite(text) to authenticated;
 ```
 
-- [ ] **9.2 — (opcional) Conferir o caminho feliz**: crie um torneio formato
+- [x] **9.2 — (opcional) Conferir o caminho feliz**: crie um torneio formato
   Liga pela app (deve nascer "em rascunho"); entre com OUTRA conta pelo link
   de convite; como dono, clique "Iniciar torneio" e confira a tabela gerada
   (partidas com "R1", "R2"… na página do torneio) e o status "ativo".
 
-- [ ] **9.3 — (recomendado) Conferir as TRAVAS** (policies/funções são a única
+- [x] **9.3 — (recomendado) Conferir as TRAVAS** (policies/funções são a única
   barreira contra POST direto — os testes unitários não as executam). Com o
   token de um usuário comum:
 
