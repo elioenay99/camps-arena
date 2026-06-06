@@ -303,11 +303,11 @@ create trigger matches_lock_lifecycle
   for each row execute function public.lock_match_lifecycle();
 ```
 
-- [ ] **7.2 — (opcional) Conferir o caminho feliz**: como dono, encerre uma
+- [x] **7.2 — (opcional) Conferir o caminho feliz**: como dono, encerre uma
   partida pela página do torneio e veja-a entrar na classificação; reabra e
   veja-a voltar.
 
-- [ ] **7.3 — (recomendado) Conferir as TRAVAS** (o trigger é a única barreira
+- [x] **7.3 — (recomendado) Conferir as TRAVAS** (o trigger é a única barreira
   contra POST direto — os testes unitários não o executam). No SQL Editor,
   rode como usuário comum (role `authenticated`, não `postgres`) — ou
   simplesmente confira que estes UPDATEs FALHAM via API REST com o token de um
@@ -335,7 +335,7 @@ app falha** (a action insere em `participants`/`tournament_invites`, que ainda
 não existem) **e a página do torneio quebra** (lista de participantes). Aplicar
 no **SQL Editor** (idempotente):
 
-- [ ] **8.1 — Tabelas + funções + policies:**
+- [x] **8.1 — Tabelas + funções + policies:**
 
 ```sql
 -- Participante CONFIRMADO (linha = aceitou; sem estado pendente).
@@ -589,7 +589,7 @@ create policy tournament_invites_delete_owner on public.tournament_invites
   );
 ```
 
-- [ ] **8.2 — (recomendado) Backfill**: donos atuais viram participantes dos
+- [x] **8.2 — (recomendado) Backfill**: donos atuais viram participantes dos
   próprios torneios (a entrada automática só vale para torneios novos):
 
 ```sql
@@ -603,12 +603,12 @@ on conflict do nothing;
   (Convites de torneios existentes não precisam de backfill: o dono gera o
   primeiro link pelo botão "Gerar link de convite" na página do torneio.)
 
-- [ ] **8.3 — (opcional) Conferir o caminho feliz**: crie um torneio pela app
+- [x] **8.3 — (opcional) Conferir o caminho feliz**: crie um torneio pela app
   (você deve nascer participante e com link de convite); abra o link numa
   janela anônima com OUTRA conta e aceite; confira que o convidado aparece na
   lista e nos selects de nova partida.
 
-- [ ] **8.4 — (recomendado) Conferir as TRAVAS** (as funções/policies são a
+- [x] **8.4 — (recomendado) Conferir as TRAVAS** (as funções/policies são a
   única barreira contra POST direto — os testes unitários não as executam).
   Com o token de um usuário comum (não dono):
 
