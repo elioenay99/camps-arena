@@ -864,14 +864,14 @@ app FALHA** (a action passa a enviar `terceiro_lugar`, que ainda não existe)
 `posicao` e `perna`). Aplicar no **SQL Editor** em **DOIS Runs separados** —
 o Postgres proíbe usar um valor novo de enum na mesma transação que o criou:
 
-- [ ] **10.1 — Bloco A (rode SOZINHO e primeiro):**
+- [x] **10.1 — Bloco A (rode SOZINHO e primeiro):**
 
 ```sql
 -- Novo valor do enum de formato (aditivo; idempotente).
 alter type public.tournament_format add value if not exists 'mata_mata';
 ```
 
-- [ ] **10.2 — Bloco B (colunas + CHECKs + índice + triggers + função):**
+- [x] **10.2 — Bloco B (colunas + CHECKs + índice + triggers + função):**
 
 ```sql
 -- Disputa de 3º lugar (só significativo em mata-mata; default preserva tudo).
@@ -1099,14 +1099,14 @@ create policy participants_delete_self_or_owner on public.participants
   );
 ```
 
-- [ ] **10.3 — (recomendado) Conferir o caminho feliz**: crie um torneio
+- [x] **10.3 — (recomendado) Conferir o caminho feliz**: crie um torneio
   Mata-mata pela app (deve nascer "em rascunho"); entre com OUTRA conta pelo
   link de convite; como dono, inicie por **sorteio** e confira a chave gerada
   (página do torneio mostra a seção "Chave" com as fases); lance um placar com
   vencedor, encerre, clique **Avançar fase** e confira a fase seguinte. Com 3
   participantes, confira o bye ("Avança direto") na chave.
 
-- [ ] **10.4 — (recomendado) Conferir as TRAVAS** (triggers/índice são a única
+- [x] **10.4 — (recomendado) Conferir as TRAVAS** (triggers/índice são a única
   barreira contra POST direto — os testes unitários não os executam):
 
 ```sql
