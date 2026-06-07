@@ -1161,7 +1161,7 @@ encerrar → sair → reabrir travaria o avanço de fase para sempre). As action
 a UI já aplicam a regra; **sem isto o app funciona**, mas o backstop do banco
 contra POST direto fica defasado. Aplicar no **SQL Editor** (idempotente):
 
-- [ ] **11.1 — Policy de DELETE reescrita:**
+- [x] **11.1 — Policy de DELETE reescrita:**
 
 ```sql
 drop policy if exists participants_delete_self_or_owner on public.participants;
@@ -1192,7 +1192,7 @@ create policy participants_delete_self_or_owner on public.participants
   );
 ```
 
-- [ ] **11.2 — (opcional) Conferir a trava**: num mata-mata ENCERRADO cuja
+- [x] **11.2 — (opcional) Conferir a trava**: num mata-mata ENCERRADO cuja
   chave foi gerada, `delete from public.participants where tournament_id =
   '<id>' and user_id = auth.uid();` deve afetar **0 linhas**; num mata-mata
   encerrado SEM chave (cancelado no rascunho), deve afetar 1.
