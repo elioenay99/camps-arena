@@ -192,8 +192,8 @@ describe("getTournamentClassificacao", () => {
     // Normaliza whitespace: o postgrest-js remove espaços não-citados antes
     // de enviar — assertar a forma normalizada evita acoplar à formatação.
     const cols = String(client.partidasSelectSpy.mock.calls[0][0]).replace(/\s+/g, "")
-    expect(cols).toContain("p1:users!matches_participante_1_fkey(id,nome)")
-    expect(cols).toContain("p2:users!matches_participante_2_fkey(id,nome)")
+    expect(cols).toContain("p1:users!matches_participante_1_fkey(id,nome,celular)")
+    expect(cols).toContain("p2:users!matches_participante_2_fkey(id,nome,celular)")
     // Colunas cruas: insumos do motor — removê-las quebraria a classificação.
     expect(cols).toContain("participante_1")
     expect(cols).toContain("participante_2")
@@ -214,7 +214,9 @@ describe("getTournamentClassificacao", () => {
     expect(cols).toContain("time_2")
     expect(cols).toContain("t1:teams!matches_time_1_fkey(id,nome)")
     expect(cols).toContain("t2:teams!matches_time_2_fkey(id,nome)")
-    expect(cols).not.toContain("celular")
+    // celular entrou DELIBERADAMENTE (add-match-engagement): insumo do atalho
+    // de convocação, consumido só pela projeção de partidas abertas — a
+    // contenção de PII é validada no teste de convocação abaixo.
   })
 
   it("clubes pontuam pelo MESMO motor e regras do torneio (re-chaveado por time)", async () => {
@@ -591,5 +593,33 @@ describe("getTournamentClassificacao", () => {
     })
     const r = await getTournamentClassificacao(TORNEIO.id)
     expect(r?.grupos).toEqual([])
+  })
+})
+
+describe("convocação — celular nos embeds e lados nas partidas abertas", () => {
+  it("partidasAbertas carrega ids/celulares dos lados; encerradas NÃO", async () => {
+    const aberta = {
+      ...partidaEncerrada(
+        { id: "u1", nome: "Ana", celular: "11912345678" } as never,
+        { id: "u2", nome: "Beto", celular: null } as never,
+        1,
+        0
+      ),
+      status: "em_andamento",
+    }
+    const fechada = partidaEncerrada(
+      { id: "u1", nome: "Ana", celular: "11912345678" } as never,
+      { id: "u2", nome: "Beto", celular: null } as never,
+      2,
+      1
+    )
+    montarClient({ torneio: TORNEIO, partidas: [aberta, fechada] })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.partidasAbertas[0]).toMatchObject({
+      participante_1: { id: "u1", celular: "11912345678" },
+      participante_2: { id: "u2", celular: null },
+    })
+    // O histórico não expõe o dado (PII contida à projeção que o usa).
+    expect(r?.partidasEncerradas[0]).not.toHaveProperty("participante_1")
   })
 })

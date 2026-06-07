@@ -328,6 +328,7 @@ export default async function TorneioPage({
           <OpenMatchesList
             partidas={partidasAbertas}
             mostrarEncerrar={podeGerirPartidas}
+            convocacao={{ userId: user.id, titulo, tournamentId: id }}
           />
         </section>
       ) : null}

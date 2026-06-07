@@ -30,10 +30,13 @@ O sistema SHALL exibir o botão "Chamar {adversário}" (link `wa.me` com a
 mensagem de convocação) no card de partida do DASHBOARD e nas PARTIDAS EM
 ABERTO da página do torneio. O botão SHALL ser renderizado SOMENTE quando o
 usuário logado é participante daquela partida E o adversário tem celular
-normalizável — a decisão SHALL acontecer no servidor (componentes RSC): o
-celular do adversário SÓ SHALL chegar ao navegador, dentro do `href`, para
-quem é participante da partida. Visitantes, dono não-participante e demais
-participantes do torneio NÃO SHALL receber o dado nem ver o botão.
+normalizável — a decisão SHALL acontecer no servidor (componentes RSC): no
+ATALHO, o celular do adversário SÓ SHALL chegar ao navegador, dentro do
+`href`, para quem é participante da partida; visitantes, dono
+não-participante e demais participantes NÃO SHALL ver o botão nem receber o
+dado POR ESTAS SUPERFÍCIES. (O modal de placar do dashboard, client,
+mantém o tráfego de celular pré-existente — risco aceito desde a Fase 5;
+esta capability não o amplia.)
 
 #### Scenario: Participante vê o atalho no dashboard
 - **WHEN** um participante de partida aberta vê o card no dashboard e o adversário tem celular
@@ -43,9 +46,9 @@ participantes do torneio NÃO SHALL receber o dado nem ver o botão.
 - **WHEN** um participante abre a página do torneio com partidas em aberto dele
 - **THEN** cada partida DELE em aberto mostra o atalho para o respectivo adversário
 
-#### Scenario: Não-participante não vê atalho nem celular
+#### Scenario: Não-participante não vê atalho nem celular pelas superfícies novas
 - **WHEN** um visitante, o dono não-participante ou outro participante vê as mesmas listas
-- **THEN** nenhum botão de chamada é renderizado e nenhum celular aparece no HTML recebido
+- **THEN** nenhum botão de chamada é renderizado e o atalho não adiciona nenhum celular ao HTML além do tráfego pré-existente (e aceito) do modal do dashboard
 
 #### Scenario: Adversário sem celular não gera botão
 - **WHEN** o adversário não tem celular cadastrado (ou em formato inválido)

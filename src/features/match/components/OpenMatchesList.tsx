@@ -1,6 +1,10 @@
+import { MessageCircle } from "lucide-react"
+
+import { Button } from "@/components/ui/button"
 import { MatchStatusButton } from "@/features/match/components/MatchStatusButton"
 import type { PartidaAberta } from "@/features/standings/data/getTournamentClassificacao"
 import type { MatchStatus } from "@/lib/supabase/database.types"
+import { linkWhatsApp, mensagemConvocacao } from "@/lib/whatsapp"
 
 const LABEL_STATUS: Record<MatchStatus, string> = {
   agendada: "agendada",
@@ -10,15 +14,41 @@ const LABEL_STATUS: Record<MatchStatus, string> = {
 
 /**
  * Partidas em aberto do torneio — RSC puro. `mostrarEncerrar` liga o console
- * do dono (autorização real no servidor/RLS; o botão é só UX).
+ * do dono (autorização real no servidor/RLS; o botão é só UX). `convocacao`
+ * habilita o atalho "Chamar {adversário}" (re-engajamento): renderizado SÓ
+ * nas partidas em que `userId` joga, apontando ao adversário com celular
+ * válido — como a lista é RSC, o celular só entra no HTML (href) de quem tem
+ * o direito de vê-lo.
  */
 export function OpenMatchesList({
   partidas,
   mostrarEncerrar = false,
+  convocacao,
 }: {
   partidas: PartidaAberta[]
   mostrarEncerrar?: boolean
+  convocacao?: { userId: string; titulo: string; tournamentId: string }
 }) {
+  const atalhoDe = (p: PartidaAberta) => {
+    if (!convocacao) return null
+    const adversario =
+      p.participante_1?.id === convocacao.userId
+        ? { lado: p.participante_2, nome: p.nome_2 }
+        : p.participante_2?.id === convocacao.userId
+          ? { lado: p.participante_1, nome: p.nome_1 }
+          : null
+    if (!adversario?.lado) return null
+    const link = linkWhatsApp(
+      adversario.lado.celular,
+      mensagemConvocacao({
+        adversario: adversario.nome,
+        titulo: convocacao.titulo,
+        tournamentId: convocacao.tournamentId,
+      })
+    )
+    return link ? { link, nome: adversario.nome } : null
+  }
+
   return (
     <ul className="flex list-none flex-col gap-2 p-0">
       {partidas.map((p) => (
@@ -49,6 +79,22 @@ export function OpenMatchesList({
             <span aria-hidden="true" className="text-muted-foreground text-xs">
               {LABEL_STATUS[p.status]}
             </span>
+            {(() => {
+              const atalho = atalhoDe(p)
+              return atalho ? (
+                <Button
+                  asChild
+                  size="sm"
+                  className="rounded-full bg-green-700 text-white hover:bg-green-800"
+                >
+                  <a href={atalho.link} target="_blank" rel="noopener noreferrer">
+                    <MessageCircle aria-hidden="true" />
+                    Chamar
+                    <span className="sr-only">{` ${atalho.nome} no WhatsApp (abre em nova aba)`}</span>
+                  </a>
+                </Button>
+              ) : null
+            })()}
             {mostrarEncerrar ? (
               <MatchStatusButton matchId={p.id} acao="encerrar" />
             ) : null}

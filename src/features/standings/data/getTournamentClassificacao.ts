@@ -66,6 +66,10 @@ export interface PartidaAberta {
   perna: number | null
   /** Grupo da fase de grupos; null fora dela. */
   grupo: number | null
+  /** Lados da partida (id + celular) — insumo do atalho de convocação. A
+   * lista é RSC: o celular só vai ao HTML de quem é participante. */
+  participante_1: { id: string; celular: string | null } | null
+  participante_2: { id: string; celular: string | null } | null
 }
 
 /** Partida da chave de mata-mata (rodada e posicao presentes) — bracket. */
@@ -105,6 +109,9 @@ export interface ClassificacaoTorneio {
 interface ParticipanteEmbed {
   id: string
   nome: string | null
+  /** PII (RLS: só authenticated lê users): consumido APENAS pela projeção
+   * de partidas abertas — insumo do atalho de convocação. */
+  celular: string | null
 }
 
 interface ClubeEmbed {
@@ -188,8 +195,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     .from("matches")
     .select(
       `id, participante_1, participante_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, created_at, updated_at,
-       p1:users!matches_participante_1_fkey ( id, nome ),
-       p2:users!matches_participante_2_fkey ( id, nome ),
+       p1:users!matches_participante_1_fkey ( id, nome, celular ),
+       p2:users!matches_participante_2_fkey ( id, nome, celular ),
        t1:teams!matches_time_1_fkey ( id, nome ),
        t2:teams!matches_time_2_fkey ( id, nome )`
     )
@@ -299,6 +306,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
       rodada: p.rodada,
       perna: p.perna,
       grupo: p.grupo,
+      participante_1: p.p1 ? { id: p.p1.id, celular: p.p1.celular } : null,
+      participante_2: p.p2 ? { id: p.p2.id, celular: p.p2.celular } : null,
     }))
 
   // Quinta projeção: a CHAVE do mata-mata (partidas com rodada e slot) —

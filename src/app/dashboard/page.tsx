@@ -37,7 +37,7 @@ export default async function DashboardPage() {
         ) : (
           <ul className="flex list-none flex-col gap-4 p-0">
             {partidas.map((partida) => (
-              <MatchCard key={partida.id} partida={partida} />
+              <MatchCard key={partida.id} partida={partida} userId={user.id} />
             ))}
           </ul>
         )}

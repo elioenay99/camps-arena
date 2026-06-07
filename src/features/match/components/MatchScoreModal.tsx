@@ -19,12 +19,18 @@ import { PLACAR_MAX } from "@/schema/matchSchema"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { TeamSearchInput } from "@/features/team/components/TeamSearchInput"
 import type { TeamResult } from "@/schema/teamSchema"
+import { linkWhatsApp } from "@/lib/whatsapp"
 
 export interface ParticipantePartida {
   nome: string
   avatarUrl?: string | null
   /** Celular em qualquer formato; normalizado para o link wa.me. */
   celular?: string | null
+  /**
+   * Mensagem de convocação pré-preenchida do atalho wa.me deste lado
+   * (montada no servidor — sauda ESTE participante). Sem ela, chat vazio.
+   */
+  mensagemWhatsApp?: string
   /** Clube que o participante representa (escudo + nome). */
   clube?: { nome: string; escudoUrl?: string | null } | null
 }
@@ -74,21 +80,6 @@ function iniciais(nome: string) {
     .slice(0, 2)
     .map((parte) => [...parte][0]?.toUpperCase() ?? "")
     .join("")
-}
-
-/**
- * Monta o link wa.me a partir de um celular BR. Aceita só celular válido
- * (11 dígitos sem DDI, ou 13 com o DDI 55). Fixo ou formato inválido → null.
- * O DDI é inferido pelo comprimento, não pelo prefixo (um DDD 55 não é DDI).
- */
-function linkWhatsApp(celular?: string | null) {
-  if (!celular) return null
-  const digitos = celular.replace(/\D/g, "")
-  if (digitos.length === 11) return `https://wa.me/55${digitos}`
-  if (digitos.length === 13 && digitos.startsWith("55")) {
-    return `https://wa.me/${digitos}`
-  }
-  return null
 }
 
 function Avatar({ participante }: { participante: ParticipantePartida }) {
@@ -186,7 +177,7 @@ function ColunaParticipante({
   onChange: (atualizar: (atual: number) => number) => void
   onSelecionarClube?: (lado: 1 | 2, team: TeamResult) => Promise<void> | void
 }) {
-  const wa = linkWhatsApp(participante.celular)
+  const wa = linkWhatsApp(participante.celular, participante.mensagemWhatsApp)
   const clube = participante.clube
 
   return (

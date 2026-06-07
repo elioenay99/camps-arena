@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server"
 import type { MatchStatus, TournamentStatus } from "@/lib/supabase/database.types"
 
 export interface ParticipanteResumo {
+  /** Id do usuário — decide o LADO do atalho de convocação (quem chama quem). */
+  id: string
   nome: string | null
   avatar: string | null
   /** PII: legível só por authenticated (RLS). Alimenta o atalho wa.me. */
@@ -56,8 +58,8 @@ export async function getActiveMatches(): Promise<PartidaAtiva[]> {
     .select(
       `id, placar_1, placar_2, status, created_at,
        tournament:tournaments!matches_tournament_id_fkey!inner ( id, titulo, status ),
-       participante_1:users!matches_participante_1_fkey ( nome, avatar, celular ),
-       participante_2:users!matches_participante_2_fkey ( nome, avatar, celular ),
+       participante_1:users!matches_participante_1_fkey ( id, nome, avatar, celular ),
+       participante_2:users!matches_participante_2_fkey ( id, nome, avatar, celular ),
        time_1:teams!matches_time_1_fkey ( nome, escudo_url ),
        time_2:teams!matches_time_2_fkey ( nome, escudo_url )`
     )

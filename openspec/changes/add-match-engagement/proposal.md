@@ -34,6 +34,10 @@ contexto e link do torneio.
   participantes não recebem o dado. (O modal do dashboard, client, mantém o
   tráfego de celular já registrado como risco aceito — nada piora.)
 - Zero DDL (coluna e RLS existentes).
+- Wart conhecido (herdado): o modal mostra o botão de chamar TAMBÉM na
+  coluna do próprio usuário (auto-chamada) — comportamento pré-existente,
+  agora com a mensagem saudando o próprio nome; suprimir a coluna do
+  usuário logado fica para um polish futuro.
 
 ## Capabilities
 
