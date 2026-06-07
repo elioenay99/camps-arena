@@ -127,9 +127,10 @@ correspondente for visível ao solicitante; INSERT direto apenas para o DONO do
 torneio inserindo a si mesmo (`user_id = auth.uid()`) — convidados entram
 exclusivamente pela função `aceitar_convite`; DELETE para o próprio
 participante (sair) ou para o dono do torneio (remover), EXCETO em torneio
-`mata_mata` com `status = 'ativo'` (a chave em andamento depende de cada
-participante — ver capability `knockout-format`). UPDATE NÃO SHALL ser
-permitido.
+`mata_mata` com a chave GERADA — `status = 'ativo'`, ou qualquer status com
+partidas geradas (`rodada` não nula) — porque a chave em andamento depende de
+cada participante e o torneio encerrado é reabrível (ver capabilities
+`knockout-format` e `tournament-lifecycle`). UPDATE NÃO SHALL ser permitido.
 
 #### Scenario: Lista visível junto com o torneio
 - **WHEN** um usuário que enxerga o torneio consulta os participantes dele
@@ -140,11 +141,11 @@ permitido.
 - **THEN** a política RLS rejeita a operação
 
 #### Scenario: Sair e remover cobertos por DELETE
-- **WHEN** o próprio participante (ou o dono do torneio) executa DELETE da linha em torneio que não é mata-mata ativo
+- **WHEN** o próprio participante (ou o dono do torneio) executa DELETE da linha em torneio que não é mata-mata com chave gerada
 - **THEN** a operação é aceita; para qualquer outro usuário é rejeitada
 
-#### Scenario: Mata-mata ativo bloqueia DELETE no banco
-- **WHEN** um DELETE direto em `participants` referencia torneio mata-mata com status ativo
+#### Scenario: Mata-mata com chave gerada bloqueia DELETE no banco
+- **WHEN** um DELETE direto em `participants` referencia mata-mata ativo, ou encerrado com partidas geradas
 - **THEN** a política RLS rejeita a operação, mesmo para o dono ou o próprio participante
 
 ### Requirement: Políticas de tournament_invites
