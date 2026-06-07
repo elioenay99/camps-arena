@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+// O fechamento automático de rodada é SECUNDÁRIO ao encerramento — tem
+// cobertura própria em closeRound.test.ts; aqui é no-op para focar no
+// lifecycle (encerrar/reabrir).
+vi.mock("@/features/match/closeRound", () => ({
+  varrerOrfaosDaRodada: vi.fn(async () => ({ marcadas: 0 })),
+}))
 
 import { revalidatePath } from "next/cache"
 
@@ -36,6 +42,7 @@ interface Cenario {
 function montarClient(c: Cenario) {
   const filtroTorneioSpy = vi.fn()
   const updateSpy = vi.fn()
+  const updateFiltroSpy = vi.fn()
   const client = {
     auth: {
       getUser: vi.fn(async () => ({
@@ -75,19 +82,28 @@ function montarClient(c: Cenario) {
             })),
             update: vi.fn((vals: unknown) => {
               updateSpy(vals)
-              return {
-                eq: vi.fn(() => ({
-                  select: vi.fn(async () => ({
-                    data: c.updateData ?? null,
-                    error: c.updateError ? { message: "rls" } : null,
-                  })),
-                })),
-              }
+              // Cadeia encadeável: a guarda otimista de status usa
+              // .eq().neq()/.eq() antes do .select() (fecha a corrida).
+              const cadeia: Record<string, unknown> = {}
+              cadeia.eq = vi.fn((col: string, val: unknown) => {
+                updateFiltroSpy("eq", col, val)
+                return cadeia
+              })
+              cadeia.neq = vi.fn((col: string, val: unknown) => {
+                updateFiltroSpy("neq", col, val)
+                return cadeia
+              })
+              cadeia.select = vi.fn(async () => ({
+                data: c.updateData ?? null,
+                error: c.updateError ? { message: "rls" } : null,
+              }))
+              return cadeia
             }),
           }
     ),
     filtroTorneioSpy,
     updateSpy,
+    updateFiltroSpy,
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
   return client
@@ -202,7 +218,21 @@ describe("reabrirPartida", () => {
     const { updateSpy } = montarClient(cenarioFeliz("encerrada"))
     const r = await reabrirPartida(PARTIDA)
     expect(r).toEqual({ ok: true })
-    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento" })
+    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento", wo: false, wo_vencedor: null })
+  })
+
+  it("reabrir aplica a GUARDA otimista .eq(status, encerrada) no UPDATE", async () => {
+    const { updateFiltroSpy } = montarClient(cenarioFeliz("encerrada"))
+    await reabrirPartida(PARTIDA)
+    // Fecha a corrida: só reabre se AINDA está encerrada.
+    expect(updateFiltroSpy).toHaveBeenCalledWith("eq", "status", "encerrada")
+  })
+
+  it("encerrar aplica a GUARDA otimista .neq(status, encerrada) no UPDATE", async () => {
+    const { updateFiltroSpy } = montarClient(cenarioFeliz("em_andamento"))
+    await encerrarPartida(PARTIDA)
+    // Fecha a corrida: não re-encerra uma já encerrada.
+    expect(updateFiltroSpy).toHaveBeenCalledWith("neq", "status", "encerrada")
   })
 
   it("torneio alheio rejeita sem UPDATE", async () => {

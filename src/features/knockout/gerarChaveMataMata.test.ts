@@ -329,6 +329,57 @@ describe("decidirConfronto", () => {
     expect(decidirConfronto([jogada({ perna: 1, placar_1: 2, placar_2: 0 })])).toBeNull()
     expect(decidirConfronto([jogada({ perna: 2, placar_1: 2, placar_2: 0 })])).toBeNull()
   })
+
+  describe("W.O. decide o confronto", () => {
+    it("jogo único: W.O. 0x0 decide pelo woVencedor (não vira empate/null)", () => {
+      expect(
+        decidirConfronto([jogada({ placar_1: 0, placar_2: 0, woVencedor: "a" })])
+      ).toEqual({ vencedor: "a", perdedor: "b" })
+      expect(
+        decidirConfronto([jogada({ placar_1: 0, placar_2: 0, woVencedor: "b" })])
+      ).toEqual({ vencedor: "b", perdedor: "a" })
+    })
+
+    it("ida-e-volta: W.O. na IDA decide o confronto inteiro (volta nem precisa)", () => {
+      const idaWO = jogada({ perna: 1, placar_1: 0, placar_2: 0, woVencedor: "a" })
+      const voltaAberta = jogada({
+        perna: 2,
+        participante_1: "b",
+        participante_2: "a",
+        status: "agendada",
+      })
+      expect(decidirConfronto([idaWO, voltaAberta])).toEqual({
+        vencedor: "a",
+        perdedor: "b",
+      })
+      // Mesmo com a volta sozinha no lote.
+      expect(decidirConfronto([idaWO])).toEqual({ vencedor: "a", perdedor: "b" })
+    })
+
+    it("ida-e-volta: W.O. na VOLTA também decide o confronto inteiro", () => {
+      const ida = jogada({ perna: 1, placar_1: 1, placar_2: 1 })
+      const voltaWO = jogada({
+        perna: 2,
+        participante_1: "b",
+        participante_2: "a",
+        placar_1: 0,
+        placar_2: 0,
+        woVencedor: "b",
+      })
+      expect(decidirConfronto([ida, voltaWO])).toEqual({
+        vencedor: "b",
+        perdedor: "a",
+      })
+    })
+
+    it("W.O. não-encerrado é ignorado (precisa estar encerrada)", () => {
+      expect(
+        decidirConfronto([
+          jogada({ status: "agendada", woVencedor: "a" }),
+        ])
+      ).toBeNull()
+    })
+  })
 })
 
 /** Encerra as partidas de uma fase gerada: lado 1 vence (volta 0x0). */

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation"
 import { z } from "zod"
 
 import { FORMATOS_COM_CHAVE } from "@/features/knockout/gerarChaveMataMata"
+import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
 import { createClient } from "@/lib/supabase/server"
 import {
   createMatchSchema,
@@ -404,7 +405,7 @@ async function mudarStatusComoDono(
   const { data: match, error: fetchError } = await supabase
     .from("matches")
     .select(
-      "id, status, tournament_id, rodada, posicao, perna, participante_1, participante_2, placar_1, placar_2"
+      "id, status, tournament_id, rodada, posicao, perna, participante_1, participante_2, vaga_1, vaga_2, placar_1, placar_2"
     )
     .eq("id", parsed.data)
     .maybeSingle()
@@ -451,13 +452,27 @@ async function mudarStatusComoDono(
     }
   }
 
-  // `.select()` confirma a escrita: corrida (status mudou entre a checagem e
-  // o update) ou RLS derrubam para 0 linhas.
-  const { data: atualizada, error: updateError } = await supabase
-    .from("matches")
-    .update({ status: opts.novoStatus })
-    .eq("id", parsed.data)
-    .select("id")
+  // Reabrir LIMPA o W.O. (a partida volta a aberta sem marca; o placar 0x0 é
+  // descartável). Idempotente para partidas normais. O lock_match_lifecycle
+  // permite a mudança de wo aqui porque o status SAI de encerrada.
+  const patch: { status: "encerrada" | "em_andamento"; wo?: boolean; wo_vencedor?: null } =
+    { status: opts.novoStatus }
+  if (opts.novoStatus === "em_andamento") {
+    patch.wo = false
+    patch.wo_vencedor = null
+  }
+
+  // `.select()` confirma a escrita E uma GUARDA OTIMISTA de status no WHERE
+  // fecha a corrida (check-then-act): encerrar exige partida AINDA não
+  // encerrada; reabrir exige AINDA encerrada. Sem isso, dois donos (2 abas)
+  // poderiam reabrir+marcar W.O. na mesma partida em interleaving — agora o
+  // perdedor casa 0 linhas. Espelha o `.neq`/`.eq` de marcarWoInterno/varredura.
+  const baseUpdate = supabase.from("matches").update(patch).eq("id", parsed.data)
+  const comGuarda =
+    opts.novoStatus === "encerrada"
+      ? baseUpdate.neq("status", "encerrada")
+      : baseUpdate.eq("status", "encerrada")
+  const { data: atualizada, error: updateError } = await comGuarda.select("id")
   if (updateError) {
     return { ok: false, error: opts.erroGenerico }
   }
@@ -465,6 +480,21 @@ async function mudarStatusComoDono(
     return {
       ok: false,
       error: "A partida pode ter sido alterada. Recarregue e tente novamente.",
+    }
+  }
+
+  // Fechamento AUTOMÁTICO da rodada (decisão 6): ao encerrar uma partida
+  // competitiva, se NÃO resta jogo jogável aberto na rodada, as partidas contra
+  // clubes órfãos viram W.O. automaticamente. Roda como o dono (encerrarPartida
+  // é dono-only). Best-effort: a varredura não derruba o encerramento.
+  if (opts.novoStatus === "encerrada" && match.rodada !== null) {
+    try {
+      await varrerOrfaosDaRodada(supabase, match.tournament_id, match.rodada, {
+        somenteSeRodadaCompleta: true,
+      })
+    } catch (e) {
+      // Secundário ao encerramento (que já teve sucesso): nunca derruba.
+      console.error("fechamento automático da rodada falhou", e)
     }
   }
 
@@ -495,12 +525,21 @@ async function validarLifecycleMataMata(
     perna: number | null
     participante_1: string | null
     participante_2: string | null
+    vaga_1: string | null
+    vaga_2: string | null
     placar_1: number
     placar_2: number
   },
   novoStatus: "encerrada" | "em_andamento"
 ): Promise<string | null> {
   const erroGenerico = "Não foi possível validar o confronto. Tente novamente."
+  // Lado de CADA modelo: participante no avulso/legado, VAGA no competitivo
+  // clube-cêntrico. Sem o coalesce, a chave de clubes (participante_* sempre
+  // null) seria tratada como bye — encerrar pularia a validação de empate e
+  // reabrir falharia sempre com "bye não reabre" (espelha a correção do
+  // trigger valida_resultado_mata_mata).
+  const lado1 = match.participante_1 ?? match.vaga_1 ?? null
+  const lado2 = match.participante_2 ?? match.vaga_2 ?? null
 
   // Partida de GRUPO: resultado livre (empate pontua); só a REABERTURA é
   // condicionada — bloqueada quando o mata-mata já foi gerado.
@@ -525,7 +564,7 @@ async function validarLifecycleMataMata(
 
   if (novoStatus === "encerrada") {
     // Bye (lado nulo) nasce encerrado — não há placar a validar.
-    if (match.participante_1 === null || match.participante_2 === null) {
+    if (lado1 === null || lado2 === null) {
       return null
     }
     if (match.perna === null) {
@@ -581,7 +620,7 @@ async function validarLifecycleMataMata(
   }
 
   // Reabertura de partida de CHAVE.
-  if (match.participante_1 === null || match.participante_2 === null) {
+  if (lado1 === null || lado2 === null) {
     return "Partida de avanço direto (bye) não pode ser reaberta."
   }
   // Só fases de CHAVE posteriores congelam (espelha o trigger) — nos formatos

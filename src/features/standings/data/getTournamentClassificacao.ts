@@ -65,6 +65,10 @@ export interface PartidaEncerrada {
   /** Técnico do lado (competitivo) — detalhe; ausente/null no avulso. */
   tecnico_1?: TecnicoDoLado | null
   tecnico_2?: TecnicoDoLado | null
+  /** W.O.: a partida foi vitória por walkover (placar 0x0, sem jogo). */
+  wo?: boolean
+  /** Lado vencedor do W.O. (1 ou 2); null fora de W.O. */
+  woVencedorLado?: 1 | 2 | null
 }
 
 /** Partida ainda não encerrada — console do dono (encerrar) e contexto. */
@@ -94,6 +98,12 @@ export interface PartidaAberta {
   /** Técnico do lado (competitivo) — detalhe; ausente/null no avulso. */
   tecnico_1?: TecnicoDoLado | null
   tecnico_2?: TecnicoDoLado | null
+  /** Clube órfão (vaga sem técnico) por lado — insumo do W.O. automático na UI. */
+  orfao_1?: boolean
+  orfao_2?: boolean
+  /** Slot id de cada lado (competitivo) — alvo do W.O. do dono; null no avulso. */
+  vagaId_1?: string | null
+  vagaId_2?: string | null
 }
 
 /** Partida da chave de mata-mata (rodada e posicao presentes) — bracket. */
@@ -115,6 +125,11 @@ export interface PartidaDaChave {
    * fetcher sempre os preenche, mas fixtures de teste do avulso os omitem. */
   escudo_1?: string | null
   escudo_2?: string | null
+  /** W.O.: a partida da chave foi decidida por walkover (0x0). */
+  wo?: boolean
+  /** Id OPACO do lado vencedor do W.O. — `decidirConfronto` o lê para decidir
+   * o confronto; null fora de W.O. */
+  woVencedor?: string | null
 }
 
 /** Classificação de UM grupo (formato de grupos/fase de liga). */
@@ -134,6 +149,10 @@ export interface ClassificacaoTorneio {
   chave: PartidaDaChave[]
   /** Classificação POR GRUPO (vazia fora dos formatos de grupos) — idem. */
   grupos: GrupoClassificacao[]
+  /** Rodada ATIVA derivada: menor `rodada` entre as partidas não-encerradas
+   * (null = sem partida aberta com rodada, ou avulso). Insumo do botão "Fechar
+   * rodada". */
+  rodadaAtiva: number | null
 }
 
 interface ParticipanteEmbed {
@@ -171,6 +190,8 @@ interface PartidaComNomes {
   posicao: number | null
   perna: number | null
   grupo: number | null
+  wo: boolean
+  wo_vencedor: string | null
   created_at: string
   updated_at: string
   p1: ParticipanteEmbed | null
@@ -290,7 +311,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const { data: partidas, error: partidasError } = await supabase
     .from("matches")
     .select(
-      `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, created_at, updated_at,
+      `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, wo, wo_vencedor, created_at, updated_at,
        p1:users!matches_participante_1_fkey ( id, nome, celular ),
        p2:users!matches_participante_2_fkey ( id, nome, celular ),
        t1:teams!matches_time_1_fkey ( id, nome ),
@@ -323,6 +344,10 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     projetarLado(p.v1, p.p1, ladoCru1(p), competitivo)
   const lado2 = (p: PartidaComNomes) =>
     projetarLado(p.v2, p.p2, ladoCru2(p), competitivo)
+  // W.O.: o vencedor é o slot `wo_vencedor` (= vaga_1 ou vaga_2 = ladoCru). O
+  // motor ignora o placar 0x0 e credita só os pontos. No avulso wo é sempre
+  // false (formato não recebe W.O.).
+  const woVencedor = (p: PartidaComNomes) => (p.wo ? p.wo_vencedor : null)
   // Linhas do motor: re-chaveadas pelo id cru do lado conforme o formato.
   const linhasMotor = linhasPartidas.map((p) => ({
     participante_1: ladoCru1(p),
@@ -330,6 +355,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     placar_1: p.placar_1,
     placar_2: p.placar_2,
     status: p.status,
+    woVencedor: woVencedor(p),
   }))
 
   // Mapa id-do-lado → nome: no avulso é o participante; no competitivo é o
@@ -400,6 +426,22 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     typeof p.posicao === "number" &&
     (ladoCru1(p) === null || ladoCru2(p) === null)
 
+  // Lado vencedor do W.O. (1|2) comparando o slot vencedor com o id cru de
+  // cada lado; null fora de W.O. (insumo do rótulo "W.O." na UI).
+  const woLado = (p: PartidaComNomes): 1 | 2 | null =>
+    !p.wo
+      ? null
+      : p.wo_vencedor === ladoCru1(p)
+        ? 1
+        : p.wo_vencedor === ladoCru2(p)
+          ? 2
+          : null
+
+  // Clube ÓRFÃO de um lado (só competitivo): a vaga existe mas sem técnico.
+  // Insumo da UI de fechamento de rodada (qual partida aberta vira W.O.).
+  const orfao = (vaga: VagaEmbed | null | undefined) =>
+    competitivo && vaga != null && vaga.tecnico === null
+
   // Segunda projeção do MESMO snapshot: o histórico registra toda encerrada
   // (inclusive sem participante — diferente do motor, que exige os dois lados).
   // Lado unificado por formato (clube+técnico+escudo no competitivo).
@@ -422,6 +464,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
         escudo_2: l2.escudo,
         tecnico_1: l1.tecnico,
         tecnico_2: l2.tecnico,
+        wo: p.wo,
+        woVencedorLado: woLado(p),
       }
     })
 
@@ -470,6 +514,11 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
         escudo_2: l2.escudo,
         tecnico_1: l1.tecnico,
         tecnico_2: l2.tecnico,
+        orfao_1: orfao(p.v1),
+        orfao_2: orfao(p.v2),
+        // Slot id de cada lado (competitivo) — null no avulso (ladoCru = user).
+        vagaId_1: competitivo ? p.vaga_1 : null,
+        vagaId_2: competitivo ? p.vaga_2 : null,
       }
     })
 
@@ -499,6 +548,9 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
         status: p.status,
         escudo_1: l1.escudo,
         escudo_2: l2.escudo,
+        wo: p.wo,
+        // Id cru do vencedor (slot no competitivo) — decidirConfronto o usa.
+        woVencedor: woVencedor(p),
       }
     })
     .sort(
@@ -529,6 +581,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
           placar_1: p.placar_1,
           placar_2: p.placar_2,
           status: p.status,
+          woVencedor: woVencedor(p),
         }))
     ).map((linha) => ({
       ...linha,
@@ -537,5 +590,21 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     })),
   }))
 
-  return { torneio, linhas, partidasEncerradas, clubes, partidasAbertas, chave, grupos }
+  // Rodada ATIVA derivada: menor rodada entre as partidas não-encerradas com
+  // rodada preenchida (competitivo). null se não há aberta com rodada.
+  const rodadasAbertas = linhasPartidas
+    .filter((p) => p.status !== "encerrada" && typeof p.rodada === "number")
+    .map((p) => p.rodada as number)
+  const rodadaAtiva = rodadasAbertas.length > 0 ? Math.min(...rodadasAbertas) : null
+
+  return {
+    torneio,
+    linhas,
+    partidasEncerradas,
+    clubes,
+    partidasAbertas,
+    chave,
+    grupos,
+    rodadaAtiva,
+  }
 })

@@ -55,6 +55,8 @@ interface PartidaPersistida {
   placar_1: number
   placar_2: number
   status: string
+  wo?: boolean
+  wo_vencedor?: string | null
 }
 
 interface Torneio {
@@ -973,6 +975,46 @@ describe("gerarMataMataDosGrupos", () => {
     expect(mockRevalidate).toHaveBeenCalledWith(
       `/dashboard/torneios/${TORNEIO}`
     )
+  })
+
+  it("W.O. na fase de grupos conta como vitória nos pontos (não empate) na classificação", async () => {
+    // Regressão: gerarMataMataDosGrupos precisa LER wo/wo_vencedor para o motor.
+    // Sem isso o 0x0 do W.O. vira EMPATE → A e C ficam com 1 ponto cada, empate
+    // na linha de corte → sorteio classifica A (1º por id). Lendo o W.O.,
+    // C soma a vitória (3 pts), vence o grupo e entra na chave — sem sorteio.
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: torneioAtivo(),
+      partidas: [
+        jogoGrupo({
+          grupo: 1,
+          rodada: 1,
+          vaga_1: A,
+          vaga_2: C,
+          placar_1: 0,
+          placar_2: 0,
+          wo: true,
+          wo_vencedor: C, // A ficou órfão → C vence o confronto por W.O.
+        }),
+        jogoGrupo({
+          grupo: 2,
+          rodada: 1,
+          vaga_1: B,
+          vaga_2: D,
+          placar_1: 2,
+          placar_2: 0,
+        }),
+      ],
+    })
+    const r = await gerarMataMataDosGrupos(TORNEIO)
+    expect(r).toEqual({ ok: true, sorteioUsado: false })
+    const rows = insertSpy.mock.calls[0][0] as PartidaInseridaChave[]
+    expect(rows).toHaveLength(1)
+    // C (vencedor do W.O.) e B classificam; A NÃO — sem o fix A entraria no lugar.
+    const vagas = [rows[0].vaga_1, rows[0].vaga_2]
+    expect(vagas).toContain(C)
+    expect(vagas).toContain(B)
+    expect(vagas).not.toContain(A)
   })
 
   it("empate total na linha de corte sinaliza sorteioUsado=true (chave ainda gerada)", async () => {

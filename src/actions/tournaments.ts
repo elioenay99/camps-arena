@@ -771,7 +771,7 @@ export async function avancarFase(
   const { data: partidasRaw, error: partidasError } = await supabase
     .from("matches")
     .select(
-      "rodada, posicao, perna, vaga_1, vaga_2, placar_1, placar_2, status"
+      "rodada, posicao, perna, vaga_1, vaga_2, placar_1, placar_2, status, wo, wo_vencedor"
     )
     .eq("tournament_id", parsed.data)
     .not("rodada", "is", null)
@@ -797,6 +797,9 @@ export async function avancarFase(
     placar_1: p.placar_1,
     placar_2: p.placar_2,
     status: p.status,
+    // W.O. decide o confronto inteiro (motor `decidirConfronto`); sem isto a
+    // perna vira 0x0 e o avanço trava como "sem vencedor" (ou agrega errado).
+    woVencedor: p.wo ? p.wo_vencedor : null,
   }))
 
   let novas: PartidaChave[]
@@ -1144,7 +1147,7 @@ export async function gerarMataMataDosGrupos(
   const { data: partidasRaw, error: partidasError } = await supabase
     .from("matches")
     .select(
-      "grupo, rodada, posicao, vaga_1, vaga_2, placar_1, placar_2, status"
+      "grupo, rodada, posicao, vaga_1, vaga_2, placar_1, placar_2, status, wo, wo_vencedor"
     )
     .eq("tournament_id", parsed.data)
     .not("rodada", "is", null)
@@ -1161,6 +1164,9 @@ export async function gerarMataMataDosGrupos(
     placar_1: p.placar_1,
     placar_2: p.placar_2,
     status: p.status,
+    // W.O. = vitória só nos pontos, zero gols (motor `computeStandings`); sem
+    // isto o 0x0 conta como EMPATE e classifica o clube errado na promoção.
+    woVencedor: p.wo ? p.wo_vencedor : null,
   }))
 
   const deGrupos = partidas.filter(

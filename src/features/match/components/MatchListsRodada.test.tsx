@@ -8,11 +8,40 @@ vi.mock("@/actions/match", () => ({
   encerrarPartida: vi.fn(),
   reabrirPartida: vi.fn(),
 }))
+// Folhas client de W.O. chamam actions — neutralizadas no render (o foco aqui
+// é o agrupamento por rodada e a presença dos controles por papel).
+vi.mock("@/actions/wo", () => ({
+  marcarWO: vi.fn(),
+  solicitarWO: vi.fn(),
+  responderWO: vi.fn(),
+  fecharRodada: vi.fn(),
+}))
 
 import { MatchHistoryList } from "@/features/match/components/MatchHistoryList"
 import { OpenMatchesList } from "@/features/match/components/OpenMatchesList"
+import type { PartidaAberta } from "@/features/standings/data/getTournamentClassificacao"
 
 afterEach(cleanup)
+
+/** Partida aberta competitiva (lados por vaga) com defaults sensatos. */
+function abertaComp(over: Partial<PartidaAberta> = {}): PartidaAberta {
+  return {
+    id: "m1",
+    nome_1: "Grêmio",
+    nome_2: "Inter",
+    placar_1: 0,
+    placar_2: 0,
+    status: "agendada",
+    rodada: 1,
+    perna: null,
+    grupo: null,
+    participante_1: null,
+    participante_2: null,
+    vagaId_1: "s1",
+    vagaId_2: "s2",
+    ...over,
+  }
+}
 
 describe("rótulo de rodada nas listas de partidas", () => {
   it("OpenMatchesList mostra a rodada quando presente e omite quando nula", () => {
@@ -127,6 +156,149 @@ describe("rótulo de rodada nas listas de partidas", () => {
     // A avulsa segue sem rótulo.
     expect(screen.queryByText("R0")).toBeNull()
     expect(screen.getAllByText(/^R\d+$/u)).toHaveLength(1)
+  })
+})
+
+describe("OpenMatchesList — agrupamento por rodada + fechar rodada", () => {
+  const TORNEIO = "11111111-1111-4111-8111-111111111111"
+
+  it("competitivo agrupa em blocos por rodada (cabeçalho 'Rodada N')", () => {
+    render(
+      <OpenMatchesList
+        partidas={[
+          abertaComp({ id: "m1", rodada: 1 }),
+          abertaComp({ id: "m2", rodada: 2, nome_1: "Bahia", nome_2: "Vitória" }),
+        ]}
+        rodadaAtiva={1}
+      />
+    )
+    expect(screen.getByRole("heading", { name: "Rodada 1" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Rodada 2" })).toBeInTheDocument()
+  })
+
+  it("o botão 'Fechar rodada' aparece SÓ na rodada ativa e SÓ para o dono", () => {
+    render(
+      <OpenMatchesList
+        partidas={[
+          abertaComp({ id: "m1", rodada: 1 }),
+          abertaComp({ id: "m2", rodada: 2 }),
+        ]}
+        mostrarEncerrar
+        tournamentId={TORNEIO}
+        rodadaAtiva={1}
+      />
+    )
+    // Uma única instância (rodada ativa = 1).
+    expect(screen.getAllByRole("button", { name: /fechar rodada/i })).toHaveLength(1)
+  })
+
+  it("não-dono não vê 'Fechar rodada'", () => {
+    render(
+      <OpenMatchesList
+        partidas={[abertaComp({ rodada: 1 })]}
+        tournamentId={TORNEIO}
+        rodadaAtiva={1}
+      />
+    )
+    expect(screen.queryByRole("button", { name: /fechar rodada/i })).toBeNull()
+  })
+
+  it("avulso (sem rodada) mantém lista plana, sem blocos nem fechar rodada", () => {
+    render(
+      <OpenMatchesList
+        partidas={[
+          {
+            id: "m1",
+            nome_1: "Ana",
+            nome_2: "Beto",
+            placar_1: 0,
+            placar_2: 0,
+            status: "agendada",
+            rodada: null,
+            perna: null,
+            grupo: null,
+            participante_1: null,
+            participante_2: null,
+          },
+        ]}
+        mostrarEncerrar
+        tournamentId={TORNEIO}
+      />
+    )
+    expect(screen.queryByRole("heading", { name: /Rodada/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /fechar rodada/i })).toBeNull()
+  })
+})
+
+describe("MatchHistoryList — rótulo de W.O.", () => {
+  const encerradaWO = (over: Record<string, unknown> = {}) => ({
+    id: "m1",
+    nome_1: "Grêmio",
+    nome_2: "Inter",
+    placar_1: 0,
+    placar_2: 0,
+    encerradaEm: "2026-06-07T12:00:00Z",
+    rodada: 1,
+    perna: null,
+    grupo: null,
+    wo: true,
+    woVencedorLado: 1 as const,
+    ...over,
+  })
+
+  it("exibe 'W.O.' em vez do placar 0x0 e descreve o vencedor", () => {
+    render(<MatchHistoryList partidas={[encerradaWO()]} />)
+    expect(screen.getByText("W.O.")).toBeInTheDocument()
+    // Texto acessível nomeia o vencedor (lado 1 = Grêmio).
+    expect(screen.getByText(/W\.O\. — Grêmio venceu/)).toBeInTheDocument()
+    // Não mostra o placar 0x0.
+    expect(screen.queryByText("0 x 0")).toBeNull()
+  })
+
+  it("partida normal segue mostrando o placar", () => {
+    render(
+      <MatchHistoryList
+        partidas={[encerradaWO({ wo: false, woVencedorLado: null, placar_1: 2, placar_2: 1 })]}
+      />
+    )
+    expect(screen.getByText("2 x 1")).toBeInTheDocument()
+    expect(screen.queryByText("W.O.")).toBeNull()
+  })
+})
+
+describe("OpenMatchesList — controles de W.O. por papel", () => {
+  const EU = "22222222-2222-4222-8222-222222222222"
+
+  it("dono vê 'W.O.' (marcar) nas partidas competitivas", () => {
+    render(
+      <OpenMatchesList partidas={[abertaComp()]} mostrarEncerrar rodadaAtiva={1} />
+    )
+    expect(screen.getByRole("button", { name: "W.O." })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Encerrar" })).toBeInTheDocument()
+  })
+
+  it("quem joga e NÃO é dono vê 'Solicitar W.O.'", () => {
+    render(
+      <OpenMatchesList
+        partidas={[
+          abertaComp({
+            participante_1: { id: EU, celular: null },
+            participante_2: { id: "rival", celular: null },
+          }),
+        ]}
+        convocacao={{ userId: EU, titulo: "Copa", tournamentId: "t1" }}
+      />
+    )
+    expect(screen.getByRole("button", { name: /solicitar w\.o\./i })).toBeInTheDocument()
+    // Não-dono não marca W.O. direto.
+    expect(screen.queryByRole("button", { name: "W.O." })).toBeNull()
+  })
+
+  it("clube órfão (vaga aberta) é sinalizado na partida", () => {
+    render(
+      <OpenMatchesList partidas={[abertaComp({ orfao_2: true })]} mostrarEncerrar rodadaAtiva={1} />
+    )
+    expect(screen.getByText(/vaga aberta/i)).toBeInTheDocument()
   })
 })
 

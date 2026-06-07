@@ -68,6 +68,13 @@ export interface PartidaJogada {
   placar_1: number
   placar_2: number
   status: MatchStatus
+  /**
+   * W.O.: id opaco do lado vencedor (= participante_1 ou participante_2), ou
+   * null em jogo normal. Decide o confronto INTEIRO (decisão de produto): em
+   * ida-e-volta, um W.O. em qualquer perna basta — a outra perna e o agregado
+   * são ignorados. Opcional: fixtures antigas omitem.
+   */
+  woVencedor?: string | null
 }
 
 /** Menor potência de 2 >= n (tamanho da chave; n >= 1). */
@@ -307,6 +314,10 @@ export function decidirConfronto(
     const p = partidas[0]
     // Perna avulsa (a outra sumiu do lote): confronto de ida-e-volta NUNCA é
     // decidível por um jogo só — defensivo contra chamador com dados parciais.
+    // EXCEÇÃO: W.O. decide o confronto inteiro (a outra perna nem precisa
+    // existir) — ver o ramo de W.O. logo abaixo.
+    const woUnico = resultadoWO(p)
+    if (woUnico) return woUnico
     if (p.perna !== null) return null
     if (p.status !== "encerrada" || p.participante_1 === null) return null
     if (p.participante_2 === null) {
@@ -319,6 +330,12 @@ export function decidirConfronto(
   }
 
   if (partidas.length === 2) {
+    // W.O. em QUALQUER perna decide o confronto inteiro (decisão de produto):
+    // não espera a outra perna nem soma agregado.
+    for (const p of partidas) {
+      const wo = resultadoWO(p)
+      if (wo) return wo
+    }
     const ida = partidas.find((p) => p.perna === 1)
     const volta = partidas.find((p) => p.perna === 2)
     if (!ida || !volta) return null
@@ -335,6 +352,26 @@ export function decidirConfronto(
   }
 
   return null
+}
+
+/**
+ * W.O. de uma partida de chave: vencedor explícito decide o confronto. Devolve
+ * null quando não é W.O. encerrado com os dois lados — aí a decisão segue por
+ * placar/agregado. O perdedor é o outro lado (vai ao 3º lugar como derrota de
+ * semi normal).
+ */
+function resultadoWO(p: PartidaJogada): ResultadoConfronto | null {
+  if (
+    p.status !== "encerrada" ||
+    p.woVencedor == null ||
+    p.participante_1 === null ||
+    p.participante_2 === null
+  ) {
+    return null
+  }
+  return p.woVencedor === p.participante_1
+    ? { vencedor: p.participante_1, perdedor: p.participante_2 }
+    : { vencedor: p.participante_2, perdedor: p.participante_1 }
 }
 
 /** Slot do 3º lugar: convive com a final (posicao 1) na rodada final. */

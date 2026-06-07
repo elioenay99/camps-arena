@@ -136,6 +136,8 @@ export interface Database {
           posicao: number | null
           perna: number | null
           grupo: number | null
+          wo: boolean
+          wo_vencedor: string | null
           created_at: string
           updated_at: string
         }
@@ -155,6 +157,8 @@ export interface Database {
           posicao?: number | null
           perna?: number | null
           grupo?: number | null
+          wo?: boolean
+          wo_vencedor?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -174,6 +178,8 @@ export interface Database {
           posicao?: number | null
           perna?: number | null
           grupo?: number | null
+          wo?: boolean
+          wo_vencedor?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -217,6 +223,55 @@ export interface Database {
           {
             foreignKeyName: "matches_vaga_2_fkey"
             columns: ["vaga_2"]
+            referencedRelation: "tournament_slots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_wo_vencedor_fkey"
+            columns: ["wo_vencedor"]
+            referencedRelation: "tournament_slots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      match_wo_requests: {
+        Row: {
+          id: string
+          match_id: string
+          solicitante_slot: string
+          motivo: string | null
+          status: string
+          created_at: string
+          resolved_at: string | null
+        }
+        Insert: {
+          id?: string
+          match_id: string
+          solicitante_slot: string
+          motivo?: string | null
+          status?: string
+          created_at?: string
+          resolved_at?: string | null
+        }
+        Update: {
+          id?: string
+          match_id?: string
+          solicitante_slot?: string
+          motivo?: string | null
+          status?: string
+          created_at?: string
+          resolved_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_wo_requests_match_id_fkey"
+            columns: ["match_id"]
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_wo_requests_solicitante_slot_fkey"
+            columns: ["solicitante_slot"]
             referencedRelation: "tournament_slots"
             referencedColumns: ["id"]
           },

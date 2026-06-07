@@ -14,6 +14,14 @@ export interface PartidaClassificavel {
   placar_1: number
   placar_2: number
   status: MatchStatus
+  /**
+   * W.O. (walkover): id opaco do lado vencedor (= participante_1 ou
+   * participante_2), ou null em jogo normal. Quando presente, o motor IGNORA o
+   * placar (W.O. é 0x0 no banco) e credita só os PONTOS de vitória/derrota, sem
+   * gols/saldo — decisão de produto. Opcional: fixtures antigas omitem (= jogo
+   * normal).
+   */
+  woVencedor?: string | null
 }
 
 export interface LinhaClassificacao {
@@ -95,6 +103,19 @@ export function computeStandings(
   for (const p of elegiveis) {
     const lado1 = obter(p.participante_1)
     const lado2 = obter(p.participante_2)
+
+    // W.O.: vitória SÓ nos pontos, ZERO gols (decisão de produto). O placar é
+    // 0x0 no banco — usar o placar marcaria empate; o vencedor é explícito.
+    if (p.woVencedor != null) {
+      const vencedor = p.woVencedor === p.participante_1 ? lado1 : lado2
+      const perdedor = vencedor === lado1 ? lado2 : lado1
+      vencedor.vitorias += 1
+      vencedor.pontos += regras.vitoria
+      perdedor.derrotas += 1
+      perdedor.pontos += regras.derrota
+      continue // não toca golsPro/golsContra
+    }
+
     lado1.golsPro += p.placar_1
     lado1.golsContra += p.placar_2
     lado2.golsPro += p.placar_2
@@ -156,6 +177,12 @@ export function computeStandings(
         (p.participante_1 === eu && p.participante_2 === rival) ||
         (p.participante_1 === rival && p.participante_2 === eu)
       if (!direto) continue
+      // W.O. entre os dois: vitória/derrota pelo vencedor explícito — o 0x0
+      // contaria como empate e contradiria a vitória nos pontos.
+      if (p.woVencedor != null) {
+        pontos += p.woVencedor === eu ? regras.vitoria : regras.derrota
+        continue
+      }
       const meuPlacar = p.participante_1 === eu ? p.placar_1 : p.placar_2
       const placarRival = p.participante_1 === eu ? p.placar_2 : p.placar_1
       if (meuPlacar > placarRival) pontos += regras.vitoria

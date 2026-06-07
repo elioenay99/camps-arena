@@ -44,6 +44,8 @@ interface PartidaPersistida {
   placar_1: number
   placar_2: number
   status: string
+  wo?: boolean
+  wo_vencedor?: string | null
 }
 
 interface Cenario {
@@ -754,6 +756,34 @@ describe("avancarFase", () => {
     expect(mockRevalidate).toHaveBeenCalledWith(
       `/dashboard/torneios/${TORNEIO}`
     )
+  })
+
+  it("W.O. numa partida da fase decide o confronto e avança o vencedor do W.O.", async () => {
+    // Regressão: avancarFase precisa LER wo/wo_vencedor. Sem isso a perna W.O.
+    // (0x0) vira jogo único empatado → decidirConfronto devolve null → a fase
+    // trava em "sem vencedor". Com a leitura, C (vencedor do W.O.) avança.
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [
+        jogada({ posicao: 1, vaga_1: A, vaga_2: B }), // A vence no placar
+        jogada({
+          posicao: 2,
+          vaga_1: C,
+          vaga_2: D,
+          placar_1: 0,
+          placar_2: 0,
+          wo: true,
+          wo_vencedor: C, // C vence por W.O. — D ficou órfão / não compareceu
+        }),
+      ],
+      vagas: [A, B, C, D],
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r).toEqual({ ok: true })
+    const rows = insertSpy.mock.calls[0][0]
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ rodada: 2, posicao: 1, vaga_1: A, vaga_2: C })
   })
 
   it("semifinais + terceiro_lugar gera final E disputa de 3º com os perdedores", async () => {

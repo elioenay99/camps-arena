@@ -19,6 +19,8 @@ import {
 } from "@/features/knockout/gerarChaveMataMata";
 import { MatchHistoryList } from "@/features/match/components/MatchHistoryList";
 import { OpenMatchesList } from "@/features/match/components/OpenMatchesList";
+import { ResponderWoButtons } from "@/features/match/components/WoButtons";
+import { getSolicitacoesWO } from "@/features/match/data/getSolicitacoesWO";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
 import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao";
 import { IniciarTorneioPanel } from "@/features/tournament/components/IniciarTorneioPanel";
@@ -93,6 +95,7 @@ export default async function TorneioPage({
     partidasEncerradas,
     clubes,
     partidasAbertas,
+    rodadaAtiva,
     chave,
     grupos,
   } = classificacao;
@@ -175,14 +178,18 @@ export default async function TorneioPage({
   // segredo do dono — o gate evita a query inútil (a RLS de slot_invites /
   // tournament_invites é a defesa real); torneio encerrado não exibe convite
   // (beco sem saída).
-  const [participantes, codigoConvite, vagas, codigosVagas] = await Promise.all([
-    ehGerado ? Promise.resolve([]) : getParticipantesDoTorneio(id),
-    !ehGerado && podeGerirPartidas ? getConviteDoTorneio(id) : Promise.resolve(null),
-    ehGerado ? getVagasDoTorneio(id) : Promise.resolve([]),
-    ehGerado && podeGerirPartidas
-      ? getCodigosDasVagas(id)
-      : Promise.resolve(undefined),
-  ]);
+  const [participantes, codigoConvite, vagas, codigosVagas, solicitacoesWO] =
+    await Promise.all([
+      ehGerado ? Promise.resolve([]) : getParticipantesDoTorneio(id),
+      !ehGerado && podeGerirPartidas ? getConviteDoTorneio(id) : Promise.resolve(null),
+      ehGerado ? getVagasDoTorneio(id) : Promise.resolve([]),
+      ehGerado && podeGerirPartidas
+        ? getCodigosDasVagas(id)
+        : Promise.resolve(undefined),
+      // Solicitações de W.O. pendentes: a RLS devolve ao DONO (todas do
+      // torneio) e ao solicitante (a própria). Só faz sentido em competitivo.
+      ehGerado ? getSolicitacoesWO(id) : Promise.resolve([]),
+    ]);
 
   // Painéis de início dos formatos gerados: os LADOS são as vagas (slot ids
   // opacos; clube como rótulo) — as actions validam cabeças/atribuições
@@ -351,7 +358,38 @@ export default async function TorneioPage({
             partidas={partidasAbertas}
             mostrarEncerrar={podeGerirPartidas}
             convocacao={{ userId: user.id, titulo, tournamentId: id }}
+            rodadaAtiva={rodadaAtiva}
+            tournamentId={id}
           />
+        </section>
+      ) : null}
+
+      {/* Solicitações de W.O. pendentes: console do DONO (aceitar/recusar). A
+          RLS devolve só ao dono as do torneio; o gate aqui evita exibir o
+          console a quem não gere as partidas. */}
+      {podeGerirPartidas && solicitacoesWO.length > 0 ? (
+        <section aria-labelledby="wo-titulo" className="flex flex-col gap-3">
+          <h2 id="wo-titulo" className="font-display text-lg font-bold tracking-tight">
+            Solicitações de W.O.
+          </h2>
+          <ul className="flex list-none flex-col gap-2 p-0">
+            {solicitacoesWO.map((s) => (
+              <li
+                key={s.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm"
+              >
+                <span className="min-w-0">
+                  <span className="font-medium">{s.clubeSolicitante}</span>
+                  {s.rodada !== null ? (
+                    <span className="text-muted-foreground">{` solicitou W.O. (rodada ${s.rodada})`}</span>
+                  ) : (
+                    <span className="text-muted-foreground"> solicitou W.O.</span>
+                  )}
+                </span>
+                <ResponderWoButtons requestId={s.id} />
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 

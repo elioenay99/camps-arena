@@ -81,9 +81,11 @@ function ConfrontoCard({ confronto }: { confronto: Confronto }) {
           const encerrada = p.status === "encerrada"
           return (
             <div key={p.id} className="flex flex-col">
-              {p.perna !== null ? (
+              {p.perna !== null || p.wo ? (
                 <span className="text-muted-foreground text-xs">
-                  {p.perna === 1 ? "Ida" : "Volta"}
+                  {p.perna !== null ? (p.perna === 1 ? "Ida" : "Volta") : ""}
+                  {p.perna !== null && p.wo ? " · " : ""}
+                  {p.wo ? "W.O." : ""}
                 </span>
               ) : null}
               <LinhaLado

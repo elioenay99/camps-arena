@@ -1,5 +1,6 @@
 import { MatchStatusButton } from "@/features/match/components/MatchStatusButton"
 import type { PartidaEncerrada } from "@/features/standings/data/getTournamentClassificacao"
+import { cn } from "@/lib/utils"
 
 // Timezone fixo do produto (app pt-BR): sem ele o servidor formataria em UTC
 // e a data viraria "amanhã" à noite. Por-usuário só quando houver perfil.
@@ -39,14 +40,26 @@ export function MatchHistoryList({
                 {p.perna !== null ? (p.perna === 1 ? " ida" : " volta") : ""}
               </span>
             ) : null}
-            <span className="truncate">{p.nome_1}</span>
-            <span className="shrink-0 font-semibold tabular-nums">
-              {p.placar_1} x {p.placar_2}
+            <span className={cn("truncate", p.wo && p.woVencedorLado === 1 && "font-semibold")}>
+              {p.nome_1}
             </span>
-            <span className="truncate">{p.nome_2}</span>
+            {p.wo ? (
+              <span className="bg-muted shrink-0 rounded px-1.5 py-0.5 text-xs font-medium uppercase">
+                W.O.
+              </span>
+            ) : (
+              <span className="shrink-0 font-semibold tabular-nums">
+                {p.placar_1} x {p.placar_2}
+              </span>
+            )}
+            <span className={cn("truncate", p.wo && p.woVencedorLado === 2 && "font-semibold")}>
+              {p.nome_2}
+            </span>
           </span>
           <span className="sr-only">
-            {`${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}${p.perna !== null ? ` (${p.perna === 1 ? "ida" : "volta"})` : ""}: ` : ""}Placar final: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2}`}
+            {p.wo
+              ? `${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}: ` : ""}W.O. — ${p.woVencedorLado === 1 ? p.nome_1 : p.nome_2} venceu`
+              : `${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}${p.perna !== null ? ` (${p.perna === 1 ? "ida" : "volta"})` : ""}: ` : ""}Placar final: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2}`}
           </span>
           <span className="flex shrink-0 items-center gap-3">
             <time dateTime={p.encerradaEm} className="text-muted-foreground text-xs">

@@ -329,6 +329,59 @@ create unique index if not exists matches_mata_mata_slot_unico
   nulls not distinct
   where posicao is not null;
 
+-- ---------- W.O. / Walkover (aditivo; idempotente) ----------
+-- W.O. NÃO é um status novo: é uma partida `encerrada` com `wo = true`, placar
+-- 0x0 (decisão de produto: ZERO gols) e o slot vencedor EXPLÍCITO. O vencedor
+-- explícito cobre os dois casos (clube órfão E não-comparecimento com ambos os
+-- técnicos) sem heurística de placar — o 0x0 enganaria os motores. Vale só nos
+-- formatos competitivos (lados por vaga); o avulso nunca recebe W.O.
+alter table public.matches
+  add column if not exists wo boolean not null default false;
+alter table public.matches
+  add column if not exists wo_vencedor uuid
+    references public.tournament_slots (id) on delete restrict;
+
+-- Coerência do W.O.: fora dele, wo_vencedor é nulo; nele, partida ENCERRADA,
+-- vencedor não-nulo, placar zerado e o vencedor é UM DOS LADOS (vaga). O
+-- `status = 'encerrada'` fecha o POST direto de um participante gravando
+-- wo=true numa partida AINDA aberta (a RLS matches_update_participant permite
+-- o UPDATE da linha; o lock_match_lifecycle só trava wo em encerrada→encerrada,
+-- não em aberta). marcarWO/varredura setam wo E status no mesmo statement, e a
+-- reabertura limpa wo=false — ambos satisfazem a CHECK.
+alter table public.matches drop constraint if exists matches_wo_coerente;
+alter table public.matches
+  add constraint matches_wo_coerente
+  check (
+    (wo = false and wo_vencedor is null)
+    or (wo = true and status = 'encerrada' and wo_vencedor is not null
+        and placar_1 = 0 and placar_2 = 0
+        and (wo_vencedor = vaga_1 or wo_vencedor = vaga_2))
+  );
+
+create index if not exists matches_wo_vencedor_idx on public.matches (wo_vencedor);
+
+-- ---------- Tabela: match_wo_requests (solicitação de W.O. pelo adversário) --
+-- Decisão 8: o adversário SOLICITA o W.O. e o dono aceita/recusa. Padrão do
+-- slot_invites (tabela própria, fora de matches). O vencedor pretendido é o
+-- PRÓPRIO slot do solicitante ("o adversário não veio, eu ganho"); o aceite
+-- reusa marcarWO com esse vencedor. Índice único parcial: 1 pendente/partida.
+create table if not exists public.match_wo_requests (
+  id               uuid primary key default gen_random_uuid(),
+  match_id         uuid not null references public.matches (id) on delete cascade,
+  solicitante_slot uuid not null references public.tournament_slots (id) on delete cascade,
+  motivo           text,
+  status           text not null default 'pendente'
+                     check (status in ('pendente', 'aceito', 'recusado')),
+  created_at       timestamptz not null default now(),
+  resolved_at      timestamptz
+);
+
+create index if not exists match_wo_requests_match_idx
+  on public.match_wo_requests (match_id);
+create unique index if not exists match_wo_requests_uma_pendente
+  on public.match_wo_requests (match_id)
+  where status = 'pendente';
+
 -- ---------- Hardening: integridade dos clubes (defesa em profundidade) ----------
 -- Segunda barreira além da validação nas Server Actions (searchTeams/selectTeam/
 -- updateMatchTeams). Idempotente via DROP + ADD (Postgres não tem ADD IF NOT EXISTS).
@@ -436,13 +489,21 @@ begin
       end if;
     end if;
 
-    if old.status = 'encerrada'
+    -- Partida que CONTINUA encerrada (não está reabrindo): placar, clube e
+    -- W.O. são imutáveis. `wo`/`wo_vencedor` entram aqui para fechar o furo de
+    -- o técnico do lado perdedor trocar o vencedor de um W.O. já gravado (a RLS
+    -- matches_update_participant permite o UPDATE da linha; o lock é a defesa
+    -- de COLUNA). O `new.status = 'encerrada'` permite a REABERTURA (status sai
+    -- de encerrada, gated ao dono acima) limpar o W.O. no mesmo UPDATE.
+    if old.status = 'encerrada' and new.status = 'encerrada'
        and (new.placar_1 is distinct from old.placar_1
             or new.placar_2 is distinct from old.placar_2
             or new.time_1 is distinct from old.time_1
-            or new.time_2 is distinct from old.time_2)
+            or new.time_2 is distinct from old.time_2
+            or new.wo is distinct from old.wo
+            or new.wo_vencedor is distinct from old.wo_vencedor)
     then
-      raise exception 'Partida encerrada não aceita alteração de placar ou clube';
+      raise exception 'Partida encerrada não aceita alteração de placar, clube ou W.O.';
     end if;
   end if;
   return new;
@@ -511,7 +572,17 @@ begin
   end if;
 
   if v_encerrando and new.posicao is not null then
-    if new.participante_1 is null or new.participante_2 is null then
+    if new.wo then
+      return new; -- W.O.: decisão explícita (wo_vencedor), sem placar a validar
+    end if;
+    -- Bye = um lado nulo, considerando os DOIS modelos (participante no
+    -- avulso/legado, VAGA no competitivo clube-cêntrico). O coalesce é
+    -- essencial: sem ele, a chave competitiva (participante_* sempre null,
+    -- lados em vaga_*) seria SEMPRE tratada como bye e a validação de
+    -- empate/agregado abaixo nunca rodaria — o backstop de decisividade ficaria
+    -- morto para os formatos com chave de clube (fechado junto com o W.O.).
+    if coalesce(new.participante_1, new.vaga_1) is null
+       or coalesce(new.participante_2, new.vaga_2) is null then
       return new; -- bye: avanço direto, sem placar a validar
     end if;
     if new.perna is null then
@@ -553,7 +624,11 @@ begin
 
   if v_reabrindo then
     if new.posicao is not null then
-      if new.participante_1 is null or new.participante_2 is null then
+      -- Bye = um lado nulo nos DOIS modelos (coalesce participante/vaga); sem
+      -- o coalesce, a chave COMPETITIVA (participante_* sempre null) seria
+      -- tratada como bye e NUNCA reabriria. Espelha o ramo de encerramento.
+      if coalesce(new.participante_1, new.vaga_1) is null
+         or coalesce(new.participante_2, new.vaga_2) is null then
         raise exception 'Partida de avanço direto (bye) não pode ser reaberta';
       end if;
       if exists (
@@ -880,6 +955,7 @@ alter table public.participants       enable row level security;
 alter table public.tournament_invites enable row level security;
 alter table public.tournament_slots   enable row level security;
 alter table public.slot_invites       enable row level security;
+alter table public.match_wo_requests  enable row level security;
 
 -- ----- users: leitura completa só para logados (protege PII como celular) -----
 drop policy if exists users_select_public on public.users;
@@ -1318,6 +1394,76 @@ create policy slot_invites_delete_owner on public.slot_invites
       select 1 from public.tournament_slots s
       join public.tournaments t on t.id = s.tournament_id
       where s.id = slot_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+-- ----- match_wo_requests: técnico solicita, dono resolve -----
+-- INSERT: só o TÉCNICO de um dos lados da partida, com o slot solicitante
+-- sendo o SEU (o vencedor pretendido é o próprio clube), torneio ATIVO e
+-- partida ABERTA. matches/tournaments/tournament_slots são legíveis a quem vê
+-- o torneio (o solicitante participa, então enxerga) — sem recursão (esta
+-- policy não relê match_wo_requests). A unicidade de pendente é do índice.
+drop policy if exists match_wo_requests_insert_tecnico on public.match_wo_requests;
+create policy match_wo_requests_insert_tecnico on public.match_wo_requests
+  for insert to authenticated
+  with check (
+    exists (
+      select 1
+      from public.matches m
+      join public.tournaments t on t.id = m.tournament_id
+      where m.id = match_id
+        and t.status = 'ativo'
+        and m.status <> 'encerrada'
+        and (solicitante_slot = m.vaga_1 or solicitante_slot = m.vaga_2)
+        and exists (
+          select 1 from public.tournament_slots s
+          where s.id = solicitante_slot
+            and s.user_id = auth.uid()
+        )
+    )
+  );
+
+-- SELECT: o técnico solicitante vê a própria; o dono do torneio vê todas.
+drop policy if exists match_wo_requests_select on public.match_wo_requests;
+create policy match_wo_requests_select on public.match_wo_requests
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.tournament_slots s
+      where s.id = solicitante_slot
+        and s.user_id = auth.uid()
+    )
+    or exists (
+      select 1
+      from public.matches m
+      join public.tournaments t on t.id = m.tournament_id
+      where m.id = match_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+-- UPDATE do veredito (status/resolved_at): SÓ o dono do torneio. O técnico
+-- nunca resolve a própria solicitação. (DELETE: sem policy = negado a todos;
+-- service_role livre. O registro é histórico imutável.)
+drop policy if exists match_wo_requests_update_owner on public.match_wo_requests;
+create policy match_wo_requests_update_owner on public.match_wo_requests
+  for update to authenticated
+  using (
+    exists (
+      select 1
+      from public.matches m
+      join public.tournaments t on t.id = m.tournament_id
+      where m.id = match_id
+        and t.created_by = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.matches m
+      join public.tournaments t on t.id = m.tournament_id
+      where m.id = match_id
         and t.created_by = auth.uid()
     )
   );

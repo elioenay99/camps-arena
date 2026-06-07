@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+// Fechamento automático de rodada: secundário ao encerramento, cobertura
+// própria em closeRound.test.ts — no-op aqui.
+vi.mock("@/features/match/closeRound", () => ({
+  varrerOrfaosDaRodada: vi.fn(async () => ({ marcadas: 0 })),
+}))
 
 import { encerrarPartida, reabrirPartida } from "@/actions/match"
 import { createClient } from "@/lib/supabase/server"
@@ -85,14 +90,16 @@ function montarClient(c: Cenario) {
     }),
     update: vi.fn((vals: unknown) => {
       updateSpy(vals)
-      return {
-        eq: vi.fn(() => ({
-          select: vi.fn(async () => ({
-            data: c.updateData ?? [{ id: PARTIDA }],
-            error: null,
-          })),
-        })),
-      }
+      // Cadeia encadeável: a guarda otimista de status usa .eq().neq()/.eq()
+      // antes do .select() (fecha a corrida de reabrir↔encerrar).
+      const cadeia: Record<string, unknown> = {}
+      cadeia.eq = vi.fn(() => cadeia)
+      cadeia.neq = vi.fn(() => cadeia)
+      cadeia.select = vi.fn(async () => ({
+        data: c.updateData ?? [{ id: PARTIDA }],
+        error: null,
+      }))
+      return cadeia
     }),
   }
 
@@ -291,7 +298,7 @@ describe("reabrirPartida — regras de mata-mata", () => {
     })
     const r = await reabrirPartida(PARTIDA)
     expect(r).toEqual({ ok: true })
-    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento" })
+    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento", wo: false, wo_vencedor: null })
   })
 
   it("erro na query de posteriores vira mensagem genérica de validação, sem UPDATE", async () => {
@@ -369,6 +376,6 @@ describe("formatos de grupos — lifecycle de partida de GRUPO", () => {
     })
     const r = await reabrirPartida(PARTIDA)
     expect(r).toEqual({ ok: true })
-    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento" })
+    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento", wo: false, wo_vencedor: null })
   })
 })

@@ -18,6 +18,22 @@ function partida(
   return { participante_1, participante_2, placar_1, placar_2, status }
 }
 
+/** W.O. encerrado: placar 0x0 no banco, vencedor explícito (decisão 9). */
+function wo(
+  participante_1: string,
+  participante_2: string,
+  woVencedor: string
+): PartidaClassificavel {
+  return {
+    participante_1,
+    participante_2,
+    placar_1: 0,
+    placar_2: 0,
+    status: "encerrada",
+    woVencedor,
+  }
+}
+
 /** Atalho: [participanteId, posicao] na ordem retornada. */
 function ordem(linhas: ReturnType<typeof computeStandings>) {
   return linhas.map((l) => [l.participanteId, l.posicao])
@@ -251,5 +267,86 @@ describe("computeStandings — cadeia de desempate", () => {
     const a = r.find((l) => l.participanteId === "a")!
     const b = r.find((l) => l.participanteId === "b")!
     expect(a.posicao).toBe(b.posicao) // persistente: 1 ponto cada no confronto
+  })
+})
+
+describe("computeStandings — W.O. (walkover)", () => {
+  it("vitória por W.O. soma os PONTOS de vitória/derrota sem tocar gols/saldo", () => {
+    const r = computeStandings(CBF, [wo("a", "b", "a")])
+    const a = r.find((l) => l.participanteId === "a")!
+    const b = r.find((l) => l.participanteId === "b")!
+    expect(a).toMatchObject({
+      pontos: 3,
+      vitorias: 1,
+      derrotas: 0,
+      jogos: 1,
+      golsPro: 0,
+      golsContra: 0,
+      saldo: 0,
+    })
+    expect(b).toMatchObject({
+      pontos: 0,
+      derrotas: 1,
+      vitorias: 0,
+      jogos: 1,
+      golsPro: 0,
+      golsContra: 0,
+      saldo: 0,
+    })
+  })
+
+  it("o vencedor do W.O. é o lado 2 quando woVencedor aponta o segundo", () => {
+    const r = computeStandings(CBF, [wo("a", "b", "b")])
+    expect(r.find((l) => l.participanteId === "b")!).toMatchObject({
+      pontos: 3,
+      vitorias: 1,
+    })
+    expect(r.find((l) => l.participanteId === "a")!).toMatchObject({
+      derrotas: 1,
+      pontos: 0,
+    })
+  })
+
+  it("W.O. usa os PONTOS do torneio (regra custom 2/1/0)", () => {
+    const r = computeStandings({ vitoria: 2, empate: 1, derrota: 0 }, [
+      wo("a", "b", "a"),
+    ])
+    expect(r.find((l) => l.participanteId === "a")!.pontos).toBe(2)
+  })
+
+  it("W.O. de clube ÓRFÃO é elegível (os dois lados existem; um sem técnico)", () => {
+    // No fetcher os dois lados são slots preenchidos (vaga_1/vaga_2); o órfão
+    // só não tem técnico. O motor recebe os dois ids → elegível.
+    const r = computeStandings(CBF, [wo("comTecnico", "orfao", "comTecnico")])
+    expect(r).toHaveLength(2)
+    expect(r.find((l) => l.participanteId === "comTecnico")!.pontos).toBe(3)
+  })
+
+  it("W.O. NÃO altera o saldo num torneio com jogos normais + W.O.", () => {
+    // a: vence b por 3x0 (jogo normal) e vence c por W.O.
+    const r = computeStandings(CBF, [
+      partida("a", "b", 3, 0),
+      wo("a", "c", "a"),
+    ])
+    const a = r.find((l) => l.participanteId === "a")!
+    // 2 vitórias = 6 pontos; gols só do jogo normal (3-0), o W.O. não soma.
+    expect(a).toMatchObject({ pontos: 6, vitorias: 2, golsPro: 3, golsContra: 0, saldo: 3 })
+  })
+
+  it("confronto direto por W.O. credita vitória/derrota (não empate pelo 0x0)", () => {
+    // a e b empatam tudo nos critérios objetivos, separados só pelo confronto
+    // direto — que foi um W.O. a favor de a. Sem o tratamento, o 0x0 contaria
+    // como empate e os dois dividiriam a posição.
+    const r = computeStandings(CBF, [
+      // a e b: cada um vence c uma vez por 1x0 (mesmos pontos/saldo/gols).
+      partida("a", "c", 1, 0),
+      partida("b", "c", 1, 0),
+      // confronto direto a×b foi W.O. a favor de a.
+      wo("a", "b", "a"),
+    ])
+    const a = r.find((l) => l.participanteId === "a")!
+    const b = r.find((l) => l.participanteId === "b")!
+    // a venceu o confronto direto (W.O.) → fica à frente; posições distintas.
+    expect(a.posicao).toBeLessThan(b.posicao)
   })
 })

@@ -51,6 +51,12 @@ vi.mock("@/features/match/components/MatchHistoryList", () => ({
 vi.mock("@/features/match/components/OpenMatchesList", () => ({
   OpenMatchesList: () => null,
 }))
+vi.mock("@/features/match/data/getSolicitacoesWO", () => ({
+  getSolicitacoesWO: vi.fn(async () => []),
+}))
+vi.mock("@/features/match/components/WoButtons", () => ({
+  ResponderWoButtons: () => null,
+}))
 vi.mock("@/features/standings/components/StandingsTable", () => ({
   StandingsTable: () => null,
 }))

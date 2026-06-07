@@ -195,6 +195,36 @@ describe("BracketView — campeão", () => {
   })
 })
 
+describe("BracketView — W.O. decide o confronto", () => {
+  it("final por W.O. (0x0) consagra o campeão pelo woVencedor, não pelo placar", () => {
+    // Sem o tratamento de W.O., o 0x0 viraria empate → sem campeão. Com ele,
+    // o woVencedor (p1 = Ana) é o campeão.
+    render(
+      <BracketView
+        partidas={[
+          partida({
+            id: "final",
+            rodada: 1,
+            posicao: 1,
+            participante_1: "p1",
+            participante_2: "p2",
+            nome_1: "Ana",
+            nome_2: "Beto",
+            placar_1: 0,
+            placar_2: 0,
+            status: "encerrada",
+            wo: true,
+            woVencedor: "p1",
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText(/Campeão: Ana/)).toBeInTheDocument()
+    // O card sinaliza o W.O.
+    expect(screen.getByText("W.O.")).toBeInTheDocument()
+  })
+})
+
 describe("BracketView — disputa de 3º lugar", () => {
   it("rotula o slot extra da rodada final (posicao 2) como 'Disputa de 3º lugar'", () => {
     // Chave de 4: semis na fase 1, final (posicao 1) e 3º lugar (posicao 2) na
