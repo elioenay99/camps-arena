@@ -25,8 +25,16 @@ com partidas em aberto (com aviso na UI — cobre torneio abandonado/abortado).
   confirmação em dois cliques e AVISO do nº de partidas em aberto que serão
   congeladas (elas não pontuam); "Reabrir torneio" em torneio encerrado
   (primeiro controle do dono visível nesse estado).
-- **Zero DDL**: a policy `tournaments_update_owner` já autoriza o UPDATE do
-  dono; todos os efeitos de `encerrado` já existem.
+- O congelamento de participants do mata-mata é ESTENDIDO: com a chave gerada,
+  sair/remover ficam bloqueados também em torneio `encerrado` (achado da
+  validação adversarial: encerrado agora é REABRÍVEL — a sequência encerrar →
+  sair → reabrir recriaria o travamento permanente do avanço de fase que o
+  add-knockout-format fechou). Mata-mata cancelado no rascunho segue livre.
+- **DDL mínima**: só a cláusula estendida da policy
+  `participants_delete_self_or_owner` (seção 11 das pendências). As actions de
+  encerrar/reabrir em si não exigem DDL (a policy
+  `tournaments_update_owner` já autoriza o UPDATE do dono; todos os efeitos de
+  `encerrado` já existem).
 
 ## Capabilities
 
@@ -38,18 +46,22 @@ com partidas em aberto (com aviso na UI — cobre torneio abandonado/abortado).
 
 ### Modified Capabilities
 
-(nenhuma — os efeitos de `encerrado` já estão especificados nas capabilities
-existentes e não mudam; este change adiciona apenas o caminho de chegada/saída
-do estado)
+- `tournament-participants`: a exceção de sair/remover no mata-mata passa de
+  "status ativo" para "chave gerada" (ativo, ou encerrado com partidas
+  geradas) — consequência de encerrado ser reabrível.
+- `row-level-security`: policy de DELETE de `participants` espelha a regra
+  estendida.
 
 ## Impact
 
 - **Actions**: `src/actions/tournaments.ts` (+2 actions no padrão
-  mudarStatusComoDono das partidas).
+  mudarStatusComoDono das partidas); `participants.ts` (`chaveEmAndamento`
+  estendida).
 - **UI**: página do torneio (`dashboard/torneios/[id]`) + novo componente
   client do console (confirmação em dois cliques, padrão do repo sem
-  AlertDialog).
-- **Banco**: nada (RLS existente cobre; sem trigger — POST direto do dono
-  mudando o próprio status não tem vítima terceira).
+  AlertDialog); `listaCongelada` cobre encerrado-com-chave.
+- **Banco**: 1 policy reescrita (`participants_delete_self_or_owner`) — seção
+  11 de `docs/pendencias-manuais.md`. Sem ela o app funciona, mas o backstop
+  contra POST direto fica defasado da action.
 - **Não muda**: dashboard, getActiveMatches, convites, lifecycle de partida
   (os gates por torneio encerrado já existem e passam a ser alcançáveis).

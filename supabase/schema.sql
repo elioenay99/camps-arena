@@ -804,11 +804,13 @@ create policy participants_insert_owner_self on public.participants
 
 -- DELETE: o próprio participante sai; o dono remove qualquer um. Partidas já
 -- criadas NÃO são tocadas (histórico) — o removido só deixa de ser elegível
--- para novas partidas. EXCETO mata-mata ATIVO: a chave avança fase a fase e o
--- INSERT da fase seguinte exige cada vencedor em participants (cláusula da
--- policy de INSERT de matches) — uma saída no meio travaria o avanço PARA
--- SEMPRE. Rascunho (chave não gerada) e encerrado (histórico) seguem livres.
--- Sem policy de UPDATE: não há coluna mutável.
+-- para novas partidas. EXCETO mata-mata com chave GERADA (ativo, ou encerrado
+-- com partidas geradas): a chave avança fase a fase e o INSERT da fase
+-- seguinte exige cada vencedor em participants (cláusula da policy de INSERT
+-- de matches) — uma saída no meio travaria o avanço PARA SEMPRE. Encerrado
+-- entra na regra porque o torneio é REABRÍVEL (add-tournament-closing):
+-- encerrar → sair → reabrir recriaria o travamento. Rascunho (chave não
+-- gerada) segue livre. Sem policy de UPDATE: não há coluna mutável.
 drop policy if exists participants_delete_self_or_owner on public.participants;
 create policy participants_delete_self_or_owner on public.participants
   for delete to authenticated
@@ -825,7 +827,14 @@ create policy participants_delete_self_or_owner on public.participants
       select 1 from public.tournaments t
       where t.id = tournament_id
         and t.formato = 'mata_mata'
-        and t.status = 'ativo'
+        and (
+          t.status = 'ativo'
+          or exists (
+            select 1 from public.matches m
+            where m.tournament_id = t.id
+              and m.rodada is not null
+          )
+        )
     )
   );
 

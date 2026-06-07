@@ -1149,3 +1149,55 @@ create policy participants_delete_self_or_owner on public.participants
 > `alter table public.tournaments drop column terceiro_lugar;`
 > O valor `'mata_mata'` do enum NÃO é removível (limitação do Postgres) —
 > fica órfão e inofensivo (nenhuma linha o usa após o rollback).
+
+---
+
+## 11. Supabase — congelamento estendido de participants (`add-tournament-closing`)
+
+O encerramento/reabertura de torneio pela app não exige DDL, MAS estendeu a
+regra de saída do mata-mata: com a chave GERADA, sair/remover ficam bloqueados
+também em torneio `encerrado` (encerrado agora é reabrível — a sequência
+encerrar → sair → reabrir travaria o avanço de fase para sempre). As actions e
+a UI já aplicam a regra; **sem isto o app funciona**, mas o backstop do banco
+contra POST direto fica defasado. Aplicar no **SQL Editor** (idempotente):
+
+- [ ] **11.1 — Policy de DELETE reescrita:**
+
+```sql
+drop policy if exists participants_delete_self_or_owner on public.participants;
+create policy participants_delete_self_or_owner on public.participants
+  for delete to authenticated
+  using (
+    (
+      user_id = auth.uid()
+      or exists (
+        select 1 from public.tournaments t
+        where t.id = tournament_id
+          and t.created_by = auth.uid()
+      )
+    )
+    and not exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.formato = 'mata_mata'
+        and (
+          t.status = 'ativo'
+          or exists (
+            select 1 from public.matches m
+            where m.tournament_id = t.id
+              and m.rodada is not null
+          )
+        )
+    )
+  );
+```
+
+- [ ] **11.2 — (opcional) Conferir a trava**: num mata-mata ENCERRADO cuja
+  chave foi gerada, `delete from public.participants where tournament_id =
+  '<id>' and user_id = auth.uid();` deve afetar **0 linhas**; num mata-mata
+  encerrado SEM chave (cancelado no rascunho), deve afetar 1.
+
+> Fonte de verdade: `supabase/schema.sql` (policy de DELETE de participants).
+>
+> Rollback: recriar a policy na versão da seção 10 (cláusula só com
+> `t.status = 'ativo'`).

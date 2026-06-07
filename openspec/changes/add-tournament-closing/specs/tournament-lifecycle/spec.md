@@ -68,7 +68,7 @@ autorização real permanece na action + RLS).
 
 #### Scenario: Reabrir visível em torneio encerrado
 - **WHEN** o dono abre a página de um torneio encerrado
-- **THEN** vê o botão Reabrir torneio (único controle do dono nesse estado)
+- **THEN** vê o botão Reabrir torneio (único controle de ADMINISTRAÇÃO do torneio nesse estado — a gestão de participantes permanece liberada em encerrado, exceto mata-mata com chave gerada)
 
 #### Scenario: Visitante e participante não veem o console
 - **WHEN** quem não é dono abre a página em qualquer status

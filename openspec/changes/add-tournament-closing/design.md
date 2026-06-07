@@ -51,13 +51,15 @@ clique fora do fluxo cancela/expira) e só então chama a action — padrão
 useTransition + toast (MatchStatusButton). O `N` vem de `partidasAbertas` que
 a página já tem (mesma viagem ao banco — zero query extra).
 
-### D4 — Posição na página: console do dono no rodapé do header
+### D4 — Posição na página: seção "Administração" no FIM da página
 
 "Encerrar torneio" aparece para o dono quando `status !== 'encerrado'`;
 "Reabrir torneio" quando `status === 'encerrado'` — este último é o PRIMEIRO
 controle do dono visível em torneio encerrado (os demais usam o gate
 `podeGerirPartidas`, que continua false ali — partidas seguem congeladas até
-reabrir).
+reabrir). Fim da página (padrão "danger zone"), separado por borda: ação de
+consequência ampla fica longe dos controles do dia a dia e fora do alcance de
+cliques acidentais no header.
 
 ## Riscos / Trade-offs
 
@@ -67,12 +69,26 @@ reabrir).
 - **[Sem trigger de status em tournaments]** → POST direto do dono mudando o
   próprio status é auto-sabotagem sem vítima terceira (mesmo raciocínio do
   D10 do mata-mata); participante não passa pela RLS de UPDATE.
+- **[Encerrar abria a janela de saída no mata-mata em curso]** → achado da
+  validação adversarial: o congelamento de participants valia só em 'ativo';
+  encerrar liberava sair/remover, e reabrir (status volta a 'ativo') recriava
+  o travamento permanente do avanço de fase — sem recuperação (convite rejeita
+  fora de rascunho). Fix: o congelamento passa a valer para mata-mata com a
+  CHAVE GERADA (ativo, ou encerrado com partidas geradas) em action + policy +
+  UI. Custo aceito: não dá para sair da lista de um mata-mata concluído — a
+  participação numa chave disputada é histórico (o BracketView a referencia).
+  Mata-mata cancelado no rascunho segue livre.
 - **[Reabrir mata-mata com chave congelada]** → reabrir devolve 'ativo' e o
-  dono volta a poder avançar fase/encerrar partidas — comportamento desejado.
+  dono volta a poder avançar fase/encerrar partidas — seguro com o
+  congelamento estendido acima.
 
 ## Migration Plan
 
-Nada a migrar (zero DDL). Deploy normal.
+Seção 11 de `docs/pendencias-manuais.md`: reaplicar a policy
+`participants_delete_self_or_owner` com a cláusula estendida (idempotente,
+1 statement). Sem ela o app funciona — actions e UI já aplicam a regra — mas
+o backstop do banco contra POST direto fica defasado. Rollback: recriar a
+policy na versão da seção 10.
 
 ## Open Questions
 

@@ -306,6 +306,146 @@ export async function iniciarTorneio(
   return { ok: true }
 }
 
+export type TournamentLifecycleResult = { ok: true } | { ok: false; error: string }
+
+/**
+ * Encerra um torneio (status → 'encerrado'). Só o dono; QUALQUER status
+ * não-encerrado é encerrável (encerrar um rascunho = cancelar um torneio que
+ * não começou). Partidas em aberto ficam congeladas pelo lifecycle existente
+ * e fora da classificação — decisão de produto; a UI avisa antes.
+ *
+ * UPDATE direto por FILTRO (sem fetch prévio — o filtro JÁ valida dono e
+ * transição): 0 linhas cobre inexistente/alheio/já encerrado/corrida com a
+ * MESMA resposta, sem oráculo. RLS `tournaments_update_owner` é a segunda
+ * barreira.
+ */
+export async function encerrarTorneio(
+  tournamentId: unknown
+): Promise<TournamentLifecycleResult> {
+  const parsed = z.uuid().safeParse(tournamentId)
+  if (!parsed.success) {
+    return { ok: false, error: "Torneio inválido." }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const { data: atualizados, error: updateError } = await supabase
+    .from("tournaments")
+    .update({ status: "encerrado" })
+    .eq("id", parsed.data)
+    .eq("created_by", user.id)
+    .neq("status", "encerrado")
+    .select("id")
+  if (updateError) {
+    return {
+      ok: false,
+      error: "Não foi possível encerrar o torneio agora. Tente novamente.",
+    }
+  }
+  if (!atualizados || atualizados.length === 0) {
+    return {
+      ok: false,
+      error: "Torneio não encontrado, já encerrado ou você não é o dono dele.",
+    }
+  }
+
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/torneios")
+  revalidatePath(`/dashboard/torneios/${parsed.data}`)
+  return { ok: true }
+}
+
+/**
+ * Reabre um torneio encerrado. O status de retorno é DERIVADO do estado (não
+ * há histórico): formato gerado (liga/mata-mata) sem NENHUMA partida gerada
+ * (nenhuma com `rodada`) volta a 'rascunho' — reabrir como ativo criaria
+ * liga/chave "ativa" sem partidas e sem painel de Iniciar (beco); nos demais
+ * casos volta a 'ativo'.
+ */
+export async function reabrirTorneio(
+  tournamentId: unknown
+): Promise<TournamentLifecycleResult> {
+  const parsed = z.uuid().safeParse(tournamentId)
+  if (!parsed.success) {
+    return { ok: false, error: "Torneio inválido." }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const erroGenerico = "Não foi possível reabrir o torneio agora. Tente novamente."
+  const erroPropriedade =
+    "Torneio não encontrado, não encerrado ou você não é o dono dele."
+
+  // Propriedade + estado por FILTRO; `formato` alimenta a derivação abaixo.
+  const { data: torneio, error: torneioError } = await supabase
+    .from("tournaments")
+    .select("id, formato")
+    .eq("id", parsed.data)
+    .eq("created_by", user.id)
+    .eq("status", "encerrado")
+    .maybeSingle()
+  if (torneioError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (!torneio) {
+    return { ok: false, error: erroPropriedade }
+  }
+
+  let novoStatus: "ativo" | "rascunho" = "ativo"
+  if (torneio.formato !== "avulso") {
+    const { data: geradas, error: geradasError } = await supabase
+      .from("matches")
+      .select("id")
+      .eq("tournament_id", parsed.data)
+      .not("rodada", "is", null)
+      .limit(1)
+    if (geradasError) {
+      return { ok: false, error: erroGenerico }
+    }
+    if (!geradas || geradas.length === 0) {
+      novoStatus = "rascunho"
+    }
+  }
+
+  const { data: atualizados, error: updateError } = await supabase
+    .from("tournaments")
+    .update({ status: novoStatus })
+    .eq("id", parsed.data)
+    .eq("created_by", user.id)
+    .eq("status", "encerrado")
+    .select("id")
+  if (updateError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (!atualizados || atualizados.length === 0) {
+    return {
+      ok: false,
+      error: "O torneio pode ter sido alterado. Recarregue e tente novamente.",
+    }
+  }
+
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/torneios")
+  revalidatePath(`/dashboard/torneios/${parsed.data}`)
+  return { ok: true }
+}
+
 /**
  * Inicia um MATA-MATA em rascunho: monta a chave conforme o modo escolhido
  * (sorteio | potes | manual — o modo NÃO persiste, é parâmetro do form do

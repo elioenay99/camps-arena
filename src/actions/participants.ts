@@ -88,33 +88,55 @@ export async function aceitarConvite(
 }
 
 /**
- * Mata-mata ATIVO congela a lista de participantes: a chave avança fase a
- * fase e o INSERT da fase seguinte exige cada vencedor em `participants`
- * (cláusula da RLS de INSERT de matches) — uma saída no meio travaria o
- * "Avançar fase" PARA SEMPRE (RLS rejeita, retry nunca resolve). Liga não
- * sofre (todas as partidas nascem no Iniciar); rascunho (chave ainda não
- * gerada) e encerrado (histórico) seguem livres. A policy
+ * Mata-mata com chave GERADA congela a lista de participantes: a chave avança
+ * fase a fase e o INSERT da fase seguinte exige cada vencedor em
+ * `participants` (cláusula da RLS de INSERT de matches) — uma saída no meio
+ * travaria o "Avançar fase" PARA SEMPRE (RLS rejeita, retry nunca resolve, e
+ * o convite não readmite fora de rascunho). O congelamento vale em ATIVO e
+ * também em ENCERRADO com chave (achado da validação do add-tournament-
+ * closing: encerrar → sair → reabrir recriaria exatamente o travamento) —
+ * participar de uma chave disputada é histórico do torneio. Liga não sofre
+ * (todas as partidas nascem no Iniciar); rascunho segue livre. A policy
  * `participants_delete_self_or_owner` é o backstop no banco.
  */
 async function chaveEmAndamento(
   supabase: Awaited<ReturnType<typeof createClient>>,
   tournamentId: string
 ): Promise<{ travado: boolean } | { erro: true }> {
-  const { data, error } = await supabase
+  const { data: torneio, error } = await supabase
     .from("tournaments")
-    .select("id")
+    .select("id, status")
     .eq("id", tournamentId)
     .eq("formato", "mata_mata")
-    .eq("status", "ativo")
     .maybeSingle()
   if (error) {
     return { erro: true }
   }
-  return { travado: data !== null }
+  if (!torneio) {
+    return { travado: false }
+  }
+  if (torneio.status === "ativo") {
+    return { travado: true }
+  }
+  if (torneio.status === "rascunho") {
+    return { travado: false }
+  }
+  // Encerrado: travado se a chave chegou a ser gerada (reabrir devolve
+  // 'ativo' e o avanço voltaria a depender de todos os semeados).
+  const { data: geradas, error: geradasError } = await supabase
+    .from("matches")
+    .select("id")
+    .eq("tournament_id", tournamentId)
+    .not("rodada", "is", null)
+    .limit(1)
+  if (geradasError) {
+    return { erro: true }
+  }
+  return { travado: (geradas ?? []).length > 0 }
 }
 
 const ERRO_CHAVE_EM_ANDAMENTO =
-  "O mata-mata já começou — a chave depende de todos os participantes. Saídas e remoções só antes de iniciar ou depois de encerrar."
+  "A chave deste mata-mata já foi gerada — os participantes fazem parte dela. Saídas e remoções só antes de iniciar."
 
 /**
  * Sai do torneio por conta própria. O DELETE filtra pelo PRÓPRIO user.id —
@@ -192,7 +214,7 @@ export async function removerParticipante(
   const erroPropriedade = "Torneio não encontrado ou você não é o dono dele."
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
-    .select("id, formato, status")
+    .select("id")
     .eq("id", parsed.data.tournamentId)
     .eq("created_by", user.id)
     .maybeSingle()
@@ -202,9 +224,13 @@ export async function removerParticipante(
   if (!torneio) {
     return { ok: false, error: erroPropriedade }
   }
-  // Mesmo congelamento de sairDoTorneio: remover participante de chave em
-  // andamento travaria o avanço de fase para sempre (ver chaveEmAndamento).
-  if (torneio.formato === "mata_mata" && torneio.status === "ativo") {
+  // Mesmo congelamento de sairDoTorneio: remover participante de chave
+  // gerada travaria o avanço de fase (ver chaveEmAndamento).
+  const chave = await chaveEmAndamento(supabase, parsed.data.tournamentId)
+  if ("erro" in chave) {
+    return { ok: false, error: "Não foi possível remover o participante agora. Tente novamente." }
+  }
+  if (chave.travado) {
     return { ok: false, error: ERRO_CHAVE_EM_ANDAMENTO }
   }
 

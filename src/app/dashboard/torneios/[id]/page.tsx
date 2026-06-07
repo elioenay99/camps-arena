@@ -19,6 +19,7 @@ import { getTournamentClassificacao } from "@/features/standings/data/getTournam
 import { IniciarTorneioPanel } from "@/features/tournament/components/IniciarTorneioPanel";
 import { InviteSection } from "@/features/tournament/components/InviteSection";
 import { ParticipantsSection } from "@/features/tournament/components/ParticipantsSection";
+import { TournamentLifecycleButtons } from "@/features/tournament/components/TournamentLifecycleButtons";
 import { getConviteDoTorneio } from "@/features/tournament/data/getConviteDoTorneio";
 import { getParticipantesDoTorneio } from "@/features/tournament/data/getParticipantesDoTorneio";
 import type { TournamentStatus } from "@/lib/supabase/database.types";
@@ -79,10 +80,11 @@ export default async function TorneioPage({
   const { torneio, linhas, partidasEncerradas, clubes, partidasAbertas, chave } =
     classificacao;
   const titulo = torneio.titulo.trim() || "Torneio";
-  // Console do dono (encerrar/reabrir). O botão é UX — a autorização real é a
-  // action + RLS + trigger no banco. Torneio encerrado congela o lifecycle
-  // (reabrir ali seria beco sem saída: a partida some do dashboard e de toda
-  // edição); torneio sem dono (created_by NULL, semeados) não tem console.
+  // Console do dono para PARTIDAS (encerrar/reabrir partida). O botão é UX —
+  // a autorização real é a action + RLS + trigger de matches. Torneio
+  // encerrado congela o lifecycle das partidas (o destrave é reabrir o
+  // TORNEIO, na seção Administração); torneio sem dono (created_by NULL,
+  // semeados) não tem console.
   const ehDono = torneio.created_by !== null && torneio.created_by === user.id;
   const podeGerirPartidas = ehDono && torneio.status !== "encerrado";
   // Formato gerado (liga/mata-mata): partidas nascem da geração (sem "Nova
@@ -237,13 +239,39 @@ export default async function TorneioPage({
         userId={user.id}
         ehDono={ehDono}
         torneioEncerrado={torneio.status === "encerrado"}
-        listaCongelada={ehMataMata && torneio.status === "ativo"}
+        listaCongelada={
+          ehMataMata && (torneio.status === "ativo" || chave.length > 0)
+        }
       />
 
       {/* Convite: só o dono de torneio aberto gerencia (encerrado não aceita
           entrada — exibir o link seria um beco sem saída). */}
       {podeGerirPartidas ? (
         <InviteSection tournamentId={id} code={codigoConvite} />
+      ) : null}
+
+      {/* Lifecycle do TORNEIO (dono): Encerrar fica FORA do gate
+          podeGerirPartidas de propósito — em torneio encerrado, Reabrir é o
+          único controle de ADMINISTRAÇÃO visível (a gestão de participantes
+          permanece liberada em encerrado, exceto mata-mata com chave). Fim da
+          página: ação de consequência ampla, longe dos controles do dia a
+          dia. */}
+      {ehDono ? (
+        <section
+          aria-labelledby="lifecycle-titulo"
+          className="flex flex-col gap-3 border-t pt-6"
+        >
+          <h2 id="lifecycle-titulo" className="text-sm font-medium">
+            Administração do torneio
+          </h2>
+          <div>
+            <TournamentLifecycleButtons
+              tournamentId={id}
+              encerrado={torneio.status === "encerrado"}
+              partidasAbertas={partidasAbertas.length}
+            />
+          </div>
+        </section>
       ) : null}
     </main>
   );
