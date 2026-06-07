@@ -60,4 +60,4 @@
       integridade da migração + produto) + fixes
 - [x] 5.3 Screenshots (criação com clubes, página do torneio com vagas,
       convite de vaga)
-- [ ] 5.4 Commits + push + CI + archive + memória + AVISAR seção 13
+- [x] 5.4 Commits + push + CI + archive + memória + AVISAR seção 13

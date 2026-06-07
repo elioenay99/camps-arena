@@ -33,39 +33,15 @@ por code-point do id).
 - **THEN** devolve exatamente as mesmas rodadas e confrontos na mesma ordem
 
 ### Requirement: Iniciar torneio de liga
-O sistema SHALL expor a Server Action `iniciarTorneio` que gera a tabela e
-ativa uma liga. A action SHALL exigir sessão e conferir por FILTRO que o
-torneio pertence ao usuário, tem `formato = 'liga'` e `status = 'rascunho'`
-(casos negativos recebem erro único, sem revelar torneios alheios). SHALL
-exigir entre 2 e 20 participantes confirmados. A geração SHALL inserir TODAS
-as partidas em um único INSERT em lote (atômico) com `rodada` preenchida e
-participantes do torneio, e SÓ DEPOIS promover o torneio a `'ativo'`. Se já
-existirem partidas com `rodada` no torneio (retry após falha parcial ou
-corrida), a action NÃO SHALL gerar novamente — apenas promove o status.
+O início da liga SHALL operar sobre as VAGAS do torneio: o motor recebe os slot ids (ordenados por code-point), as partidas nascem com vaga_1/vaga_2 e a promoção de status segue o padrão atual (INSERT lote + idempotência + barreira por índice de par de vagas). Iniciar SHALL exigir ao menos 2 vagas e NÃO SHALL exigir técnicos presentes.
 
-#### Scenario: Iniciar gera a tabela e ativa
-- **WHEN** o dono de uma liga em rascunho com 4 participantes confirma o início (ida simples)
-- **THEN** 6 partidas `agendada` com rodadas 1–3 são inseridas e o torneio passa a `ativo`
+#### Scenario: Liga inicia sem nenhum técnico
+- **WHEN** o dono inicia uma liga com 4 clubes e nenhum técnico
+- **THEN** a tabela completa é gerada entre as vagas (técnicos chegam por convite depois)
 
-#### Scenario: Menos de 2 participantes é rejeitado
-- **WHEN** o dono tenta iniciar com menos de 2 participantes confirmados
-- **THEN** a action retorna erro claro e nada é escrito
-
-#### Scenario: Acima do limite é rejeitado
-- **WHEN** o dono tenta iniciar com mais de 20 participantes
-- **THEN** a action retorna erro claro e nada é escrito
-
-#### Scenario: Não-dono, avulso ou já iniciado é rejeitado
-- **WHEN** a action é invocada por quem não é o dono, ou em torneio avulso, ou em liga que não está em rascunho
-- **THEN** a action retorna erro único e nada é escrito
-
-#### Scenario: Retry após falha parcial não duplica a tabela
-- **WHEN** a geração foi gravada mas a promoção a `ativo` falhou e o dono aciona iniciar novamente
-- **THEN** a action detecta as partidas com rodada existentes, não insere de novo e apenas promove o status
-
-#### Scenario: Sem sessão é rejeitado
-- **WHEN** a action é invocada sem usuário autenticado
-- **THEN** retorna erro e nenhuma escrita é feita
+#### Scenario: Partidas nascem entre vagas
+- **WHEN** a tabela é gerada
+- **THEN** cada partida referencia vaga_1/vaga_2 (participante_1/2 nulos)
 
 ### Requirement: Liga não aceita partida manual
 Torneios com `formato = 'liga'` NÃO SHALL aceitar criação manual de partida:

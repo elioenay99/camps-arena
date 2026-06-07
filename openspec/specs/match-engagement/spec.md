@@ -27,31 +27,13 @@ modal, card e listas.
 - **THEN** o texto cita o adversário, o título e termina com a URL absoluta da página do torneio
 
 ### Requirement: Atalho de convocação nas superfícies de listagem
-O sistema SHALL exibir o botão "Chamar {adversário}" (link `wa.me` com a
-mensagem de convocação) no card de partida do DASHBOARD e nas PARTIDAS EM
-ABERTO da página do torneio. O botão SHALL ser renderizado SOMENTE quando o
-usuário logado é participante daquela partida E o adversário tem celular
-normalizável — a decisão SHALL acontecer no servidor (componentes RSC): no
-ATALHO, o celular do adversário SÓ SHALL chegar ao navegador, dentro do
-`href`, para quem é participante da partida; visitantes, dono
-não-participante e demais participantes NÃO SHALL ver o botão nem receber o
-dado POR ESTAS SUPERFÍCIES. (O modal de placar do dashboard, client,
-mantém o tráfego de celular pré-existente — risco aceito desde a Fase 5;
-esta capability não o amplia.)
+O atalho "Chamar" SHALL continuar restrito a quem joga a partida, agora resolvido por VAGA nos formatos competitivos: o botão aparece para o TÉCNICO de uma das vagas, apontando ao celular do TÉCNICO da vaga adversária (mensagem cita o clube adversário e o torneio). Vaga adversária órfã ou sem celular SHALL omitir o botão. Partidas avulsas mantêm o comportamento atual. A contenção de PII por fronteira RSC permanece.
 
-#### Scenario: Participante vê o atalho no dashboard
-- **WHEN** um participante de partida aberta vê o card no dashboard e o adversário tem celular
-- **THEN** o card mostra "Chamar {adversário}" apontando para wa.me com a mensagem pronta
+#### Scenario: Convocar o técnico do clube adversário
+- **WHEN** o técnico de um clube vê sua partida aberta e o técnico adversário tem celular
+- **THEN** o atalho abre o WhatsApp do adversário com a mensagem de convocação
 
-#### Scenario: Participante vê o atalho na página do torneio
-- **WHEN** um participante abre a página do torneio com partidas em aberto dele
-- **THEN** cada partida DELE em aberto mostra o atalho para o respectivo adversário
-
-#### Scenario: Não-participante não vê atalho nem celular pelas superfícies novas
-- **WHEN** um visitante, o dono não-participante ou outro participante vê as mesmas listas
-- **THEN** nenhum botão de chamada é renderizado e o atalho não adiciona nenhum celular ao HTML além do tráfego pré-existente (e aceito) do modal do dashboard
-
-#### Scenario: Adversário sem celular não gera botão
-- **WHEN** o adversário não tem celular cadastrado (ou em formato inválido)
-- **THEN** o atalho não é renderizado para aquela partida
+#### Scenario: Clube órfão não gera atalho
+- **WHEN** a vaga adversária está sem técnico
+- **THEN** nenhum botão é renderizado
 

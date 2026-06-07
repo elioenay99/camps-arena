@@ -4,29 +4,15 @@
 TBD - created by archiving change add-tournament-participants. Update Purpose after archive.
 ## Requirements
 ### Requirement: Convite por link com código secreto
-O sistema SHALL manter um código de convite por torneio em tabela própria
-(`tournament_invites`, 1:1 com o torneio), legível e gerenciável SOMENTE pelo
-dono do torneio. O código SHALL ser gerado no servidor com aleatoriedade
-criptográfica (mínimo 16 caracteres de alfabeto sem ambíguos) e SHALL poder ser
-regenerado pelo dono — a regeneração invalida o link anterior. O código NÃO
-SHALL ser armazenado em coluna de `tournaments` (a visibilidade pública do
-torneio vazaria o segredo).
+O convite GENÉRICO de torneio (código único por torneio) SHALL existir apenas para o formato AVULSO. Formatos competitivos usam convite POR VAGA (capability club-slots). A página `/convite/[codigo]` SHALL atender os dois: tenta o convite de vaga e faz fallback ao genérico.
 
-#### Scenario: Dono vê e copia o link de convite
-- **WHEN** o dono abre a página do próprio torneio
-- **THEN** a seção de convite exibe o link `/convite/<codigo>` com ação de copiar
+#### Scenario: Código de vaga na rota única
+- **WHEN** alguém abre /convite/{code} de uma vaga
+- **THEN** a página resolve via info_convite_vaga e oferece assumir o clube
 
-#### Scenario: Regenerar invalida o link antigo
-- **WHEN** o dono regenera o código de convite
-- **THEN** o link antigo deixa de aceitar entradas e o novo passa a valer
-
-#### Scenario: Não-dono não acessa o código
-- **WHEN** um usuário que não é o dono consulta `tournament_invites`
-- **THEN** a RLS não retorna nenhuma linha
-
-#### Scenario: Torneio legado sem convite
-- **WHEN** o dono de um torneio criado antes desta funcionalidade abre a página
-- **THEN** a seção de convite oferece gerar o primeiro código
+#### Scenario: Código genérico de avulso
+- **WHEN** o code é de tournament_invites (avulso)
+- **THEN** o fluxo atual de aceite é oferecido
 
 ### Requirement: Aceite explícito via página de convite
 O sistema SHALL oferecer a rota pública `/convite/[codigo]`. Deslogado, a
@@ -84,50 +70,16 @@ participante ao criar o torneio.
 - **THEN** nenhuma duplicata é criada e a operação não falha
 
 ### Requirement: Sair e remover
-O sistema SHALL permitir que o participante saia do torneio por conta própria
-e que o dono remova qualquer participante. A remoção/saída NÃO SHALL apagar
-nem alterar partidas já criadas (histórico preservado); o usuário apenas deixa
-de ser elegível para NOVAS partidas. Ambas as operações SHALL exigir sessão e
-conferir autorização no servidor além da RLS. EXCEÇÃO: nos formatos COM CHAVE
-(`mata_mata`, `grupos_mata_mata`, `fase_liga`) em estado congelado — `status =
-'ativo'`, ou qualquer status fora de `rascunho` com partidas geradas (alguma
-partida com `rodada`) — sair e remover SHALL ser bloqueados (action com
-mensagem clara E policy de DELETE no banco): a chave atual ou FUTURA (a
-geração do mata-mata dos grupos acontece depois) exige cada semeado em
-`participants`, e torneio encerrado é reabrível. Em rascunho as operações
-permanecem livres; liga e avulso permanecem livres em qualquer status.
+Sair/remover via participants SHALL valer apenas para o formato AVULSO, sem congelamento (avulso não tem disputa gerada). Em formatos competitivos, sair = DESISTIR da vaga e remover = EXPULSAR técnico (capability club-slots), ambos livres até o encerramento.
 
-#### Scenario: Participante sai
-- **WHEN** um participante aciona "Sair do torneio" (formato avulso, liga, ou formato com chave ainda em rascunho)
-- **THEN** sua linha em `participants` é removida e as partidas dele permanecem
-
-#### Scenario: Dono remove participante
-- **WHEN** o dono remove um participante da lista
-- **THEN** a linha é removida e o removido some dos selects de novas partidas
-
-#### Scenario: Terceiro não remove ninguém
-- **WHEN** um usuário que não é o dono tenta remover outro participante
-- **THEN** a operação é rejeitada (action e RLS)
-
-#### Scenario: Formato com chave congela a lista
-- **WHEN** sair ou remover é tentado num mata-mata, grupos ou fase de liga em estado congelado (ativo, ou com partidas geradas fora do rascunho) — pela UI (botões ausentes) ou por requisição direta
-- **THEN** a action rejeita com mensagem clara e a policy de DELETE bloqueia o acesso direto ao banco
-
-#### Scenario: Cancelado no rascunho segue livre
-- **WHEN** sair ou remover é tentado num formato com chave encerrado SEM partidas geradas (cancelado antes de iniciar)
-- **THEN** a operação é aceita normalmente
+#### Scenario: Avulso sem congelamento
+- **WHEN** um participante de avulso sai
+- **THEN** o DELETE passa em qualquer status não-encerrado
 
 ### Requirement: Lista de participantes na página do torneio
-A página do torneio SHALL exibir a lista de participantes (nomes) a todo
-usuário que enxerga o torneio. As ações SHALL respeitar o papel: dono vê
-remover (e a gestão de convite); participante não-dono vê apenas a própria
-saída.
+Em torneios AVULSOS a lista de participantes permanece. Em torneios COMPETITIVOS a página SHALL exibir a lista de VAGAS: clube (escudo+nome), técnico atual ou "vaga aberta", e — para o dono — o convite da vaga (copiar/regenerar) e a ação de expulsar; para o técnico, a ação de desistir.
 
-#### Scenario: Lista visível a quem vê o torneio
-- **WHEN** um usuário com acesso ao torneio abre a página
-- **THEN** a seção de participantes lista os nomes confirmados
-
-#### Scenario: Ações condicionadas ao papel
-- **WHEN** um participante que não é dono abre a página
-- **THEN** ele vê o botão de sair, mas não os controles de convite/remoção
+#### Scenario: Painel de vagas do dono
+- **WHEN** o dono abre seu torneio competitivo
+- **THEN** vê cada clube com técnico/vaga aberta, link de convite por clube e ações
 

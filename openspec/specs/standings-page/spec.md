@@ -27,23 +27,15 @@ O sistema SHALL oferecer a página protegida `/dashboard/torneios/[id]` exibindo
 - **THEN** a página responde com notFound (404), sem distinguir os casos
 
 ### Requirement: Fetcher de classificação
-O sistema SHALL prover `getTournamentClassificacao` que busca o torneio (com regras, formato, opções de formato e `created_by`) e as partidas com nomes embutidos numa única viagem por recurso, executa o motor e devolve as linhas com nome resolvido, a lista de partidas encerradas (`partidasEncerradas`), a classificação de clubes (`clubes`), as partidas em aberto (`partidasAbertas`), a chave (partidas com `posicao`) E as partidas de grupos com seus números de grupo (insumo das tabelas por grupo). A consulta de partidas SHALL incluir `posicao`, `perna` e `grupo` (mesma viagem — todas as projeções derivam do mesmo snapshot) e os embeds de participantes SHALL incluir `celular` — consumido SOMENTE pela projeção `partidasAbertas` (ids e celulares dos lados, insumo do atalho de convocação; o histórico e as demais projeções NÃO o carregam). Torneio não retornado pela RLS SHALL resultar em `null`; falha de query SHALL lançar erro amigável.
+`getTournamentClassificacao` SHALL, em formatos competitivos, embedar as VAGAS dos lados (vaga → team nome/escudo + técnico id/nome/celular/avatar) numa única viagem, rodar os motores sobre slot ids e resolver o display como CLUBE (nome/escudo) com técnico como detalhe; partidas avulsas mantêm o caminho por participante. As projeções (linhas, partidasAbertas/Encerradas, chave, grupos, clubes) mantêm os contratos atuais com o lado competitivo resolvido por vaga; o celular continua restrito à projeção de partidas abertas.
 
-#### Scenario: Nomes resolvidos a partir dos embeds
-- **WHEN** as partidas retornam embeds de participantes com nomes
-- **THEN** cada linha da classificação carrega o nome correspondente (fallback "Sem nome")
+#### Scenario: Linha da classificação é o clube
+- **WHEN** o fetcher resolve um torneio competitivo
+- **THEN** cada linha carrega nome/escudo do clube e o técnico atual (ou vaga aberta)
 
-#### Scenario: Torneio oculto pela RLS
-- **WHEN** a query do torneio devolve vazio
-- **THEN** o fetcher devolve null sem consultar partidas
-
-#### Scenario: Todas as projeções do mesmo snapshot
-- **WHEN** o fetcher retorna
-- **THEN** classificação, histórico, clubes, partidas em aberto, chave e grupos derivam da MESMA consulta de partidas
-
-#### Scenario: Celular só nas partidas em aberto
-- **WHEN** o fetcher projeta as listas
-- **THEN** apenas `partidasAbertas` carrega ids e celulares dos lados; as demais projeções não expõem o dado
+#### Scenario: Avulso inalterado
+- **WHEN** o torneio é avulso
+- **THEN** os lados continuam sendo pessoas como hoje
 
 ### Requirement: Exibição de rodada nas listas de partidas
 As listas de partidas da página do torneio SHALL identificar a rodada quando a

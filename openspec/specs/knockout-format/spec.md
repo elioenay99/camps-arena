@@ -48,90 +48,18 @@ número de confrontos (1 = Final, 2 = Semifinais, 4 = Quartas de final,
 - **THEN** lança erro descritivo sem produzir chave
 
 ### Requirement: Iniciar torneio mata-mata com modo de chaveamento
-O sistema SHALL expor uma Server Action de início para torneio mata-mata que
-recebe o MODO de chaveamento (`sorteio` | `potes` | `manual`) e o payload do
-modo (cabeças de chave marcadas; ou confrontos montados). A action SHALL
-conferir por FILTRO: dono, `formato = 'mata_mata'`, `status = 'rascunho'`.
-Modo `potes` SHALL exigir N ∈ {4, 8, 16, 32} e exatamente N/2 cabeças. Modo
-`manual` SHALL exigir que os confrontos particionem exatamente os participantes
-confirmados (cada um aparece uma única vez; no máximo um lado vazio por
-confronto). As partidas da 1ª fase SHALL ser inseridas em LOTE ÚNICO (com
-`rodada`, `posicao` e, em ida-e-volta, as duas pernas de lados invertidos;
-byes inseridos já `encerrada` 0×0) e só então o torneio promovido a `'ativo'`
-(ordem falha-segura). Retry após falha parcial SHALL detectar partidas já
-geradas e apenas promover. O modo NÃO SHALL ser persistido.
+O início do mata-mata SHALL operar sobre VAGAS (slot ids no motor; partidas com vaga_1/vaga_2; bye = vaga_2 nula persistida como hoje), mantendo os três modos de chaveamento, byes e validações atuais. NÃO SHALL exigir técnicos presentes; a pré-checagem de semeados em participants morre (vagas pertencem ao torneio por construção, validadas pela policy de INSERT).
 
-#### Scenario: Sorteio gera a chave e ativa
-- **WHEN** o dono inicia um mata-mata em rascunho com N participantes em modo sorteio
-- **THEN** a 1ª fase nasce com S/2 slots (byes já encerrados no slot sorteado) e o torneio fica `ativo`
-
-#### Scenario: Potes com N fora de 4/8/16/32 é rejeitado
-- **WHEN** o dono tenta iniciar por potes com 6 participantes
-- **THEN** a action rejeita com mensagem clara e nada é inserido
-
-#### Scenario: Manual com participante repetido ou faltando é rejeitado
-- **WHEN** os confrontos montados repetem um participante ou deixam um confirmado de fora
-- **THEN** a action rejeita por campo e nada é inserido
-
-#### Scenario: Ida-e-volta gera duas pernas por confronto
-- **WHEN** o mata-mata tem `ida_e_volta = true` e a fase gerada não é a final
-- **THEN** cada confronto real vira duas partidas com a mesma posição, perna 1 e perna 2 com lados invertidos
-
-#### Scenario: Dupla geração é barrada no banco
-- **WHEN** duas requisições de início concorrem
-- **THEN** apenas um lote é inserido (índice único por slot) e a outra recebe orientação de recarregar
-
-#### Scenario: Não-dono, formato errado ou já iniciado é rejeitado
-- **WHEN** a action é invocada por quem não é dono, em torneio não-mata-mata ou fora de rascunho
-- **THEN** a resposta é um erro único, sem oráculo de existência
+#### Scenario: Chave entre vagas com bye
+- **WHEN** um mata-mata de 5 clubes inicia
+- **THEN** a chave nasce entre vagas com os byes persistidos (vaga_2 nula) como antes
 
 ### Requirement: Avanço de fase pelo dono
-O sistema SHALL expor a Server Action `avancarFase` que, conferindo dono +
-formato COM CHAVE (`mata_mata`, `grupos_mata_mata` ou `fase_liga`) + `status =
-'ativo'`, opera sobre as partidas de CHAVE (com `posicao`) usando a
-rodada-base derivada (menor `rodada` entre elas — a chave dos formatos de
-grupos começa após as rodadas de grupos): valida que TODAS as partidas da fase
-atual (a maior `rodada` de chave existente) estão `encerrada` e insere a fase
-seguinte em lote único. Quando a fase atual é a semifinal e o torneio tem
-`terceiro_lugar`, a final (posição 1) e a disputa de 3º lugar (posição 2, com
-os perdedores) SHALL ser geradas juntas — o 3º lugar SOMENTE quando ambos os
-confrontos da semifinal tiveram perdedor real. Quando a fase atual é a final,
-NÃO há o que avançar. Final e 3º lugar SHALL ser jogo único mesmo com
-`ida_e_volta = true`. Nos formatos de grupos, `avancarFase` NÃO SHALL operar
-antes de a chave existir (a geração inicial é da capability
-`group-stage-format`).
+O avanço SHALL decidir confrontos por vaga vencedora e inserir a fase seguinte entre VAGAS, mantendo todas as regras atuais (fases relativas, 3º lugar, 23505, congelamento de reabertura).
 
-#### Scenario: Fase completa avança
-- **WHEN** o dono aciona Avançar fase com todas as partidas da fase atual encerradas
-- **THEN** a fase seguinte nasce com os vencedores pareados por slot
-
-#### Scenario: Avanço funciona com chave em rodadas contínuas
-- **WHEN** a chave de um torneio de grupos começa na rodada R+1 (após R rodadas de grupos)
-- **THEN** o avanço identifica fases e geometria pela rodada-base, idêntico ao mata-mata puro
-
-#### Scenario: Fase incompleta não avança
-- **WHEN** há partida da fase atual não-encerrada (incluindo perna pendente)
-- **THEN** a action rejeita com mensagem clara e nada é inserido
-
-#### Scenario: Semifinal gera final e 3º lugar
-- **WHEN** o torneio tem `terceiro_lugar = true` e as duas semifinais encerram com perdedores reais
-- **THEN** o avanço insere a final e a disputa de 3º lugar com os perdedores das semifinais
-
-#### Scenario: Semifinal com bye não gera 3º lugar
-- **WHEN** uma das semifinais é bye (N = 3) e o torneio pede 3º lugar
-- **THEN** apenas a final é gerada
-
-#### Scenario: Avanço duplicado é barrado
-- **WHEN** o dono aciona Avançar fase duas vezes (clique duplo ou corrida)
-- **THEN** o segundo lote falha no índice único e a action responde "fase já avançada"
-
-#### Scenario: Torneio com final encerrada tem campeão
-- **WHEN** a final está encerrada
-- **THEN** a página exibe o campeão e Avançar fase não é oferecido
-
-#### Scenario: Grupos sem chave gerada não avançam
-- **WHEN** `avancarFase` é acionada num torneio de grupos cuja chave ainda não foi gerada
-- **THEN** a action rejeita orientando a gerar o mata-mata primeiro
+#### Scenario: Vencedores avançam como vagas
+- **WHEN** o dono avança a fase
+- **THEN** os confrontos seguintes pareiam as vagas vencedoras
 
 ### Requirement: Resultado decisivo obrigatório
 O sistema NÃO SHALL permitir encerrar partida decisiva de mata-mata sem
@@ -177,19 +105,11 @@ alguma. A regra SHALL valer na action e no trigger.
 - **THEN** a operação é rejeitada
 
 ### Requirement: Mata-mata não aceita partida manual nem adesão tardia
-Torneio de formato `mata_mata` SHALL rejeitar criação manual de partida nos
-mesmos pontos da liga (action, RLS via exigência de `rodada`, rotas com 404,
-seletor de torneios) e SHALL rejeitar aceite de convite quando o `status` não
-é `rascunho` (chave já gerada — entrar depois deixaria o participante fora da
-chave).
+Partida manual segue bloqueada em formatos gerados. A adesão SHALL ser por convite de VAGA e — diferente do modelo anterior — SHALL valer também com o torneio ATIVO (assumir clube órfão/substituição); o que não existe mais é entrar como pessoa avulsa fora de vaga.
 
-#### Scenario: createMatch rejeita mata-mata
-- **WHEN** `createMatch` referencia torneio de formato `mata_mata`
-- **THEN** a action rejeita com a mensagem de formato gerado
-
-#### Scenario: Aceite após início é rejeitado
-- **WHEN** `aceitar_convite` é chamada para mata-mata com status diferente de rascunho
-- **THEN** a função rejeita com mensagem clara e a página de convite já explicava o bloqueio
+#### Scenario: Assumir clube com a chave em andamento
+- **WHEN** alguém aceita o convite de uma vaga órfã com o torneio ativo
+- **THEN** assume o clube e herda as partidas da chave
 
 ### Requirement: Visualização da chave
 A página do torneio mata-mata SHALL exibir a CHAVE (componente RSC puro): uma

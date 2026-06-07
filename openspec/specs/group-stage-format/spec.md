@@ -56,75 +56,18 @@ prévia (jogos de grupos + jogos da chave, rodadas) pela MESMA fonte do motor.
 - **THEN** o motor lança erro descritivo sem produzir nada
 
 ### Requirement: Iniciar torneio de grupos com configuração no painel
-O sistema SHALL expor uma Server Action de início para os formatos
-`grupos_mata_mata` e `fase_liga` que recebe quantidade de grupos (G — fixa em
-1 na fase de liga; fase de liga SHALL aceitar apenas o modo sorteio),
-classificados por grupo (K) e o MODO de distribuição (`sorteio` | `potes` |
-`manual`) com o payload do modo. A action SHALL conferir por FILTRO dono +
-formato + estado; validar G·K ∈ {2,4,8,16,32} e K menor que o tamanho do
-menor grupo. A geração SHALL ser PROMOTE-FIRST: o torneio é promovido a
-`'ativo'` (gravando `classificados_por_grupo` na MESMA escrita) por UPDATE
-atômico filtrado por `status = 'rascunho'` ANTES do INSERT — o índice de par
-único NÃO barra dupla geração de grupos (sorteios concorrentes produzem
-partições diferentes cujos pares não colidem), então a promoção é a
-serialização: 0 linhas afetadas = perdedor da corrida, que aborta SEM
-inserir. Só o vencedor insere TODAS as partidas de grupos em LOTE ÚNICO (com
-`grupo` e `rodada`). Crash entre a promoção e o INSERT (torneio `ativo` sem
-partidas) SHALL ser recuperável: o re-run rebaixa atomicamente para
-`rascunho` (UPDATE filtrado por `ativo` — recuperadores concorrentes também
-serializam) e refaz o fluxo; a página SHALL reexibir o painel de início nesse
-estado. O modo NÃO SHALL ser persistido.
+O início dos formatos de grupos SHALL operar sobre VAGAS (slot ids nos motores de montagem/sorteio; partidas de grupo e chave com vaga_1/vaga_2), mantendo G/K, modos de distribuição, promote-first e recuperação como especificado. Potes/manual referenciam vagas (clubes) — cabeças de chave são CLUBES. NÃO SHALL exigir técnicos presentes.
 
-#### Scenario: Iniciar gera os grupos e ativa
-- **WHEN** o dono inicia um torneio de grupos em rascunho com G, K e modo válidos
-- **THEN** as partidas de todos os grupos nascem com grupo e rodada, o torneio fica ativo e `classificados_por_grupo` é gravado
-
-#### Scenario: Fase de liga é o caso de grupo único
-- **WHEN** o dono inicia um torneio de formato fase_liga
-- **THEN** a geração usa G=1 (round-robin geral) e o restante do fluxo é idêntico
-
-#### Scenario: Geometria inválida é rejeitada
-- **WHEN** G·K não é potência de 2 suportada, ou K não cabe no menor grupo
-- **THEN** a action rejeita com mensagem clara e nada é inserido
-
-#### Scenario: Perdedor da corrida não insere
-- **WHEN** duas submissões de início concorrem (duas abas)
-- **THEN** apenas a que promoveu o status (1 linha afetada) insere as partidas; a outra recebe orientação de recarregar sem inserir nada
-
-#### Scenario: Crash entre promoção e INSERT é recuperável
-- **WHEN** o torneio ficou `ativo` sem nenhuma partida gerada e o dono reabre a página
-- **THEN** o painel de início reaparece e o re-run rebaixa para rascunho, repromove e insere normalmente
+#### Scenario: Grupos sorteados entre clubes
+- **WHEN** o dono inicia grupos com sorteio
+- **THEN** os grupos particionam as VAGAS e o round-robin nasce entre vagas
 
 ### Requirement: Geração do mata-mata a partir dos grupos
-O sistema SHALL expor a Server Action `gerarMataMataDosGrupos` que, conferindo
-dono + formato com grupos + `status = 'ativo'`, exige TODAS as partidas de
-grupo encerradas, classifica cada grupo (cortando K com sorteio de linha de
-corte quando necessário), cruza os classificados (motor) e insere a chave em
-LOTE ÚNICO com rodadas CONTÍNUAS (a primeira fase da chave usa a rodada
-seguinte à última rodada de grupos). A action SHALL pré-verificar que todos os
-semeados constam em `participants` (mensagem acionável) e SHALL tratar corrida
-pelo índice de slot (23505 → "chave já gerada"). Quando houve sorteio de
-desempate, a resposta SHALL sinalizar para a UI avisar o dono.
+A classificação por grupo e o cruzamento SHALL operar sobre vagas (computeStandings por slot id); a chave nasce entre vagas. Pré-checagem de semeados em participants morre.
 
-#### Scenario: Grupos completos geram a chave
-- **WHEN** o dono aciona Gerar mata-mata com todos os jogos de grupos encerrados
-- **THEN** a chave nasce com os classificados cruzados pelo padrão do formato, em rodadas contínuas
-
-#### Scenario: Grupos incompletos não geram
-- **WHEN** há partida de grupo não-encerrada
-- **THEN** a action rejeita com mensagem clara e nada é inserido
-
-#### Scenario: Sorteio de corte é avisado
-- **WHEN** a classificação de algum grupo precisou de sorteio na linha de corte
-- **THEN** a chave é gerada e o dono recebe o aviso de que houve sorteio
-
-#### Scenario: Dupla geração é barrada
-- **WHEN** duas requisições de geração concorrem
-- **THEN** apenas um lote é inserido e a outra recebe orientação de recarregar
-
-#### Scenario: Depois da chave, o fluxo é o do mata-mata
-- **WHEN** a chave existe
-- **THEN** Avançar fase, resultado decisivo, reabertura e campeão seguem as regras da capability knockout-format (com rodada-base)
+#### Scenario: Classificados são clubes
+- **WHEN** o mata-mata dos grupos é gerado
+- **THEN** os K melhores CLUBES de cada grupo entram na chave
 
 ### Requirement: Visualização de grupos e chave
 A página do torneio nos formatos de grupos SHALL exibir uma tabela de
