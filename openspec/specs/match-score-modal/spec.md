@@ -22,9 +22,9 @@ O modal SHALL oferecer, por participante, controles de incremento e decremento q
 - **THEN** o valor permanece em zero
 
 ### Requirement: Atalhos de contato via WhatsApp
-O modal SHALL oferecer botões que abrem `wa.me/` com os telefones dos participantes injetados via props.
+O modal SHALL oferecer botões que abrem `wa.me/` com os telefones dos participantes injetados via props, usando o helper compartilhado de link/mensagem (capability `match-engagement`): a conversa SHALL abrir com a mensagem de convocação pré-preenchida (adversário, título do torneio e link da página) em vez de chat vazio.
 
-#### Scenario: Abrir conversa
+#### Scenario: Abrir conversa com mensagem pronta
 - **WHEN** o usuário aciona o botão de chamar um participante
-- **THEN** um link `wa.me/` com o telefone correspondente é aberto
+- **THEN** um link `wa.me/` com o telefone correspondente e a mensagem de convocação codificada em `?text=` é aberto
 
