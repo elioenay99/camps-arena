@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { AuthBrand } from "@/features/auth/components/AuthBrand";
 import { LoginForm } from "@/features/auth/components/LoginForm";
 import {
   Card,
@@ -23,10 +24,11 @@ export default async function LoginPage({
   const { redirectTo, aviso } = await searchParams;
 
   return (
-    <main className="flex flex-1 items-center justify-center px-6 py-16">
-      <Card className="w-full max-w-sm">
+    <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-16">
+      <AuthBrand />
+      <Card className="w-full max-w-sm border-primary/10 shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl">Entrar</CardTitle>
+          <CardTitle className="font-display text-2xl">Entrar</CardTitle>
           <CardDescription>
             Acesse o painel do Arena para gerir suas partidas.
           </CardDescription>

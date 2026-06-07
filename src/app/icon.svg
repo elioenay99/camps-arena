@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Marca Arena: escudo hexagonal "estádio à noite" com A em verde-gramado. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16241d"/>
+      <stop offset="1" stop-color="#0a120e"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 2 58 14v22c0 13-11 22-26 26C17 58 6 49 6 36V14L32 2Z" fill="url(#g)" stroke="#34e58b" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M32 16 44 46h-7l-2.4-6.4H29.4L27 46h-7L32 16Zm0 13-2.4 6.2h4.8L32 29Z" fill="#34e58b"/>
+</svg>

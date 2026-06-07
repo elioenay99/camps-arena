@@ -1,3 +1,5 @@
+import { Trophy } from "lucide-react"
+
 import {
   decidirConfronto,
   ehTerceiroLugar,
@@ -42,9 +44,11 @@ function LinhaLado({
 }) {
   return (
     <span className="flex items-center justify-between gap-2">
-      <span className={`truncate ${venceu ? "font-semibold" : ""}`}>{nome}</span>
+      <span className={`truncate ${venceu ? "text-primary font-semibold" : ""}`}>
+        {nome}
+      </span>
       <span
-        className={`shrink-0 tabular-nums ${encerrada ? "font-semibold" : "text-muted-foreground"}`}
+        className={`shrink-0 font-display tabular-nums ${encerrada ? "font-bold" : "text-muted-foreground"}`}
       >
         {placar}
       </span>
@@ -59,15 +63,15 @@ function ConfrontoCard({ confronto }: { confronto: Confronto }) {
   const ehBye = confronto.partidas.length === 1 && unica.participante_2 === null
 
   return (
-    <div className="flex w-56 flex-col gap-1 rounded-lg border px-3 py-2 text-sm">
+    <div className="flex w-56 flex-col gap-1 rounded-lg border px-3 py-2 text-sm motion-safe:transition-colors hover:border-primary/30">
       {confronto.terceiroLugar ? (
-        <span className="text-muted-foreground text-xs font-medium">
+        <span className="mb-0.5 w-fit rounded-full border border-gold/30 px-2 py-0.5 text-xs font-medium text-gold">
           Disputa de 3º lugar
         </span>
       ) : null}
       {ehBye ? (
         <>
-          <span className="truncate font-semibold">{unica.nome_1}</span>
+          <span className="text-primary truncate font-semibold">{unica.nome_1}</span>
           <span className="text-muted-foreground text-xs">
             Avança direto (bye)
           </span>
@@ -160,8 +164,9 @@ export function BracketView({
   return (
     <div className="flex flex-col gap-4">
       {campeao !== null ? (
-        <p className="rounded-lg border bg-accent px-4 py-3 text-sm font-semibold">
-          {`Campeão: ${campeao}`}
+        <p className="flex items-center gap-2.5 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-sm">
+          <Trophy className="size-5 shrink-0 text-gold" aria-hidden="true" />
+          <span className="font-display font-bold tracking-wide">{`Campeão: ${campeao}`}</span>
         </p>
       ) : null}
 
@@ -178,7 +183,7 @@ export function BracketView({
                 aria-label={rotuloFase(fase, fases)}
                 className="flex flex-col gap-3"
               >
-                <h3 className="text-muted-foreground text-sm font-medium">
+                <h3 className="font-display text-xs font-bold tracking-wide text-muted-foreground uppercase">
                   {rotuloFase(fase, fases)}
                 </h3>
                 {/* justify-around aproxima o desenho de árvore sem cálculo

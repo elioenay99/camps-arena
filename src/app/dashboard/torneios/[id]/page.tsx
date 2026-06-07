@@ -1,3 +1,4 @@
+import { ListOrdered, Network, Swords, Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -176,7 +177,7 @@ export default async function TorneioPage({
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">{titulo}</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight">{titulo}</h1>
           <p className="text-muted-foreground text-sm">{subtitulo}</p>
         </div>
         {/* Formato gerado não aceita partida manual: as partidas nascem da
@@ -222,13 +223,14 @@ export default async function TorneioPage({
       {ehMataMata ? (
         <section aria-labelledby="chave-titulo" className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="chave-titulo" className="text-lg font-semibold">
+            <h2 id="chave-titulo" className="font-display text-lg font-bold tracking-tight">
               Chave
             </h2>
             {mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : null}
           </div>
           {chave.length === 0 ? (
-            <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+            <p className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+              <Network className="size-6 opacity-60" aria-hidden="true" />
               A chave aparece quando o torneio for iniciado.
             </p>
           ) : (
@@ -245,11 +247,12 @@ export default async function TorneioPage({
             aria-labelledby="grupos-titulo"
             className="flex flex-col gap-4"
           >
-            <h2 id="grupos-titulo" className="text-lg font-semibold">
+            <h2 id="grupos-titulo" className="font-display text-lg font-bold tracking-tight">
               {ehFaseLiga ? "Classificação" : "Fase de grupos"}
             </h2>
             {grupos.length === 0 ? (
-              <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+              <p className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+                <Users className="size-6 opacity-60" aria-hidden="true" />
                 Os grupos aparecem quando o torneio for iniciado.
               </p>
             ) : (
@@ -259,7 +262,8 @@ export default async function TorneioPage({
                     <h3 className="text-sm font-medium">{rotuloGrupo(g.grupo)}</h3>
                   ) : null}
                   {g.linhas.length === 0 ? (
-                    <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center text-sm">
+                    <p className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center text-sm">
+                      <ListOrdered className="size-5 opacity-60" aria-hidden="true" />
                       A classificação aparece depois da primeira partida
                       encerrada.
                     </p>
@@ -277,7 +281,7 @@ export default async function TorneioPage({
               className="flex flex-col gap-4"
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 id="chave-grupos-titulo" className="text-lg font-semibold">
+                <h2 id="chave-grupos-titulo" className="font-display text-lg font-bold tracking-tight">
                   Mata-mata
                 </h2>
                 {mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : null}
@@ -289,7 +293,8 @@ export default async function TorneioPage({
                     pendentes={jogosDeGrupoPendentes}
                   />
                 ) : (
-                  <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+                  <p className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+                    <Swords className="size-6 opacity-60" aria-hidden="true" />
                     O mata-mata aparece quando a fase de grupos terminar.
                   </p>
                 )
@@ -306,11 +311,12 @@ export default async function TorneioPage({
 
       {!ehMataMata && !ehGrupos ? (
         <section aria-labelledby="classificacao-titulo" className="flex flex-col gap-4">
-          <h2 id="classificacao-titulo" className="text-lg font-semibold">
+          <h2 id="classificacao-titulo" className="font-display text-lg font-bold tracking-tight">
             Classificação
           </h2>
           {linhas.length === 0 ? (
-            <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+            <p className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+              <ListOrdered className="size-6 opacity-60" aria-hidden="true" />
               A classificação aparece depois da primeira partida encerrada.
             </p>
           ) : (
@@ -322,7 +328,7 @@ export default async function TorneioPage({
       {/* Em aberto: contexto para todos; botão Encerrar só para o dono. */}
       {partidasAbertas.length > 0 ? (
         <section aria-labelledby="abertas-titulo" className="flex flex-col gap-4">
-          <h2 id="abertas-titulo" className="text-lg font-semibold">
+          <h2 id="abertas-titulo" className="font-display text-lg font-bold tracking-tight">
             Partidas em aberto
           </h2>
           <OpenMatchesList
@@ -337,7 +343,7 @@ export default async function TorneioPage({
           comunica "nenhuma encerrada" — duas mensagens seriam ruído. */}
       {partidasEncerradas.length > 0 ? (
         <section aria-labelledby="historico-titulo" className="flex flex-col gap-4">
-          <h2 id="historico-titulo" className="text-lg font-semibold">
+          <h2 id="historico-titulo" className="font-display text-lg font-bold tracking-tight">
             Partidas encerradas
           </h2>
           <MatchHistoryList
@@ -351,7 +357,7 @@ export default async function TorneioPage({
           do mata-mata: classificação por pontos não se aplica à chave). */}
       {!ehMataMata && clubes.length > 0 ? (
         <section aria-labelledby="clubes-titulo" className="flex flex-col gap-4">
-          <h2 id="clubes-titulo" className="text-lg font-semibold">
+          <h2 id="clubes-titulo" className="font-display text-lg font-bold tracking-tight">
             Clubes
           </h2>
           <StandingsTable linhas={clubes} rotuloLado="Clube" />
@@ -387,7 +393,7 @@ export default async function TorneioPage({
           aria-labelledby="lifecycle-titulo"
           className="flex flex-col gap-3 border-t pt-6"
         >
-          <h2 id="lifecycle-titulo" className="text-sm font-medium">
+          <h2 id="lifecycle-titulo" className="font-display text-sm font-bold tracking-tight">
             Administração do torneio
           </h2>
           <div>

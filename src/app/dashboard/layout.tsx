@@ -27,13 +27,13 @@ export default function DashboardLayout({
 }>) {
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <header className="border-b">
+      <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex w-full max-w-2xl flex-wrap items-center gap-x-4 gap-y-2 px-6 py-3">
           <Link
             href="/dashboard"
-            className="text-sm font-semibold tracking-[0.3em] text-muted-foreground"
+            className="font-display text-base font-bold tracking-[0.25em] text-foreground"
           >
-            ARENA
+            ARENA<span className="text-primary">.</span>
           </Link>
 
           <NavLinks links={LINKS} />

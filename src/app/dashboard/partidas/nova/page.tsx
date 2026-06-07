@@ -41,7 +41,7 @@ export default async function NovaPartidaPage() {
     <main className="flex flex-1 items-center justify-center px-6 py-10">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl">Nova partida</CardTitle>
+          <CardTitle className="font-display text-2xl">Nova partida</CardTitle>
           <CardDescription>
             Escolha o torneio que vai receber a partida.
           </CardDescription>

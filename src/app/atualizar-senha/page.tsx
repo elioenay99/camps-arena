@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { AuthBrand } from "@/features/auth/components/AuthBrand";
 import { UpdatePasswordForm } from "@/features/auth/components/UpdatePasswordForm";
 import {
   Card,
@@ -17,10 +18,11 @@ export const metadata: Metadata = {
 // criada pelo link de e-mail, ou uma sessão normal trocando a própria senha).
 export default function AtualizarSenhaPage() {
   return (
-    <main className="flex flex-1 items-center justify-center px-6 py-16">
-      <Card className="w-full max-w-sm">
+    <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-16">
+      <AuthBrand />
+      <Card className="w-full max-w-sm border-primary/10 shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl">Definir nova senha</CardTitle>
+          <CardTitle className="font-display text-2xl">Definir nova senha</CardTitle>
           <CardDescription>
             Escolha uma nova senha para a sua conta.
           </CardDescription>

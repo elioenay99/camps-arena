@@ -18,6 +18,8 @@ import type {
 } from "@/features/match/data/getActiveMatches"
 import { MessageCircle } from "lucide-react"
 
+import { cn } from "@/lib/utils"
+
 import type { MatchStatus } from "@/lib/supabase/database.types"
 import type { ParticipantePartida } from "@/features/match/components/MatchScoreModal"
 import { linkWhatsApp, mensagemConvocacao } from "@/lib/whatsapp"
@@ -88,14 +90,16 @@ export function MatchCard({
     ? linkWhatsApp(adversario.celular, mensagemPara(adversario))
     : null
 
+  const emAndamento = partida.status === "em_andamento"
+
   return (
     <li>
-      <Card>
+      <Card className="motion-safe:transition-colors hover:border-primary/40">
         <CardHeader>
           <CardTitle asChild>
             <h2>{tituloPartida}</h2>
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {/* Título do torneio linka para a classificação (entrada do Tier 2). */}
             <Link
               href={`/dashboard/torneios/${partida.tournament.id}`}
@@ -103,33 +107,57 @@ export function MatchCard({
             >
               {torneio}
             </Link>
-            {` • ${LABEL_STATUS[partida.status]}`}
+            {/* Cápsula de status visual — o texto acessível permanece logo abaixo. */}
+            <span
+              aria-hidden="true"
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium",
+                emAndamento
+                  ? "border-primary/30 bg-primary/10 text-primary"
+                  : "border-border bg-muted/40 text-muted-foreground"
+              )}
+            >
+              {emAndamento ? (
+                <span className="size-1.5 rounded-full bg-primary motion-safe:animate-pulse" />
+              ) : null}
+              {LABEL_STATUS[partida.status]}
+            </span>
+            <span className="sr-only">{` • ${LABEL_STATUS[partida.status]}`}</span>
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="flex items-center justify-center gap-3 py-2">
-          <div className="flex items-center gap-2">
+        <CardContent className="flex items-center justify-center gap-4 py-2 sm:gap-6">
+          <div className="flex flex-col items-center gap-2">
             <TeamCrest
               nome={p1.clube?.nome ?? p1.nome}
               escudoUrl={p1.clube?.escudoUrl}
-              size={28}
+              size={36}
             />
-            <span className="text-3xl font-bold tabular-nums" aria-hidden="true">
+            <span
+              className="font-display text-4xl font-bold tabular-nums sm:text-5xl"
+              aria-hidden="true"
+            >
               {partida.placar_1}
             </span>
           </div>
-          <span className="text-muted-foreground" aria-hidden="true">
-            x
+          <span
+            className="font-display text-2xl font-medium text-muted-foreground/60 sm:text-3xl"
+            aria-hidden="true"
+          >
+            ×
           </span>
-          <div className="flex items-center gap-2">
-            <span className="text-3xl font-bold tabular-nums" aria-hidden="true">
-              {partida.placar_2}
-            </span>
+          <div className="flex flex-col items-center gap-2">
             <TeamCrest
               nome={p2.clube?.nome ?? p2.nome}
               escudoUrl={p2.clube?.escudoUrl}
-              size={28}
+              size={36}
             />
+            <span
+              className="font-display text-4xl font-bold tabular-nums sm:text-5xl"
+              aria-hidden="true"
+            >
+              {partida.placar_2}
+            </span>
           </div>
           <span className="sr-only">
             {`Placar atual: ${p1.nome} ${partida.placar_1}, ${p2.nome} ${partida.placar_2}`}
@@ -161,6 +189,7 @@ export function MatchCard({
             trigger={
               <Button
                 aria-label={`Menu da partida ${tituloPartida}`}
+                variant="secondary"
                 className="w-full rounded-full"
               >
                 Menu da Partida

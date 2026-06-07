@@ -270,10 +270,10 @@ describe("BracketView — rodada-base (chave após fase de grupos)", () => {
 })
 
 describe("BracketView — destaque do vencedor", () => {
-  it("aplica font-semibold no vencedor de confronto encerrado e não no perdedor", () => {
-    // Final encerrada 2x0: Ana vence. O nome do vencedor recebe negrito; o do
-    // perdedor não. Asserção pelo elemento de texto (LinhaLado renderiza o
-    // nome num <span> com a classe condicional).
+  it("aplica text-primary font-semibold no vencedor de confronto encerrado e não no perdedor", () => {
+    // Final encerrada 2x0: Ana vence. O nome do vencedor recebe destaque
+    // (verde + negrito); o do perdedor não. Asserção pelo elemento de texto
+    // (LinhaLado renderiza o nome num <span> com a classe condicional).
     render(
       <BracketView
         partidas={[
@@ -302,7 +302,8 @@ describe("BracketView — destaque do vencedor", () => {
 
     expect(vencedor).toBeDefined()
     expect(perdedor).toBeDefined()
-    expect(vencedor).toHaveClass("font-semibold")
+    expect(vencedor).toHaveClass("text-primary", "font-semibold")
     expect(perdedor).not.toHaveClass("font-semibold")
+    expect(perdedor).not.toHaveClass("text-primary")
   })
 })

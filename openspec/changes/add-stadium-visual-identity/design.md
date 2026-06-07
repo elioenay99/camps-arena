@@ -104,6 +104,25 @@ nada quebrado em 375px (mobile).
 - **[Fonte extra]** → +1 família (2 pesos) via next/font com subset latin —
   custo aceito pela identidade; sem CLS (font-display swap do next/font).
 
+### Decisões pós-validação (adversarial 2026-06-07)
+
+- Pill de navegação ativa: `text-foreground` no claro e `text-primary` só no
+  escuro — o verde elétrico como texto pequeno falhava AA (~4.05:1) sobre o
+  tint claro (achado confirmado por cálculo WCAG).
+- `favicon.ico` genérico do create-next-app removido (git rm): com ele
+  presente, o Next servia o triângulo default em `/favicon.ico` junto do
+  `icon.svg` da marca.
+- `font-display` nunca usa peso 600 (`font-semibold`) — Space Grotesk carrega
+  só 500/700; pesos sintetizados geram traço inconsistente. Padronizado 700.
+- `.text-gradient-brand` ganhou fallback `@supports not (background-clip:
+  text)` → cor primária sólida.
+- Riscos REGISTRADOS sem ação: `text-gold` sobre `bg-gold/10` no tema claro
+  fica ~4.35:1 — aceitável pois todos os usos atuais são decorativos
+  (aria-hidden) ou texto grande; se gold virar texto funcional pequeno no
+  claro, escurecer o token (L ~0.52). Verde `bg-green-700` do botão WhatsApp
+  é AFORDÂNCIA DA MARCA WhatsApp (não do Arena) — mantido hardcoded de
+  propósito.
+
 ## Migration Plan
 
 Nada a migrar (zero DDL, zero API). Deploy normal.

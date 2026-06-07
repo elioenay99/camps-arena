@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Trophy, Swords, Users } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -13,20 +14,30 @@ import {
 
 const DESTAQUES = [
   {
+    icone: Trophy,
     titulo: "Torneios do seu jeito",
     descricao:
       "Crie torneios públicos ou privados e defina quantos pontos valem vitória, empate e derrota.",
   },
   {
+    icone: Swords,
     titulo: "Placar na palma da mão",
     descricao:
       "Cada participante lança o placar da própria partida direto do celular, com clube e escudo.",
   },
   {
+    icone: Users,
     titulo: "Classificação automática",
     descricao:
       "Tabela atualizada a cada resultado, com desempate por vitórias, saldo, gols e confronto direto.",
   },
+] as const;
+
+// Mini-classificação decorativa do preview do produto (dados fixos, fake).
+const PREVIEW_TABELA = [
+  { pos: "1º", time: "Os Cracks", pts: 19 },
+  { pos: "2º", time: "Resenha FC", pts: 16 },
+  { pos: "3º", time: "Vapo United", pts: 13 },
 ] as const;
 
 export default async function Home() {
@@ -47,51 +58,144 @@ export default async function Home() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-12 px-6 py-16">
-      <div className="flex w-full items-center justify-between">
-        <span className="text-sm font-semibold tracking-[0.3em] text-muted-foreground">
-          ARENA
-        </span>
-        <div className="flex items-center gap-2">
-          <ModeToggle />
-          <Button asChild variant="outline" size="sm">
-            <Link href="/login">Entrar</Link>
-          </Button>
-        </div>
-      </div>
+    <div className="spotlight flex w-full flex-1 flex-col">
+      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-16 px-6 py-16">
+        <header className="flex w-full items-center justify-between">
+          <span className="font-display text-lg font-bold tracking-[0.25em]">
+            ARENA<span className="text-primary">.</span>
+          </span>
+          <div className="flex items-center gap-2">
+            <ModeToggle />
+            <Button asChild variant="outline" size="sm">
+              <Link href="/login">Entrar</Link>
+            </Button>
+          </div>
+        </header>
 
-      <section className="flex flex-col items-center gap-6 text-center">
-        <h1 className="max-w-xl text-balance text-4xl font-bold tracking-tight">
-          Seu campeonato entre amigos, organizado de verdade
-        </h1>
-        <p className="text-muted-foreground max-w-md text-balance">
-          Crie torneios, registre partidas e acompanhe a classificação em tempo
-          real — sem planilha, sem discussão de placar.
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Button asChild size="lg">
-            <Link href="/cadastro">Criar conta grátis</Link>
-          </Button>
-          <Button asChild size="lg" variant="outline">
-            <Link href="/login">Já tenho conta</Link>
-          </Button>
-        </div>
-      </section>
+        <section className="flex flex-col items-center gap-6 text-center">
+          <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
+            <span aria-hidden="true">⚽</span>
+            Torneios entre amigos, nível profissional
+          </span>
+          <h1 className="font-display max-w-2xl text-balance text-5xl font-bold tracking-tight sm:text-6xl">
+            Seu{" "}
+            <span className="text-gradient-brand">campeonato</span> entre amigos,
+            organizado de verdade
+          </h1>
+          <p className="max-w-md text-balance text-lg text-muted-foreground">
+            Crie torneios, registre partidas e acompanhe a classificação em
+            tempo real — sem planilha, sem discussão de placar.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button asChild size="lg" className="glow-primary">
+              <Link href="/cadastro">Criar conta grátis</Link>
+            </Button>
+            <Button asChild size="lg" variant="outline">
+              <Link href="/login">Já tenho conta</Link>
+            </Button>
+          </div>
+        </section>
 
-      <section aria-label="Destaques do produto" className="grid gap-4 sm:grid-cols-3">
-        {DESTAQUES.map((destaque) => (
-          <Card key={destaque.titulo}>
-            <CardHeader>
-              <CardTitle className="text-base">{destaque.titulo}</CardTitle>
-              <CardDescription>{destaque.descricao}</CardDescription>
-            </CardHeader>
-          </Card>
-        ))}
-      </section>
+        <section aria-hidden="true" className="flex justify-center">
+          <span className="sr-only">
+            Exemplo de classificação e placar ao vivo
+          </span>
+          <div className="glow-primary w-full max-w-md rounded-2xl border bg-card/60 p-5 backdrop-blur-sm">
+            <div className="flex items-center justify-between">
+              <p className="font-display text-sm font-medium">
+                Copa dos Amigos
+              </p>
+              <span className="rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                Liga
+              </span>
+            </div>
 
-      <footer className="text-center text-xs text-muted-foreground/70">
-        Dados e escudos de clubes via API-Football.
-      </footer>
-    </main>
+            <ul className="mt-4 flex flex-col gap-1">
+              {PREVIEW_TABELA.map((linha, i) => {
+                const campeao = i === 0;
+                return (
+                  <li
+                    key={linha.time}
+                    className={
+                      campeao
+                        ? "flex items-center gap-3 rounded-md border border-gold/30 bg-gold/10 px-3 py-2"
+                        : "flex items-center gap-3 rounded-md px-3 py-2"
+                    }
+                  >
+                    <span
+                      className={
+                        campeao
+                          ? "font-display w-6 text-sm font-bold tabular-nums text-gold"
+                          : "font-display w-6 text-sm font-bold tabular-nums text-muted-foreground"
+                      }
+                    >
+                      {linha.pos}
+                    </span>
+                    {campeao ? (
+                      <Trophy className="size-4 shrink-0 text-gold" />
+                    ) : (
+                      <span className="size-4 shrink-0" />
+                    )}
+                    <span className="flex-1 truncate text-sm font-medium">
+                      {linha.time}
+                    </span>
+                    <span className="font-display text-sm font-bold tabular-nums">
+                      {linha.pts}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="mt-4 flex items-center gap-2 border-t pt-4 text-sm">
+              <span className="font-medium">Grêmio</span>
+              <span className="font-display font-bold tabular-nums">2</span>
+              <span className="text-xs text-muted-foreground">×</span>
+              <span className="font-display font-bold tabular-nums">1</span>
+              <span className="font-medium">São Paulo</span>
+              <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="relative flex size-2">
+                  <span className="absolute inline-flex size-full rounded-full bg-primary opacity-75 motion-safe:animate-ping" />
+                  <span className="relative inline-flex size-2 rounded-full bg-primary" />
+                </span>
+                em andamento
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <section
+          aria-label="Destaques do produto"
+          className="grid gap-4 sm:grid-cols-3"
+        >
+          {DESTAQUES.map((destaque) => {
+            const Icone = destaque.icone;
+            return (
+              <Card
+                key={destaque.titulo}
+                className="motion-safe:transition-transform motion-safe:duration-200 hover:border-primary/30 motion-safe:hover:-translate-y-0.5"
+              >
+                <CardHeader>
+                  <span
+                    aria-hidden="true"
+                    className="mb-2 inline-flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"
+                  >
+                    <Icone className="size-5" />
+                  </span>
+                  <CardTitle className="font-display text-base">
+                    {destaque.titulo}
+                  </CardTitle>
+                  <CardDescription>{destaque.descricao}</CardDescription>
+                </CardHeader>
+              </Card>
+            );
+          })}
+        </section>
+
+        <footer className="mt-auto border-t pt-8 text-center text-xs text-muted-foreground/70">
+          Dados e escudos de clubes via API-Football.
+        </footer>
+      </main>
+    </div>
   );
 }

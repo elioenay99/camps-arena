@@ -28,9 +28,21 @@ export default async function DashboardPage() {
       {/* Marca, navegação (Novo torneio/Nova partida) e Sair vivem no
           header persistente do layout do segmento. */}
       <section aria-labelledby="partidas-ativas-titulo" className="flex flex-col gap-4">
-        <h1 id="partidas-ativas-titulo" className="text-2xl font-semibold">
-          Partidas ativas
-        </h1>
+        <div className="flex flex-col gap-1">
+          <span
+            aria-hidden="true"
+            className="flex items-center gap-1.5 text-xs font-medium tracking-[0.2em] text-muted-foreground uppercase"
+          >
+            <span className="size-1.5 rounded-full bg-primary motion-safe:animate-pulse" />
+            Ao vivo na arena
+          </span>
+          <h1
+            id="partidas-ativas-titulo"
+            className="font-display text-3xl font-bold tracking-tight"
+          >
+            Partidas ativas
+          </h1>
+        </div>
 
         {partidas.length === 0 ? (
           <EmptyActiveMatches />

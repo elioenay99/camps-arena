@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { AuthBrand } from "@/features/auth/components/AuthBrand";
 import { ForgotPasswordForm } from "@/features/auth/components/ForgotPasswordForm";
 import {
   Card,
@@ -17,10 +18,11 @@ export const metadata: Metadata = {
 
 export default function RecuperarSenhaPage() {
   return (
-    <main className="flex flex-1 items-center justify-center px-6 py-16">
-      <Card className="w-full max-w-sm">
+    <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-16">
+      <AuthBrand />
+      <Card className="w-full max-w-sm border-primary/10 shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl">Recuperar senha</CardTitle>
+          <CardTitle className="font-display text-2xl">Recuperar senha</CardTitle>
           <CardDescription>
             Informe seu e-mail e enviaremos um link para definir uma nova senha.
           </CardDescription>

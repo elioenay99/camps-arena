@@ -30,12 +30,12 @@ export function NavLinks({ links }: { links: NavLink[] }) {
               <Link
                 href={link.href}
                 aria-current={ativo ? "page" : undefined}
-                className={`rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${
+                className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
                   ativo
-                    ? // text-foreground + peso: no light o bg-accent quase some
-                      // sobre o background — o ativo não pode depender só dele.
-                      "bg-accent font-medium text-foreground"
-                    : "text-muted-foreground"
+                    ? // Pill do primário: legível e inconfundível nos dois temas,
+                      // sem depender do bg-accent que quase some no light.
+                      "bg-primary/12 font-medium text-foreground dark:text-primary"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {link.rotulo}
