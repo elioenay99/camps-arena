@@ -40,7 +40,7 @@ describe("IniciarTorneioPanel", () => {
     expect(screen.getByText(/6 partidas em 3 rodadas/)).toBeInTheDocument()
   })
 
-  it("com menos de 2 participantes orienta a convidar e desabilita o botão", () => {
+  it("com menos de 2 clubes orienta e desabilita o botão", () => {
     render(
       <IniciarTorneioPanel
         tournamentId={TORNEIO}
@@ -48,7 +48,7 @@ describe("IniciarTorneioPanel", () => {
         idaEVolta={false}
       />
     )
-    expect(screen.getByRole("status")).toHaveTextContent(/link de convite/)
+    expect(screen.getByRole("status")).toHaveTextContent(/pelo menos 2 clubes/)
     expect(
       screen.getByRole("button", { name: "Iniciar torneio" })
     ).toBeDisabled()

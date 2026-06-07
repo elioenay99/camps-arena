@@ -74,6 +74,9 @@ export async function createTournament(
     pontosVitoria: pontosOuDefault("pontosVitoria"),
     pontosEmpate: pontosOuDefault("pontosEmpate"),
     pontosDerrota: pontosOuDefault("pontosDerrota"),
+    // Clubes (formatos competitivos): inputs hidden name="clubes"; só strings
+    // entram (File etc. caem na validação do Zod como uuid inválido).
+    clubes: formData.getAll("clubes").filter((c): c is string => typeof c === "string"),
   })
 
   if (!parsed.success) {
@@ -131,31 +134,94 @@ export async function createTournament(
     }
     torneioId = torneio.id
 
-    // Escritas complementares (sem transação via PostgREST): falha aqui NÃO
-    // derruba o torneio já criado — os estados são recuperáveis na UI da
-    // página do torneio ("Participar" / "Gerar link de convite").
-    const { error: participanteError } = await supabase
-      .from("participants")
-      .insert({ tournament_id: torneio.id, user_id: user.id })
-    if (participanteError) {
-      console.error(
-        "createTournament: dono não entrou como participante",
-        participanteError.code ?? participanteError.message
-      )
-    }
+    if (ehGerado) {
+      // Modelo clube-cêntrico: o torneio competitivo nasce com as VAGAS (uma
+      // por clube, técnico vazio) e um convite por vaga. O dono NÃO entra como
+      // participante (participants é exclusivo do avulso) e não há convite
+      // genérico (o link é por clube). Ordem falha-segura: tournament → slots →
+      // invites. Falha nas VAGAS é FATAL: um competitivo sem geometria é beco
+      // sem saída (não há UI para repor clubes pós-criação) — compensação por
+      // DELETE do torneio recém-criado + erro no form (o useActionState
+      // preserva título/clubes; re-submeter recria tudo). Convite faltando é
+      // diferente: regenerável por vaga na página do torneio (não-fatal).
+      const { data: vagas, error: vagasError } = await supabase
+        .from("tournament_slots")
+        .insert(
+          parsed.data.clubes.map((teamId) => ({
+            tournament_id: torneio.id,
+            team_id: teamId,
+          }))
+        )
+        .select("id")
+      if (vagasError || !vagas || vagas.length === 0) {
+        console.error(
+          "createTournament: vagas não geradas",
+          vagasError?.code ?? vagasError?.message
+        )
+        // Best-effort (sem transação via PostgREST): se o DELETE também
+        // falhar, sobra um rascunho sem vagas — invisível ao fluxo de jogo e
+        // sem partidas; o erro abaixo segue valendo.
+        const { error: deleteError } = await supabase
+          .from("tournaments")
+          .delete()
+          .eq("id", torneio.id)
+          .eq("created_by", user.id)
+        if (deleteError) {
+          console.error(
+            "createTournament: compensação falhou",
+            deleteError.code ?? deleteError.message
+          )
+        }
+        return {
+          error:
+            "Não foi possível criar as vagas dos clubes. Nada foi salvo — tente novamente.",
+        }
+      } else {
+        // Um code por vaga. Colisão do UNIQUE global (23505, ~impossível com 80
+        // bits) → regenera TODOS os codes e re-tenta o lote 1x; depois desiste
+        // (os convites faltantes são regeneráveis por vaga na UI).
+        for (let i = 0; i < 2; i++) {
+          const { error: invitesError } = await supabase
+            .from("slot_invites")
+            .insert(
+              vagas.map((vaga) => ({ slot_id: vaga.id, code: gerarCodigoConvite() }))
+            )
+          if (!invitesError) break
+          console.error(
+            "createTournament: convites de vaga não gerados",
+            invitesError.code ?? invitesError.message
+          )
+          if (invitesError.code !== "23505") break
+        }
+      }
+    } else {
+      // Avulso (pessoa-cêntrico): fluxo original INTOCADO. Escritas
+      // complementares (sem transação via PostgREST): falha aqui NÃO derruba o
+      // torneio já criado — os estados são recuperáveis na UI da página do
+      // torneio ("Participar" / "Gerar link de convite").
+      const { error: participanteError } = await supabase
+        .from("participants")
+        .insert({ tournament_id: torneio.id, user_id: user.id })
+      if (participanteError) {
+        console.error(
+          "createTournament: dono não entrou como participante",
+          participanteError.code ?? participanteError.message
+        )
+      }
 
-    // Colisão do UNIQUE global do code (23505, ~impossível com 80 bits):
-    // um retry com código novo; depois desiste (recuperável na UI).
-    for (let i = 0; i < 2; i++) {
-      const { error: inviteError } = await supabase
-        .from("tournament_invites")
-        .insert({ tournament_id: torneio.id, code: gerarCodigoConvite() })
-      if (!inviteError) break
-      console.error(
-        "createTournament: convite não gerado",
-        inviteError.code ?? inviteError.message
-      )
-      if (inviteError.code !== "23505") break
+      // Colisão do UNIQUE global do code (23505, ~impossível com 80 bits):
+      // um retry com código novo; depois desiste (recuperável na UI).
+      for (let i = 0; i < 2; i++) {
+        const { error: inviteError } = await supabase
+          .from("tournament_invites")
+          .insert({ tournament_id: torneio.id, code: gerarCodigoConvite() })
+        if (!inviteError) break
+        console.error(
+          "createTournament: convite não gerado",
+          inviteError.code ?? inviteError.message
+        )
+        if (inviteError.code !== "23505") break
+      }
     }
   } catch {
     return { error: "Não foi possível criar o torneio agora. Tente novamente." }
@@ -239,20 +305,23 @@ export async function iniciarTorneio(
   }
 
   if (!jaGeradas || jaGeradas.length === 0) {
-    const { data: confirmados, error: participantesError } = await supabase
-      .from("participants")
-      .select("user_id")
+    // Modelo clube-cêntrico: a disputa é entre VAGAS (slot ids opacos). Não
+    // há mais pré-checagem de "semeados em participants" — as vagas existem por
+    // construção (criadas no rascunho) e a policy de INSERT valida que cada
+    // vaga pertence ao torneio.
+    const { data: vagas, error: vagasError } = await supabase
+      .from("tournament_slots")
+      .select("id")
       .eq("tournament_id", parsed.data)
-    if (participantesError) {
+    if (vagasError) {
       return { ok: false, error: erroGenerico }
     }
 
-    const participantes = (confirmados ?? []).map((p) => p.user_id)
+    const participantes = (vagas ?? []).map((v) => v.id)
     if (participantes.length < 2) {
       return {
         ok: false,
-        error:
-          "A liga precisa de pelo menos 2 participantes confirmados. Compartilhe o link de convite.",
+        error: "O torneio precisa de pelo menos 2 clubes.",
       }
     }
     if (participantes.length > LIGA_MAX_PARTICIPANTES) {
@@ -274,11 +343,12 @@ export async function iniciarTorneio(
     }
 
     // Um único INSERT em lote: atômico no banco (tabela inteira ou nada).
+    // Partidas competitivas usam vaga_1/vaga_2 (NUNCA participante_1/2).
     const partidas = rodadas.flatMap((r) =>
       r.confrontos.map(([p1, p2]) => ({
         tournament_id: parsed.data,
-        participante_1: p1,
-        participante_2: p2,
+        vaga_1: p1,
+        vaga_2: p2,
         rodada: r.rodada,
       }))
     )
@@ -544,19 +614,19 @@ export async function iniciarMataMata(
   }
 
   if (!jaGeradas || jaGeradas.length === 0) {
-    const { data: confirmados, error: participantesError } = await supabase
-      .from("participants")
-      .select("user_id")
+    // Vagas (slot ids opacos) no lugar de participants — ver iniciarTorneio.
+    const { data: vagas, error: vagasError } = await supabase
+      .from("tournament_slots")
+      .select("id")
       .eq("tournament_id", tournamentId)
-    if (participantesError) {
+    if (vagasError) {
       return { error: erroGenerico }
     }
 
-    const participantes = (confirmados ?? []).map((p) => p.user_id)
+    const participantes = (vagas ?? []).map((v) => v.id)
     if (participantes.length < 2) {
       return {
-        error:
-          "O mata-mata precisa de pelo menos 2 participantes confirmados. Compartilhe o link de convite.",
+        error: "O torneio precisa de pelo menos 2 clubes.",
       }
     }
     if (participantes.length > MATA_MATA_MAX_PARTICIPANTES) {
@@ -595,11 +665,13 @@ export async function iniciarMataMata(
     // Um único INSERT em lote: atômico no banco (chave inteira ou nada).
     // Bye nasce 'encerrada' 0x0: o slot persiste e o lado 1 avança no
     // avancarFase; o motor de classificação ignora (exige os dois lados).
+    // Lados por VAGA (slot ids): o motor opera ids opacos — participante_1/2
+    // do PartidaChave carrega os slot ids e mapeia para vaga_1/vaga_2.
     const partidas = gerarFaseInicial(confrontos, torneio.ida_e_volta).map(
       (p: PartidaChave) => ({
         tournament_id: tournamentId,
-        participante_1: p.participante_1,
-        participante_2: p.participante_2,
+        vaga_1: p.participante_1,
+        vaga_2: p.participante_2,
         rodada: p.rodada,
         posicao: p.posicao,
         perna: p.perna,
@@ -694,17 +766,19 @@ export async function avancarFase(
     return { ok: false, error: erroPropriedade }
   }
 
-  const { data: partidas, error: partidasError } = await supabase
+  // Lados por VAGA (slot ids). O motor consome `participante_1/2` (ids opacos)
+  // — mapeamos vaga_1/vaga_2 para esse shape na leitura e de volta no INSERT.
+  const { data: partidasRaw, error: partidasError } = await supabase
     .from("matches")
     .select(
-      "rodada, posicao, perna, participante_1, participante_2, placar_1, placar_2, status"
+      "rodada, posicao, perna, vaga_1, vaga_2, placar_1, placar_2, status"
     )
     .eq("tournament_id", parsed.data)
     .not("rodada", "is", null)
   if (partidasError) {
     return { ok: false, error: erroGenerico }
   }
-  if (!partidas || !partidas.some((p) => p.posicao !== null)) {
+  if (!partidasRaw || !partidasRaw.some((p) => p.posicao !== null)) {
     return {
       ok: false,
       error:
@@ -713,6 +787,17 @@ export async function avancarFase(
           : "Gere o mata-mata dos grupos antes de avançar fases.",
     }
   }
+
+  const partidas = partidasRaw.map((p) => ({
+    rodada: p.rodada,
+    posicao: p.posicao,
+    perna: p.perna,
+    participante_1: p.vaga_1,
+    participante_2: p.vaga_2,
+    placar_1: p.placar_1,
+    placar_2: p.placar_2,
+    status: p.status,
+  }))
 
   let novas: PartidaChave[]
   try {
@@ -730,42 +815,14 @@ export async function avancarFase(
     }
   }
 
-  // Pré-checagem ACIONÁVEL: a RLS de INSERT exige cada semeado em
-  // `participants`. Saída/remoção em mata-mata ativo é bloqueada (action +
-  // policy), mas se uma linha sumiu por outro caminho (admin, corrida), o
-  // INSERT falharia com erro de RLS e a mensagem genérica mascararia um
-  // estado permanente — aqui o dono fica sabendo O QUE travou o avanço.
-  const semeados = [
-    ...new Set(
-      novas.flatMap((p) =>
-        [p.participante_1, p.participante_2].filter(
-          (id): id is string => id !== null
-        )
-      )
-    ),
-  ]
-  const { data: confirmados, error: confirmadosError } = await supabase
-    .from("participants")
-    .select("user_id")
-    .eq("tournament_id", parsed.data)
-    .in("user_id", semeados)
-  if (confirmadosError) {
-    return { ok: false, error: erroGenerico }
-  }
-  const confirmadosSet = new Set((confirmados ?? []).map((p) => p.user_id))
-  if (!semeados.every((id) => confirmadosSet.has(id))) {
-    return {
-      ok: false,
-      error:
-        "Um participante classificado não está mais no torneio — a fase seguinte não pode ser gerada.",
-    }
-  }
-
+  // Sem pré-checagem de "semeados em participants": as vagas são imutáveis
+  // pós-rascunho (a disputa as referencia) e existem por construção; a policy
+  // de INSERT valida que cada vaga pertence ao torneio. Lados por VAGA.
   const { error: insertError } = await supabase.from("matches").insert(
     novas.map((p) => ({
       tournament_id: parsed.data,
-      participante_1: p.participante_1,
-      participante_2: p.participante_2,
+      vaga_1: p.participante_1,
+      vaga_2: p.participante_2,
       rodada: p.rodada,
       posicao: p.posicao,
       perna: p.perna,
@@ -924,19 +981,19 @@ export async function iniciarTorneioGrupos(
     }
   }
 
-  const { data: confirmados, error: participantesError } = await supabase
-    .from("participants")
-    .select("user_id")
+  // Vagas (slot ids opacos) no lugar de participants — ver iniciarTorneio.
+  const { data: vagas, error: vagasError } = await supabase
+    .from("tournament_slots")
+    .select("id")
     .eq("tournament_id", tournamentId)
-  if (participantesError) {
+  if (vagasError) {
     return { error: erroGenerico }
   }
 
-  const participantes = (confirmados ?? []).map((p) => p.user_id)
+  const participantes = (vagas ?? []).map((v) => v.id)
   if (participantes.length < 2) {
     return {
-      error:
-        "O torneio precisa de pelo menos 2 participantes confirmados. Compartilhe o link de convite.",
+      error: "O torneio precisa de pelo menos 2 clubes.",
     }
   }
   if (participantes.length > MATA_MATA_MAX_PARTICIPANTES) {
@@ -1000,10 +1057,12 @@ export async function iniciarTorneioGrupos(
 
   // Um único INSERT em lote: atômico (todos os grupos ou nada). Falha aqui
   // deixa o torneio 'ativo' sem partidas — o re-run recupera (rebaixa e refaz).
+  // Lados por VAGA: o motor opera ids opacos (slot ids) — participante_1/2 do
+  // motor carrega os slot ids e mapeia para vaga_1/vaga_2.
   const partidas = gerarPartidasGrupos(grupos, torneio.ida_e_volta).map((p) => ({
     tournament_id: tournamentId,
-    participante_1: p.participante_1,
-    participante_2: p.participante_2,
+    vaga_1: p.participante_1,
+    vaga_2: p.participante_2,
     grupo: p.grupo,
     rodada: p.rodada,
   }))
@@ -1080,10 +1139,12 @@ export async function gerarMataMataDosGrupos(
     return { ok: false, error: erroGenerico }
   }
 
-  const { data: partidas, error: partidasError } = await supabase
+  // Lados por VAGA (slot ids). O motor de classificação consome
+  // participante_1/2 (ids opacos) — mapeamos vaga_1/vaga_2 para esse shape.
+  const { data: partidasRaw, error: partidasError } = await supabase
     .from("matches")
     .select(
-      "grupo, rodada, posicao, participante_1, participante_2, placar_1, placar_2, status"
+      "grupo, rodada, posicao, vaga_1, vaga_2, placar_1, placar_2, status"
     )
     .eq("tournament_id", parsed.data)
     .not("rodada", "is", null)
@@ -1091,13 +1152,24 @@ export async function gerarMataMataDosGrupos(
     return { ok: false, error: erroGenerico }
   }
 
-  const deGrupos = (partidas ?? []).filter(
+  const partidas = (partidasRaw ?? []).map((p) => ({
+    grupo: p.grupo,
+    rodada: p.rodada,
+    posicao: p.posicao,
+    participante_1: p.vaga_1,
+    participante_2: p.vaga_2,
+    placar_1: p.placar_1,
+    placar_2: p.placar_2,
+    status: p.status,
+  }))
+
+  const deGrupos = partidas.filter(
     (p): p is typeof p & { grupo: number; rodada: number } => p.grupo !== null
   )
   if (deGrupos.length === 0) {
     return { ok: false, error: "A fase de grupos ainda não foi gerada." }
   }
-  if ((partidas ?? []).some((p) => p.posicao !== null)) {
+  if (partidas.some((p) => p.posicao !== null)) {
     return {
       ok: false,
       error: "O mata-mata já foi gerado. Recarregue a página.",
@@ -1132,44 +1204,17 @@ export async function gerarMataMataDosGrupos(
     return { ok: false, error: e instanceof Error ? e.message : erroGenerico }
   }
 
-  // Pré-checagem ACIONÁVEL (mesma do avancarFase): a RLS de INSERT exige
-  // cada semeado em participants; o congelamento cobre o fluxo normal, mas
-  // uma linha removida por via administrativa viraria erro genérico
-  // permanente sem isto.
-  const semeados = [
-    ...new Set(
-      confrontos.flatMap((c) =>
-        [c.participante_1, c.participante_2].filter(
-          (id): id is string => id !== null
-        )
-      )
-    ),
-  ]
-  const { data: confirmados, error: confirmadosError } = await supabase
-    .from("participants")
-    .select("user_id")
-    .eq("tournament_id", parsed.data)
-    .in("user_id", semeados)
-  if (confirmadosError) {
-    return { ok: false, error: erroGenerico }
-  }
-  const confirmadosSet = new Set((confirmados ?? []).map((p) => p.user_id))
-  if (!semeados.every((id) => confirmadosSet.has(id))) {
-    return {
-      ok: false,
-      error:
-        "Um participante classificado não está mais no torneio — o mata-mata não pode ser gerado.",
-    }
-  }
-
+  // Sem pré-checagem de "semeados em participants": as vagas são imutáveis
+  // pós-rascunho e existem por construção; a policy de INSERT valida que cada
+  // vaga pertence ao torneio. Lados por VAGA.
   // Rodadas CONTÍNUAS: a chave começa após a última rodada de grupos.
   const rodadaBase = Math.max(...deGrupos.map((p) => p.rodada)) + 1
   const novas = gerarFaseInicial(confrontos, torneio.ida_e_volta, rodadaBase)
   const { error: insertError } = await supabase.from("matches").insert(
     novas.map((p) => ({
       tournament_id: parsed.data,
-      participante_1: p.participante_1,
-      participante_2: p.participante_2,
+      vaga_1: p.participante_1,
+      vaga_2: p.participante_2,
       rodada: p.rodada,
       posicao: p.posicao,
       perna: p.perna,

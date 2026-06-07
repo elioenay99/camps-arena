@@ -33,6 +33,14 @@ export interface TorneioClassificacao {
 
 export interface LinhaComNome extends LinhaClassificacao {
   nome: string
+  /** Escudo do clube (competitivo); null no avulso ou clube sem escudo. */
+  escudoUrl?: string | null
+}
+
+/** Técnico de um lado competitivo — detalhe da UI ("téc. Fulano"). */
+export interface TecnicoDoLado {
+  id: string
+  nome: string | null
 }
 
 /** Partida encerrada shaped para o histórico (registro fiel, com fallbacks). */
@@ -50,6 +58,13 @@ export interface PartidaEncerrada {
   perna: number | null
   /** Grupo da fase de grupos; null fora dela. */
   grupo: number | null
+  /** Escudos do clube (competitivo); ausente/null no avulso. Opcionais: o
+   * fetcher sempre os preenche, mas fixtures de teste do avulso os omitem. */
+  escudo_1?: string | null
+  escudo_2?: string | null
+  /** Técnico do lado (competitivo) — detalhe; ausente/null no avulso. */
+  tecnico_1?: TecnicoDoLado | null
+  tecnico_2?: TecnicoDoLado | null
 }
 
 /** Partida ainda não encerrada — console do dono (encerrar) e contexto. */
@@ -66,10 +81,19 @@ export interface PartidaAberta {
   perna: number | null
   /** Grupo da fase de grupos; null fora dela. */
   grupo: number | null
-  /** Lados da partida (id + celular) — insumo do atalho de convocação. A
-   * lista é RSC: o celular só vai ao HTML de quem é participante. */
+  /** Lados da partida (id + celular) — insumo do atalho de convocação. No
+   * avulso é o PARTICIPANTE; no competitivo é o TÉCNICO da vaga adversária
+   * (mesmo gate; só quem joga). A lista é RSC: o celular só vai ao HTML de
+   * quem joga a partida. */
   participante_1: { id: string; celular: string | null } | null
   participante_2: { id: string; celular: string | null } | null
+  /** Escudos do clube (competitivo); ausente/null no avulso. Opcionais: o
+   * fetcher sempre os preenche, mas fixtures de teste do avulso os omitem. */
+  escudo_1?: string | null
+  escudo_2?: string | null
+  /** Técnico do lado (competitivo) — detalhe; ausente/null no avulso. */
+  tecnico_1?: TecnicoDoLado | null
+  tecnico_2?: TecnicoDoLado | null
 }
 
 /** Partida da chave de mata-mata (rodada e posicao presentes) — bracket. */
@@ -78,6 +102,8 @@ export interface PartidaDaChave {
   rodada: number
   posicao: number
   perna: number | null
+  /** Id OPACO do lado (user no avulso, SLOT no competitivo) — chave do
+   * pareamento de vencedor; o BracketView nunca interpreta o significado. */
   participante_1: string | null
   participante_2: string | null
   nome_1: string
@@ -85,6 +111,10 @@ export interface PartidaDaChave {
   placar_1: number
   placar_2: number
   status: MatchStatus
+  /** Escudos do clube (competitivo); ausente/null no avulso. Opcionais: o
+   * fetcher sempre os preenche, mas fixtures de teste do avulso os omitem. */
+  escudo_1?: string | null
+  escudo_2?: string | null
 }
 
 /** Classificação de UM grupo (formato de grupos/fase de liga). */
@@ -119,10 +149,19 @@ interface ClubeEmbed {
   nome: string
 }
 
+/** Vaga embutida na partida competitiva: clube (sempre) + técnico (anulável). */
+interface VagaEmbed {
+  id: string
+  team: { nome: string | null; escudo_url: string | null } | null
+  tecnico: { id: string; nome: string | null; celular: string | null } | null
+}
+
 interface PartidaComNomes {
   id: string
   participante_1: string | null
   participante_2: string | null
+  vaga_1: string | null
+  vaga_2: string | null
   time_1: string | null
   time_2: string | null
   placar_1: number
@@ -138,6 +177,8 @@ interface PartidaComNomes {
   p2: ParticipanteEmbed | null
   t1: ClubeEmbed | null
   t2: ClubeEmbed | null
+  v1: VagaEmbed | null
+  v2: VagaEmbed | null
 }
 
 /** Mesmo fallback do MatchCard para participante sem nome. */
@@ -151,6 +192,56 @@ function nomeOuFallback(nome: string | null | undefined): string {
  */
 function nomeDoLado(embed: ParticipanteEmbed | null): string {
   return embed ? nomeOuFallback(embed.nome) : "A definir"
+}
+
+/** Lado COMPETITIVO: o nome é o CLUBE da vaga; vaga vazia é "A definir". */
+function nomeDaVaga(vaga: VagaEmbed | null): string {
+  return vaga ? nomeOuFallback(vaga.team?.nome) : "A definir"
+}
+
+/**
+ * Projeção de UM lado, unificada por formato: no avulso o lado é o
+ * PARTICIPANTE (id user); no competitivo é a VAGA (id slot, nome do clube,
+ * técnico como detalhe, escudo). `ladoCru` é o id OPACO que o motor consome.
+ */
+interface LadoProjetado {
+  nome: string
+  ladoCru: string | null
+  escudo: string | null
+  tecnico: TecnicoDoLado | null
+  /** {id, celular} do lado — insumo da convocação; user no avulso, técnico no
+   * competitivo. null quando não há quem chamar. */
+  contato: { id: string; celular: string | null } | null
+}
+
+function projetarLado(
+  vaga: VagaEmbed | null,
+  participante: ParticipanteEmbed | null,
+  ladoCru: string | null,
+  competitivo: boolean
+): LadoProjetado {
+  if (competitivo) {
+    const tecnico = vaga?.tecnico
+      ? { id: vaga.tecnico.id, nome: vaga.tecnico.nome }
+      : null
+    return {
+      nome: nomeDaVaga(vaga),
+      ladoCru,
+      escudo: vaga?.team?.escudo_url ?? null,
+      tecnico,
+      // Convocação competitiva: o contato é o TÉCNICO da vaga (mesmo gate).
+      contato: vaga?.tecnico
+        ? { id: vaga.tecnico.id, celular: vaga.tecnico.celular }
+        : null,
+    }
+  }
+  return {
+    nome: nomeDoLado(participante),
+    ladoCru,
+    escudo: null,
+    tecnico: null,
+    contato: participante ? { id: participante.id, celular: participante.celular } : null,
+  }
 }
 
 /**
@@ -191,14 +282,21 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
 
   // Ordenadas por updated_at desc para o histórico (encerradas mais recentes
   // primeiro); o motor é insensível à ordem (acumuladores comutativos).
+  // Avulso embeda PARTICIPANTES (p1/p2) + clubes opcionais por partida (t1/t2);
+  // competitivo embeda as VAGAS (v1/v2 → clube + técnico) — o motor roda sobre
+  // os ids crus (participante_* no avulso, vaga_* no competitivo). As DUAS
+  // famílias de embed vêm na mesma query (uma viagem): nos competitivos
+  // participante_* são null (CHECK matches_lado_vaga_ou_user), e vice-versa.
   const { data: partidas, error: partidasError } = await supabase
     .from("matches")
     .select(
-      `id, participante_1, participante_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, created_at, updated_at,
+      `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, created_at, updated_at,
        p1:users!matches_participante_1_fkey ( id, nome, celular ),
        p2:users!matches_participante_2_fkey ( id, nome, celular ),
        t1:teams!matches_time_1_fkey ( id, nome ),
-       t2:teams!matches_time_2_fkey ( id, nome )`
+       t2:teams!matches_time_2_fkey ( id, nome ),
+       v1:tournament_slots!matches_vaga_1_fkey ( id, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome, celular ) ),
+       v2:tournament_slots!matches_vaga_2_fkey ( id, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome, celular ) )`
     )
     .eq("tournament_id", tournamentId)
     .order("updated_at", { ascending: false })
@@ -211,13 +309,51 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   // verdade nesta fronteira de confiança (mesma decisão de getActiveMatches).
   const linhasPartidas = (partidas ?? []) as unknown as PartidaComNomes[]
 
+  // COMPETITIVO ⇔ formato !== 'avulso': os lados são VAGAS (id slot, nome do
+  // clube). O motor roda sobre vaga_1/vaga_2; o nome do lado é o clube; o
+  // técnico é detalhe. No avulso o caminho original (participante embeds) fica
+  // INTOCADO.
+  const competitivo = torneio.formato !== "avulso"
+  // Id cru que alimenta o motor: vaga no competitivo, participante no avulso.
+  const ladoCru1 = (p: PartidaComNomes) =>
+    competitivo ? p.vaga_1 : p.participante_1
+  const ladoCru2 = (p: PartidaComNomes) =>
+    competitivo ? p.vaga_2 : p.participante_2
+  const lado1 = (p: PartidaComNomes) =>
+    projetarLado(p.v1, p.p1, ladoCru1(p), competitivo)
+  const lado2 = (p: PartidaComNomes) =>
+    projetarLado(p.v2, p.p2, ladoCru2(p), competitivo)
+  // Linhas do motor: re-chaveadas pelo id cru do lado conforme o formato.
+  const linhasMotor = linhasPartidas.map((p) => ({
+    participante_1: ladoCru1(p),
+    participante_2: ladoCru2(p),
+    placar_1: p.placar_1,
+    placar_2: p.placar_2,
+    status: p.status,
+  }))
+
+  // Mapa id-do-lado → nome: no avulso é o participante; no competitivo é o
+  // CLUBE da vaga (chaveado pelo SLOT id, que o motor usa como lado). Escudo
+  // só no competitivo (insumo do StandingsTable).
   const nomes = new Map<string, string>()
+  const escudos = new Map<string, string | null>()
   const nomesClubes = new Map<string, string>()
   for (const p of linhasPartidas) {
-    if (p.p1) nomes.set(p.p1.id, nomeOuFallback(p.p1.nome))
-    if (p.p2) nomes.set(p.p2.id, nomeOuFallback(p.p2.nome))
-    if (p.t1) nomesClubes.set(p.t1.id, nomeOuFallback(p.t1.nome))
-    if (p.t2) nomesClubes.set(p.t2.id, nomeOuFallback(p.t2.nome))
+    if (competitivo) {
+      if (p.v1) {
+        nomes.set(p.v1.id, nomeOuFallback(p.v1.team?.nome))
+        escudos.set(p.v1.id, p.v1.team?.escudo_url ?? null)
+      }
+      if (p.v2) {
+        nomes.set(p.v2.id, nomeOuFallback(p.v2.team?.nome))
+        escudos.set(p.v2.id, p.v2.team?.escudo_url ?? null)
+      }
+    } else {
+      if (p.p1) nomes.set(p.p1.id, nomeOuFallback(p.p1.nome))
+      if (p.p2) nomes.set(p.p2.id, nomeOuFallback(p.p2.nome))
+      if (p.t1) nomesClubes.set(p.t1.id, nomeOuFallback(p.t1.nome))
+      if (p.t2) nomesClubes.set(p.t2.id, nomeOuFallback(p.t2.nome))
+    }
   }
 
   const regras = {
@@ -226,52 +362,68 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     derrota: torneio.pontos_derrota,
   }
 
-  const linhas = computeStandings(regras, linhasPartidas).map((linha) => ({
+  const linhas = computeStandings(regras, linhasMotor).map((linha) => ({
     ...linha,
     nome: nomes.get(linha.participanteId) ?? "Sem nome",
+    escudoUrl: escudos.get(linha.participanteId) ?? null,
   }))
 
-  // Terceira projeção: o motor é agnóstico ao significado do id — re-chavear
-  // os lados por CLUBE produz a classificação de clubes de graça. Partida sem
-  // os dois clubes vira lado nulo → inelegível (não há confronto de clubes).
-  const clubes = computeStandings(
-    regras,
-    linhasPartidas.map((p) => ({
-      participante_1: p.time_1,
-      participante_2: p.time_2,
-      placar_1: p.placar_1,
-      placar_2: p.placar_2,
-      status: p.status,
-    }))
-  ).map((linha) => ({
-    ...linha,
-    nome: nomesClubes.get(linha.participanteId) ?? "Sem nome",
-  }))
+  // Projeção `clubes`: recurso do AVULSO (re-chavear partidas avulsas por
+  // time_1/time_2 produz a classificação de clubes daquele formato). No
+  // COMPETITIVO o lado JÁ É o clube — `linhas` é a classificação de clubes;
+  // aqui fica VAZIA (a página não exibe a seção redundante). Avulso intocado:
+  // partida sem os dois clubes vira lado nulo → inelegível.
+  const clubes = competitivo
+    ? []
+    : computeStandings(
+        regras,
+        linhasPartidas.map((p) => ({
+          participante_1: p.time_1,
+          participante_2: p.time_2,
+          placar_1: p.placar_1,
+          placar_2: p.placar_2,
+          status: p.status,
+        }))
+      ).map((linha) => ({
+        ...linha,
+        nome: nomesClubes.get(linha.participanteId) ?? "Sem nome",
+      }))
 
   // Bye de chave (mata-mata): partida com slot e um lado vazio — avanço
   // direto, não um jogo. Fica FORA do histórico e das abertas ("João 0 x 0
   // A definir" seria ruído); a chave (BracketView) o exibe como avanço.
   // `typeof === "number"` (e não `!== null`): nesta fronteira de cast um
-  // shape sem a coluna viraria bye silenciosamente.
+  // shape sem a coluna viraria bye silenciosamente. O lado vazio é avaliado
+  // pelo id CRU do formato (vaga_2 null no competitivo; participante_2 null
+  // no avulso) — o bye da chave gerada por vagas é `vaga_2 = null`.
   const ehByeDeChave = (p: PartidaComNomes) =>
     typeof p.posicao === "number" &&
-    (p.participante_1 === null || p.participante_2 === null)
+    (ladoCru1(p) === null || ladoCru2(p) === null)
 
   // Segunda projeção do MESMO snapshot: o histórico registra toda encerrada
   // (inclusive sem participante — diferente do motor, que exige os dois lados).
+  // Lado unificado por formato (clube+técnico+escudo no competitivo).
   const partidasEncerradas = linhasPartidas
     .filter((p) => p.status === "encerrada" && !ehByeDeChave(p))
-    .map((p) => ({
-      id: p.id,
-      nome_1: nomeDoLado(p.p1),
-      nome_2: nomeDoLado(p.p2),
-      placar_1: p.placar_1,
-      placar_2: p.placar_2,
-      encerradaEm: p.updated_at,
-      rodada: p.rodada,
-      perna: p.perna,
-      grupo: p.grupo,
-    }))
+    .map((p) => {
+      const l1 = lado1(p)
+      const l2 = lado2(p)
+      return {
+        id: p.id,
+        nome_1: l1.nome,
+        nome_2: l2.nome,
+        placar_1: p.placar_1,
+        placar_2: p.placar_2,
+        encerradaEm: p.updated_at,
+        rodada: p.rodada,
+        perna: p.perna,
+        grupo: p.grupo,
+        escudo_1: l1.escudo,
+        escudo_2: l2.escudo,
+        tecnico_1: l1.tecnico,
+        tecnico_2: l2.tecnico,
+      }
+    })
 
   // Quarta projeção: em aberto (console do dono — encerrar). `!==` falha-segura:
   // status novo aparece como "em aberto" em vez de sumir. Ordem: RODADA asc
@@ -296,40 +448,59 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
       }
       return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0
     })
-    .map((p) => ({
-      id: p.id,
-      nome_1: nomeDoLado(p.p1),
-      nome_2: nomeDoLado(p.p2),
-      placar_1: p.placar_1,
-      placar_2: p.placar_2,
-      status: p.status,
-      rodada: p.rodada,
-      perna: p.perna,
-      grupo: p.grupo,
-      participante_1: p.p1 ? { id: p.p1.id, celular: p.p1.celular } : null,
-      participante_2: p.p2 ? { id: p.p2.id, celular: p.p2.celular } : null,
-    }))
+    .map((p) => {
+      const l1 = lado1(p)
+      const l2 = lado2(p)
+      return {
+        id: p.id,
+        nome_1: l1.nome,
+        nome_2: l2.nome,
+        placar_1: p.placar_1,
+        placar_2: p.placar_2,
+        status: p.status,
+        rodada: p.rodada,
+        perna: p.perna,
+        grupo: p.grupo,
+        // Contato da convocação: participante no avulso, técnico da vaga no
+        // competitivo (mesmo gate). A lista é RSC — o celular só vai ao HTML
+        // de quem joga (OpenMatchesList compara o id).
+        participante_1: l1.contato,
+        participante_2: l2.contato,
+        escudo_1: l1.escudo,
+        escudo_2: l2.escudo,
+        tecnico_1: l1.tecnico,
+        tecnico_2: l2.tecnico,
+      }
+    })
 
   // Quinta projeção: a CHAVE do mata-mata (partidas com rodada e slot) —
   // insumo do BracketView. Vazia fora do mata-mata (nenhuma partida tem slot).
+  // participante_1/2 é o id CRU do lado (slot no competitivo) — o BracketView
+  // pareia vencedor por esse id sem interpretar o significado.
   const chave = linhasPartidas
     .filter(
       (p): p is PartidaComNomes & { rodada: number; posicao: number } =>
         typeof p.rodada === "number" && typeof p.posicao === "number"
     )
-    .map((p) => ({
-      id: p.id,
-      rodada: p.rodada,
-      posicao: p.posicao,
-      perna: p.perna,
-      participante_1: p.participante_1,
-      participante_2: p.participante_2,
-      nome_1: nomeDoLado(p.p1),
-      nome_2: nomeDoLado(p.p2),
-      placar_1: p.placar_1,
-      placar_2: p.placar_2,
-      status: p.status,
-    }))
+    .map((p) => {
+      const l1 = lado1(p)
+      const l2 = lado2(p)
+      return {
+        id: p.id,
+        rodada: p.rodada,
+        posicao: p.posicao,
+        perna: p.perna,
+        participante_1: ladoCru1(p),
+        participante_2: ladoCru2(p),
+        nome_1: l1.nome,
+        nome_2: l2.nome,
+        placar_1: p.placar_1,
+        placar_2: p.placar_2,
+        status: p.status,
+        escudo_1: l1.escudo,
+        escudo_2: l2.escudo,
+      }
+    })
     .sort(
       (a, b) =>
         a.rodada - b.rodada || a.posicao - b.posicao || (a.perna ?? 0) - (b.perna ?? 0)
@@ -337,7 +508,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
 
   // Sexta projeção: classificação POR GRUPO (formatos de grupos/fase de
   // liga) — o motor roda sobre o SUBCONJUNTO de cada grupo, mesma mecânica
-  // da classificação geral.
+  // da classificação geral (re-chaveado pelo id cru do lado conforme o
+  // formato: vaga no competitivo, participante no avulso).
   const numerosDeGrupo = [
     ...new Set(
       linhasPartidas
@@ -349,10 +521,19 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     grupo,
     linhas: computeStandings(
       regras,
-      linhasPartidas.filter((p) => p.grupo === grupo)
+      linhasPartidas
+        .filter((p) => p.grupo === grupo)
+        .map((p) => ({
+          participante_1: ladoCru1(p),
+          participante_2: ladoCru2(p),
+          placar_1: p.placar_1,
+          placar_2: p.placar_2,
+          status: p.status,
+        }))
     ).map((linha) => ({
       ...linha,
       nome: nomes.get(linha.participanteId) ?? "Sem nome",
+      escudoUrl: escudos.get(linha.participanteId) ?? null,
     })),
   }))
 

@@ -23,8 +23,8 @@ const D = "dddddddd-0000-4000-8000-000000000000"
 
 interface PartidaInserida {
   tournament_id: string
-  participante_1: string
-  participante_2: string
+  vaga_1: string
+  vaga_2: string
   rodada: number
 }
 
@@ -37,9 +37,9 @@ interface Cenario {
   /** Partidas com rodada já existentes (detecção de tabela gerada). */
   jaGeradas?: boolean
   geradasError?: boolean
-  /** user_ids confirmados devolvidos por participants. */
-  confirmados?: string[]
-  participantesError?: boolean
+  /** Slot ids (vagas) devolvidos por tournament_slots. */
+  vagas?: string[]
+  vagasError?: boolean
   insertError?: boolean
   /** Resultado do UPDATE de promoção. */
   updateData?: { id: string }[] | null
@@ -47,12 +47,12 @@ interface Cenario {
 }
 
 /**
- * Cliente falso com as cinco interações da action:
+ * Cliente falso com as cinco interações da action (modelo clube-cêntrico):
  *  - tournaments select: eq(id).eq(created_by).eq(formato).eq(status) —
  *    spies provam a propriedade/estado por FILTRO.
  *  - matches select: not('rodada','is',null).limit(1) — detecção de retry.
- *  - participants select: eq(tournament_id) — elenco confirmado.
- *  - matches insert: payload em lote (a tabela inteira).
+ *  - tournament_slots select: eq(tournament_id) — as VAGAS (ids opacos).
+ *  - matches insert: payload em lote (a tabela inteira, lados por VAGA).
  *  - tournaments update: promoção a 'ativo' com filtros + select de confirmação.
  */
 function montarClient(c: Cenario) {
@@ -87,12 +87,10 @@ function montarClient(c: Cenario) {
     })),
   }
 
-  const cadeiaParticipantes = {
+  const cadeiaVagas = {
     eq: vi.fn(async () => ({
-      data: c.participantesError
-        ? null
-        : (c.confirmados ?? []).map((id) => ({ user_id: id })),
-      error: c.participantesError ? { message: "down" } : null,
+      data: c.vagasError ? null : (c.vagas ?? []).map((id) => ({ id })),
+      error: c.vagasError ? { message: "down" } : null,
     })),
   }
 
@@ -118,8 +116,8 @@ function montarClient(c: Cenario) {
     from: vi.fn((tabela: string) => {
       if (tabela === "tournaments")
         return { select: vi.fn(() => cadeiaTorneioSelect), update: updateSpy }
-      if (tabela === "participants")
-        return { select: vi.fn(() => cadeiaParticipantes) }
+      if (tabela === "tournament_slots")
+        return { select: vi.fn(() => cadeiaVagas) }
       return { select: vi.fn(() => cadeiaGeradas), insert: insertSpy }
     }),
   }
@@ -170,15 +168,15 @@ describe("iniciarTorneio", () => {
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "status", "rascunho")
   })
 
-  it("menos de 2 participantes rejeita com orientação, sem escrever", async () => {
+  it("menos de 2 clubes rejeita com orientação, sem escrever", async () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false },
-      confirmados: [A],
+      vagas: [A],
     })
     const r = await iniciarTorneio(TORNEIO)
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/pelo menos 2/i)
+    if (!r.ok) expect(r.error).toMatch(/pelo menos 2 clubes/i)
     expect(insertSpy).not.toHaveBeenCalled()
     expect(updateSpy).not.toHaveBeenCalled()
   })
@@ -191,7 +189,7 @@ describe("iniciarTorneio", () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false },
-      confirmados: muitos,
+      vagas: muitos,
     })
     const r = await iniciarTorneio(TORNEIO)
     expect(r.ok).toBe(false)
@@ -199,36 +197,58 @@ describe("iniciarTorneio", () => {
     expect(insertSpy).not.toHaveBeenCalled()
   })
 
+  it("liga inicia com 0 técnicos (vagas existem por construção, sem user_id)", async () => {
+    // As vagas (slot ids) bastam: o torneio é dos CLUBES, não exige técnicos.
+    const { insertSpy, updateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false },
+      vagas: [A, B],
+    })
+    const r = await iniciarTorneio(TORNEIO)
+    expect(r).toEqual({ ok: true })
+    expect(insertSpy).toHaveBeenCalledTimes(1)
+    const rows = insertSpy.mock.calls[0][0]
+    // 2 vagas, ida simples: 1 partida.
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toEqual({
+      tournament_id: TORNEIO,
+      vaga_1: A,
+      vaga_2: B,
+      rodada: 1,
+    })
+    expect(updateSpy).toHaveBeenCalledWith({ status: "ativo" })
+  })
+
   it("sucesso: gera a tabela completa (ida simples) e promove a ativo", async () => {
     const { insertSpy, updateSpy, filtroUpdateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false },
       // Desordenados de propósito: a action ordena por code-point.
-      confirmados: [C, A, D, B],
+      vagas: [C, A, D, B],
     })
     const r = await iniciarTorneio(TORNEIO)
     expect(r).toEqual({ ok: true })
 
     expect(insertSpy).toHaveBeenCalledTimes(1)
     const rows = insertSpy.mock.calls[0][0]
-    // 4 participantes ida simples: C(4,2) = 6 partidas em 3 rodadas.
+    // 4 vagas ida simples: C(4,2) = 6 partidas em 3 rodadas.
     expect(rows).toHaveLength(6)
     const rodadas = new Set(rows.map((p) => p.rodada))
     expect([...rodadas].sort()).toEqual([1, 2, 3])
     for (const p of rows) {
       expect(p.tournament_id).toBe(TORNEIO)
-      expect(p.participante_1).not.toBe(p.participante_2)
-      // Nada além das colunas permitidas (status/placar ficam com defaults).
+      expect(p.vaga_1).not.toBe(p.vaga_2)
+      // Lados por VAGA: nada de participante_1/2 (e status/placar com defaults).
       expect(Object.keys(p).sort()).toEqual([
-        "participante_1",
-        "participante_2",
         "rodada",
         "tournament_id",
+        "vaga_1",
+        "vaga_2",
       ])
     }
     // Todas as 6 combinações cobertas (independente do lado).
     const chaves = new Set(
-      rows.map((p) => [p.participante_1, p.participante_2].sort().join("|"))
+      rows.map((p) => [p.vaga_1, p.vaga_2].sort().join("|"))
     )
     expect(chaves.size).toBe(6)
 
@@ -247,16 +267,14 @@ describe("iniciarTorneio", () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: true },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await iniciarTorneio(TORNEIO)
     expect(r).toEqual({ ok: true })
     const rows = insertSpy.mock.calls[0][0]
     expect(rows).toHaveLength(12)
     // Cada confronto aparece DUAS vezes, uma por lado.
-    const orientados = new Set(
-      rows.map((p) => `${p.participante_1}|${p.participante_2}`)
-    )
+    const orientados = new Set(rows.map((p) => `${p.vaga_1}|${p.vaga_2}`))
     expect(orientados.size).toBe(12)
     expect(Math.max(...rows.map((p) => p.rodada))).toBe(6)
   })
@@ -270,8 +288,8 @@ describe("iniciarTorneio", () => {
     const r = await iniciarTorneio(TORNEIO)
     expect(r).toEqual({ ok: true })
     expect(insertSpy).not.toHaveBeenCalled()
-    // Nem consulta participants (não há o que gerar).
-    expect(fromSpy).not.toHaveBeenCalledWith("participants")
+    // Nem consulta as vagas (não há o que gerar).
+    expect(fromSpy).not.toHaveBeenCalledWith("tournament_slots")
     expect(updateSpy).toHaveBeenCalledWith({ status: "ativo" })
     // A detecção olha partidas com rodada preenchida.
     expect(geradasSpy).toHaveBeenCalledWith("rodada", "is", null)
@@ -282,7 +300,7 @@ describe("iniciarTorneio", () => {
     const { updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false },
-      confirmados: [A, B],
+      vagas: [A, B],
       insertError: true,
     })
     const r = await iniciarTorneio(TORNEIO)
@@ -296,7 +314,7 @@ describe("iniciarTorneio", () => {
     montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false },
-      confirmados: [A, B],
+      vagas: [A, B],
       updateError: true,
     })
     const r = await iniciarTorneio(TORNEIO)
@@ -308,7 +326,7 @@ describe("iniciarTorneio", () => {
     montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false },
-      confirmados: [A, B],
+      vagas: [A, B],
       updateData: [],
     })
     const r = await iniciarTorneio(TORNEIO)
@@ -329,11 +347,11 @@ describe("iniciarTorneio", () => {
     expect(updateSpy).not.toHaveBeenCalled()
   })
 
-  it("erro na query de participants vira mensagem genérica, sem escrever", async () => {
+  it("erro na query das vagas vira mensagem genérica, sem escrever", async () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false },
-      participantesError: true,
+      vagasError: true,
     })
     const r = await iniciarTorneio(TORNEIO)
     expect(r.ok).toBe(false)

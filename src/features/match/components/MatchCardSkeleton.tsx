@@ -22,11 +22,14 @@ export function MatchCardSkeleton() {
           <div className="flex flex-col items-center gap-2">
             <Skeleton className="size-9 rounded-full" />
             <Skeleton className="h-11 w-10 sm:h-12" />
+            {/* Linha do técnico ("téc. …") no competitivo — placeholder neutro. */}
+            <Skeleton className="h-3 w-16" />
           </div>
           <Skeleton className="h-7 w-3" />
           <div className="flex flex-col items-center gap-2">
             <Skeleton className="size-9 rounded-full" />
             <Skeleton className="h-11 w-10 sm:h-12" />
+            <Skeleton className="h-3 w-16" />
           </div>
         </CardContent>
         <CardFooter>

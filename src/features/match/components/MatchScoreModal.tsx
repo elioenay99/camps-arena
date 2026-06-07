@@ -22,16 +22,30 @@ import type { TeamResult } from "@/schema/teamSchema"
 import { linkWhatsApp } from "@/lib/whatsapp"
 
 export interface ParticipantePartida {
+  /**
+   * Nome exibido como LADO. Avulso: a pessoa. Competitivo: o CLUBE (o técnico
+   * vai em `detalhe`).
+   */
   nome: string
+  /**
+   * Linha secundária sob o nome — no competitivo carrega o técnico
+   * ("téc. Fulano" / "vaga aberta"). Avulso não usa.
+   */
+  detalhe?: string | null
   avatarUrl?: string | null
-  /** Celular em qualquer formato; normalizado para o link wa.me. */
+  /** Celular do destinatário da convocação; normalizado para o link wa.me. */
   celular?: string | null
   /**
    * Mensagem de convocação pré-preenchida do atalho wa.me deste lado
-   * (montada no servidor — sauda ESTE participante). Sem ela, chat vazio.
+   * (montada no servidor — sauda quem recebe a chamada). Sem ela, chat vazio.
    */
   mensagemWhatsApp?: string
-  /** Clube que o participante representa (escudo + nome). */
+  /**
+   * Nome do DESTINATÁRIO da convocação (rótulo "Chamar …"). No competitivo é o
+   * técnico (não o clube de `nome`); ausente → usa `nome` (avulso).
+   */
+  nomeConvocacao?: string | null
+  /** Clube que o lado representa (escudo + nome). */
   clube?: { nome: string; escudoUrl?: string | null } | null
 }
 
@@ -179,6 +193,8 @@ function ColunaParticipante({
 }) {
   const wa = linkWhatsApp(participante.celular, participante.mensagemWhatsApp)
   const clube = participante.clube
+  // No competitivo, "Chamar …" sauda o TÉCNICO (não o clube de `nome`).
+  const nomeConvocacao = participante.nomeConvocacao?.trim() || participante.nome
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -187,6 +203,11 @@ function ColunaParticipante({
         <span className="text-center text-sm font-medium">
           {participante.nome}
         </span>
+        {participante.detalhe ? (
+          <span className="text-center text-xs text-muted-foreground">
+            {participante.detalhe}
+          </span>
+        ) : null}
       </div>
 
       <div className="flex w-full flex-col items-center gap-2">
@@ -218,7 +239,7 @@ function ColunaParticipante({
         >
           <a href={wa} target="_blank" rel="noopener noreferrer">
             <MessageCircle aria-hidden="true" />
-            Chamar {primeiroNome(participante.nome)}
+            Chamar {primeiroNome(nomeConvocacao)}
             <span className="sr-only"> (abre o WhatsApp em nova aba)</span>
           </a>
         </Button>

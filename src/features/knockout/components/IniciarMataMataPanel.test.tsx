@@ -45,10 +45,10 @@ describe("IniciarMataMataPanel — prévia e gates de quantidade", () => {
 
   it("prévia anuncia os byes (N=3: 1 avanço direto na 1ª fase)", () => {
     renderPanel(3)
-    expect(screen.getByText(/1 participante avança direto/)).toBeInTheDocument()
+    expect(screen.getByText(/1 clube avança direto/)).toBeInTheDocument()
   })
 
-  it("menos de 2 participantes orienta a convidar e esconde o form", () => {
+  it("menos de 2 clubes orienta e esconde o form", () => {
     renderPanel(1)
     expect(screen.getByRole("status")).toHaveTextContent(/pelo menos 2/)
     expect(screen.queryByRole("button", { name: /iniciar/i })).toBeNull()
@@ -98,7 +98,7 @@ describe("IniciarMataMataPanel — contrato de names com a action", () => {
   it("potes fica desabilitado fora de 4/8/16/32 (N=6) e habilitado com 8", () => {
     renderPanel(6)
     expect(screen.getByLabelText(/Sorteio com potes/)).toBeDisabled()
-    expect(screen.getByText(/Exige 4, 8, 16, 32 participantes/)).toBeInTheDocument()
+    expect(screen.getByText(/Exige 4, 8, 16, 32 clubes/)).toBeInTheDocument()
     cleanup()
     renderPanel(8)
     expect(screen.getByLabelText(/Sorteio com potes/)).toBeEnabled()

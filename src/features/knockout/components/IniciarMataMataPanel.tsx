@@ -84,21 +84,21 @@ export function IniciarMataMataPanel({
           Iniciar torneio
         </h2>
         <p className="text-muted-foreground text-sm">
-          {`Mata-mata em rascunho • ${qtd} ${qtd === 1 ? "participante confirmado" : "participantes confirmados"}${idaEVolta ? " • ida e volta" : ""}${terceiroLugar ? " • com 3º lugar" : ""}`}
+          {`Mata-mata em rascunho • ${qtd} ${qtd === 1 ? "clube" : "clubes"}${idaEVolta ? " • ida e volta" : ""}${terceiroLugar ? " • com 3º lugar" : ""}`}
         </p>
       </div>
 
       {suficientes && dentroDoLimite ? (
         <p className="text-sm">
-          {`Ao iniciar, a chave é gerada: ${previa.jogos} ${previa.jogos === 1 ? "jogo" : "jogos"} em ${previa.fases} ${previa.fases === 1 ? "fase" : "fases"}${byes > 0 ? ` (${byes} ${byes === 1 ? "participante avança direto na 1ª fase" : "participantes avançam direto na 1ª fase"})` : ""}. Depois disso ninguém mais entra no torneio.`}
+          {`Ao iniciar, a chave é gerada: ${previa.jogos} ${previa.jogos === 1 ? "jogo" : "jogos"} em ${previa.fases} ${previa.fases === 1 ? "fase" : "fases"}${byes > 0 ? ` (${byes} ${byes === 1 ? "clube avança direto na 1ª fase" : "clubes avançam direto na 1ª fase"})` : ""}. A lista de clubes fica fixa; técnicos podem assumir as vagas a qualquer momento.`}
         </p>
       ) : suficientes ? (
         <p className="text-destructive text-sm" role="alert">
-          {`O mata-mata aceita no máximo ${MATA_MATA_MAX_PARTICIPANTES} participantes. Remova participantes para iniciar.`}
+          {`O mata-mata aceita no máximo ${MATA_MATA_MAX_PARTICIPANTES} clubes. Crie o torneio novamente com menos clubes.`}
         </p>
       ) : (
         <p className="text-muted-foreground text-sm" role="status">
-          O mata-mata precisa de pelo menos 2 participantes confirmados.
+          O mata-mata precisa de pelo menos 2 clubes.
           Compartilhe o link de convite abaixo para chamar os jogadores.
         </p>
       )}
@@ -144,7 +144,7 @@ export function IniciarMataMataPanel({
                 <span className="text-muted-foreground text-xs font-normal">
                   {potesValido
                     ? "Marque as cabeças de chave: cada confronto cruza uma cabeça com um não-cabeça."
-                    : `Exige ${TAMANHOS_POTES.join(", ")} participantes (chave completa).`}
+                    : `Exige ${TAMANHOS_POTES.join(", ")} clubes (chave completa).`}
                 </span>
               </Label>
             </div>

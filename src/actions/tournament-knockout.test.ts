@@ -27,8 +27,8 @@ const D = "dddddddd-0000-4000-8000-000000000000"
 
 interface PartidaInserida {
   tournament_id: string
-  participante_1: string
-  participante_2: string | null
+  vaga_1: string
+  vaga_2: string | null
   rodada: number
   posicao: number
   perna: number | null
@@ -39,8 +39,8 @@ interface PartidaPersistida {
   rodada: number | null
   posicao: number | null
   perna: number | null
-  participante_1: string | null
-  participante_2: string | null
+  vaga_1: string | null
+  vaga_2: string | null
   placar_1: number
   placar_2: number
   status: string
@@ -57,9 +57,9 @@ interface Cenario {
   /** Partidas com rodada já existentes (detecção de chave gerada). */
   jaGeradas?: boolean
   geradasError?: boolean
-  /** user_ids confirmados devolvidos por participants. */
-  confirmados?: string[]
-  participantesError?: boolean
+  /** Slot ids (vagas) devolvidos por tournament_slots (iniciarMataMata). */
+  vagas?: string[]
+  vagasError?: boolean
   insertError?: boolean
   /** Código do erro de insert (23505 = corrida; default 42501 = rls). */
   insertCode?: string
@@ -72,15 +72,16 @@ interface Cenario {
 }
 
 /**
- * Cliente falso espelhando as interações das duas actions:
+ * Cliente falso espelhando as interações das duas actions (clube-cêntrico):
  *  - tournaments select: eq(id).eq(created_by).eq(formato).eq(status) —
  *    spies provam propriedade/formato/estado por FILTRO.
  *  - matches select com .not('rodada','is',null).limit(1) → detecção de retry
  *    (iniciarMataMata); o mesmo from('matches').select(...).not(...) sem limit
- *    devolve a chave persistida no avancarFase. Distinguimos pela presença de
- *    `partidas` no cenário (avancarFase) vs `jaGeradas` (iniciarMataMata).
- *  - participants select: eq(tournament_id) — elenco confirmado.
- *  - matches insert: payload em lote (a chave / a fase nova).
+ *    devolve a chave persistida no avancarFase (lados por VAGA). Distinguimos
+ *    pela presença de `partidas` no cenário (avancarFase) vs `jaGeradas`.
+ *  - tournament_slots select: eq(tournament_id) → as VAGAS (iniciarMataMata).
+ *    avancarFase não consulta vagas (a policy de INSERT valida pertencimento).
+ *  - matches insert: payload em lote (a chave / a fase nova, lados por VAGA).
  *  - tournaments update: promoção a 'ativo' com filtros + select de confirmação.
  */
 function montarClient(c: Cenario) {
@@ -136,31 +137,12 @@ function montarClient(c: Cenario) {
       }),
   }
 
-  // participants é consultada de DOIS jeitos: iniciarMataMata dá await após
-  // .eq(...) (elenco completo); avancarFase encadeia .eq(...).in(...) (pré-
-  // checagem dos semeados). Cadeia thenable cobre os dois.
-  const respostaParticipantes = () => ({
-    data: c.participantesError
-      ? null
-      : (c.confirmados ?? []).map((id) => ({ user_id: id })),
-    error: c.participantesError ? { message: "down" } : null,
-  })
-  const cadeiaParticipantes = {
-    eq: vi.fn(() => cadeiaParticipantes),
-    in: vi.fn(async (_col: string, ids: string[]) => {
-      const r = respostaParticipantes()
-      return {
-        ...r,
-        // .in filtra de verdade: só os semeados que constam no elenco.
-        data: r.data?.filter((linha) => ids.includes(linha.user_id)) ?? null,
-      }
-    }),
-    then: (
-      resolve: (v: {
-        data: { user_id: string }[] | null
-        error: { message: string } | null
-      }) => unknown
-    ) => resolve(respostaParticipantes()),
+  // tournament_slots (iniciarMataMata): await após .eq(...) → as vagas.
+  const cadeiaVagas = {
+    eq: vi.fn(async () => ({
+      data: c.vagasError ? null : (c.vagas ?? []).map((id) => ({ id })),
+      error: c.vagasError ? { message: "down" } : null,
+    })),
   }
 
   const cadeiaUpdate = {
@@ -186,8 +168,8 @@ function montarClient(c: Cenario) {
     from: vi.fn((tabela: string) => {
       if (tabela === "tournaments")
         return { select: vi.fn(() => cadeiaTorneioSelect), update: updateSpy }
-      if (tabela === "participants")
-        return { select: vi.fn(() => cadeiaParticipantes) }
+      if (tabela === "tournament_slots")
+        return { select: vi.fn(() => cadeiaVagas) }
       return { select: matchesSelectSpy, insert: insertSpy }
     }),
   }
@@ -223,14 +205,14 @@ function formInicio(campos: {
   return fd
 }
 
-/** Linha encerrada com lado 1 vencendo (ou bye/volta 0x0). */
+/** Linha encerrada com lado 1 vencendo (ou bye/volta 0x0). Lados por VAGA. */
 function jogada(p: Partial<PartidaPersistida>): PartidaPersistida {
   return {
     rodada: 1,
     posicao: 1,
     perna: null,
-    participante_1: A,
-    participante_2: B,
+    vaga_1: A,
+    vaga_2: B,
     placar_1: 1,
     placar_2: 0,
     status: "encerrada",
@@ -308,8 +290,8 @@ describe("iniciarMataMata", () => {
     )
     expect(r).toEqual({})
     expect(insertSpy).not.toHaveBeenCalled()
-    // Não consulta participants (não há o que gerar).
-    expect(fromSpy).not.toHaveBeenCalledWith("participants")
+    // Não consulta as vagas (não há o que gerar).
+    expect(fromSpy).not.toHaveBeenCalledWith("tournament_slots")
     expect(updateSpy).toHaveBeenCalledWith({ status: "ativo" })
     // A detecção olha partidas com rodada preenchida.
     expect(geradasSpy).toHaveBeenCalledWith("rodada", "is", null)
@@ -330,11 +312,11 @@ describe("iniciarMataMata", () => {
     expect(updateSpy).not.toHaveBeenCalled()
   })
 
-  it("erro na query de participants vira mensagem genérica, sem escrever", async () => {
+  it("erro na query das vagas vira mensagem genérica, sem escrever", async () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      participantesError: true,
+      vagasError: true,
     })
     const r = await iniciarMataMata(
       {},
@@ -345,17 +327,17 @@ describe("iniciarMataMata", () => {
     expect(updateSpy).not.toHaveBeenCalled()
   })
 
-  it("menos de 2 participantes rejeita com orientação, sem escrever", async () => {
+  it("menos de 2 clubes rejeita com orientação, sem escrever", async () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A],
+      vagas: [A],
     })
     const r = await iniciarMataMata(
       {},
       formInicio({ tournamentId: TORNEIO, modo: "sorteio" })
     )
-    expect(r.error).toMatch(/pelo menos 2/i)
+    expect(r.error).toMatch(/pelo menos 2 clubes/i)
     expect(insertSpy).not.toHaveBeenCalled()
     expect(updateSpy).not.toHaveBeenCalled()
   })
@@ -368,7 +350,7 @@ describe("iniciarMataMata", () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: muitos,
+      vagas: muitos,
     })
     const r = await iniciarMataMata(
       {},
@@ -384,7 +366,7 @@ describe("iniciarMataMata", () => {
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
       // Desordenados: a action ordena por code-point antes do motor.
-      confirmados: [C, A, B],
+      vagas: [C, A, B],
     })
     const r = await iniciarMataMata(
       {},
@@ -399,8 +381,8 @@ describe("iniciarMataMata", () => {
     // Bye: lado 1 = A, lado 2 nulo, nasce encerrada (memória durável do slot).
     expect(rows[0]).toEqual({
       tournament_id: TORNEIO,
-      participante_1: A,
-      participante_2: null,
+      vaga_1: A,
+      vaga_2: null,
       rodada: 1,
       posicao: 1,
       perna: null,
@@ -409,8 +391,8 @@ describe("iniciarMataMata", () => {
     // Confronto real: B x C, sem status (fica com o default 'agendada').
     expect(rows[1]).toEqual({
       tournament_id: TORNEIO,
-      participante_1: B,
-      participante_2: C,
+      vaga_1: B,
+      vaga_2: C,
       rodada: 1,
       posicao: 2,
       perna: null,
@@ -433,7 +415,7 @@ describe("iniciarMataMata", () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await iniciarMataMata(
       {},
@@ -445,19 +427,19 @@ describe("iniciarMataMata", () => {
     const cabecasSet = new Set([A, B])
     for (const p of rows) {
       // Exatamente um lado é cabeça (estreia nunca cruza duas cabeças).
-      const c1 = cabecasSet.has(p.participante_1)
-      const c2 = p.participante_2 !== null && cabecasSet.has(p.participante_2)
+      const c1 = cabecasSet.has(p.vaga_1)
+      const c2 = p.vaga_2 !== null && cabecasSet.has(p.vaga_2)
       expect(c1).not.toBe(c2)
     }
     // Sorteado por potes determinístico: A×C (pos1), B×D (pos2).
     expect(rows[0]).toMatchObject({
-      participante_1: A,
-      participante_2: C,
+      vaga_1: A,
+      vaga_2: C,
       posicao: 1,
     })
     expect(rows[1]).toMatchObject({
-      participante_1: B,
-      participante_2: D,
+      vaga_1: B,
+      vaga_2: D,
       posicao: 2,
     })
   })
@@ -466,7 +448,7 @@ describe("iniciarMataMata", () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await iniciarMataMata(
       {},
@@ -482,7 +464,7 @@ describe("iniciarMataMata", () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D, E, F],
+      vagas: [A, B, C, D, E, F],
     })
     const r = await iniciarMataMata(
       {},
@@ -501,7 +483,7 @@ describe("iniciarMataMata", () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await iniciarMataMata(
       {},
@@ -519,7 +501,7 @@ describe("iniciarMataMata", () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await iniciarMataMata(
       {},
@@ -537,7 +519,7 @@ describe("iniciarMataMata", () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await iniciarMataMata(
       {},
@@ -554,13 +536,13 @@ describe("iniciarMataMata", () => {
     const rows = insertSpy.mock.calls[0][0]
     expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({
-      participante_1: A,
-      participante_2: D,
+      vaga_1: A,
+      vaga_2: D,
       posicao: 1,
     })
     expect(rows[1]).toMatchObject({
-      participante_1: B,
-      participante_2: C,
+      vaga_1: B,
+      vaga_2: C,
       posicao: 2,
     })
     expect(updateSpy).toHaveBeenCalledWith({ status: "ativo" })
@@ -571,7 +553,7 @@ describe("iniciarMataMata", () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await iniciarMataMata(
       {},
@@ -593,7 +575,7 @@ describe("iniciarMataMata", () => {
     const { updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
       insertError: true,
       insertCode: "23505",
     })
@@ -611,7 +593,7 @@ describe("iniciarMataMata", () => {
     const { updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
       insertError: true,
     })
     const r = await iniciarMataMata(
@@ -627,7 +609,7 @@ describe("iniciarMataMata", () => {
     montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
       updateData: [],
     })
     const r = await iniciarMataMata(
@@ -642,7 +624,7 @@ describe("iniciarMataMata", () => {
     montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
       updateError: true,
     })
     const r = await iniciarMataMata(
@@ -716,7 +698,7 @@ describe("avancarFase", () => {
         formato: "grupos_mata_mata",
       },
       // Só partidas de GRUPO (posicao null): a chave ainda não existe.
-      partidas: [jogada({ posicao: null, participante_1: A, participante_2: B })],
+      partidas: [jogada({ posicao: null, vaga_1: A, vaga_2: B })],
     })
     const r = await avancarFase(TORNEIO)
     expect(r.ok).toBe(false)
@@ -730,11 +712,11 @@ describe("avancarFase", () => {
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
       partidas: [
-        jogada({ posicao: 1, participante_1: A, participante_2: B }),
+        jogada({ posicao: 1, vaga_1: A, vaga_2: B }),
         jogada({
           posicao: 2,
-          participante_1: C,
-          participante_2: D,
+          vaga_1: C,
+          vaga_2: D,
           status: "em_andamento",
         }),
       ],
@@ -750,10 +732,10 @@ describe("avancarFase", () => {
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
       partidas: [
-        jogada({ posicao: 1, participante_1: A, participante_2: B }), // A vence
-        jogada({ posicao: 2, participante_1: C, participante_2: D }), // C vence
+        jogada({ posicao: 1, vaga_1: A, vaga_2: B }), // A vence
+        jogada({ posicao: 2, vaga_1: C, vaga_2: D }), // C vence
       ],
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await avancarFase(TORNEIO)
     expect(r).toEqual({ ok: true })
@@ -764,8 +746,8 @@ describe("avancarFase", () => {
       rodada: 2,
       posicao: 1,
       perna: null,
-      participante_1: A,
-      participante_2: C,
+      vaga_1: A,
+      vaga_2: C,
     })
     // avancarFase NÃO promove status (já está ativo).
     expect(updateSpy).not.toHaveBeenCalled()
@@ -779,10 +761,10 @@ describe("avancarFase", () => {
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: true },
       partidas: [
-        jogada({ posicao: 1, participante_1: A, participante_2: B }), // A vence, B perde
-        jogada({ posicao: 2, participante_1: C, participante_2: D }), // C vence, D perde
+        jogada({ posicao: 1, vaga_1: A, vaga_2: B }), // A vence, B perde
+        jogada({ posicao: 2, vaga_1: C, vaga_2: D }), // C vence, D perde
       ],
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await avancarFase(TORNEIO)
     expect(r).toEqual({ ok: true })
@@ -790,13 +772,13 @@ describe("avancarFase", () => {
     expect(rows).toHaveLength(2)
     const final = rows.find((p) => p.posicao === 1)
     const terceiro = rows.find((p) => p.posicao === 2)
-    expect(final).toMatchObject({ participante_1: A, participante_2: C })
+    expect(final).toMatchObject({ vaga_1: A, vaga_2: C })
     // 3º lugar reúne os perdedores das semis (jogo único).
     expect(terceiro).toMatchObject({
       rodada: 2,
       perna: null,
-      participante_1: B,
-      participante_2: D,
+      vaga_1: B,
+      vaga_2: D,
     })
   })
 
@@ -806,7 +788,7 @@ describe("avancarFase", () => {
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
       partidas: [
-        jogada({ rodada: 1, posicao: 1, participante_1: A, participante_2: B }),
+        jogada({ rodada: 1, posicao: 1, vaga_1: A, vaga_2: B }),
       ],
     })
     const r = await avancarFase(TORNEIO)
@@ -821,10 +803,10 @@ describe("avancarFase", () => {
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
       partidas: [
-        jogada({ posicao: 1, participante_1: A, participante_2: B }),
-        jogada({ posicao: 2, participante_1: C, participante_2: D }),
+        jogada({ posicao: 1, vaga_1: A, vaga_2: B }),
+        jogada({ posicao: 2, vaga_1: C, vaga_2: D }),
       ],
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
       insertError: true,
       insertCode: "23505",
     })
@@ -841,10 +823,10 @@ describe("avancarFase", () => {
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
       partidas: [
-        jogada({ posicao: 1, participante_1: A, participante_2: B }),
-        jogada({ posicao: 2, participante_1: C, participante_2: D }),
+        jogada({ posicao: 1, vaga_1: A, vaga_2: B }),
+        jogada({ posicao: 2, vaga_1: C, vaga_2: D }),
       ],
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
       insertError: true,
     })
     const r = await avancarFase(TORNEIO)
@@ -865,49 +847,20 @@ describe("avancarFase", () => {
     expect(insertSpy).not.toHaveBeenCalled()
   })
 
-  it("semeado que sumiu de participants vira mensagem acionável, sem escrever", async () => {
-    // A RLS de INSERT exigiria cada vencedor em participants — sem a
-    // pré-checagem o dono receberia erro genérico permanente (mascarado).
-    const { insertSpy } = montarClient({
-      user: { id: DONO },
-      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      partidas: [
-        jogada({ posicao: 1, participante_1: A, participante_2: B }),
-        jogada({ posicao: 2, participante_1: C, participante_2: D }),
-      ],
-      confirmados: [A, B, D], // C (vencedor do slot 2) saiu por via administrativa
-    })
-    const r = await avancarFase(TORNEIO)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/não está mais no torneio/i)
-    expect(insertSpy).not.toHaveBeenCalled()
-  })
-
-  it("erro na pré-checagem de participants vira mensagem genérica, sem escrever", async () => {
-    const { insertSpy } = montarClient({
-      user: { id: DONO },
-      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
-      partidas: [
-        jogada({ posicao: 1, participante_1: A, participante_2: B }),
-        jogada({ posicao: 2, participante_1: C, participante_2: D }),
-      ],
-      participantesError: true,
-    })
-    const r = await avancarFase(TORNEIO)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/não foi possível/i)
-    expect(insertSpy).not.toHaveBeenCalled()
-  })
+  // Modelo clube-cêntrico: NÃO há mais pré-checagem de "semeados em
+  // participants" no avancarFase. As vagas são imutáveis pós-rascunho e a
+  // policy de INSERT valida que cada vaga pertence ao torneio — os testes de
+  // "semeado que sumiu" e "erro na pré-checagem" foram removidos.
 
   it("caminho feliz revalida as três rotas", async () => {
     montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
       partidas: [
-        jogada({ posicao: 1, participante_1: A, participante_2: B }),
-        jogada({ posicao: 2, participante_1: C, participante_2: D }),
+        jogada({ posicao: 1, vaga_1: A, vaga_2: B }),
+        jogada({ posicao: 2, vaga_1: C, vaga_2: D }),
       ],
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await avancarFase(TORNEIO)
     expect(r).toEqual({ ok: true })

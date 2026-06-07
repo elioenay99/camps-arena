@@ -25,8 +25,13 @@ import { IniciarTorneioPanel } from "@/features/tournament/components/IniciarTor
 import { InviteSection } from "@/features/tournament/components/InviteSection";
 import { ParticipantsSection } from "@/features/tournament/components/ParticipantsSection";
 import { TournamentLifecycleButtons } from "@/features/tournament/components/TournamentLifecycleButtons";
+import { VagasSection } from "@/features/tournament/components/VagasSection";
 import { getConviteDoTorneio } from "@/features/tournament/data/getConviteDoTorneio";
 import { getParticipantesDoTorneio } from "@/features/tournament/data/getParticipantesDoTorneio";
+import {
+  getCodigosDasVagas,
+  getVagasDoTorneio,
+} from "@/features/tournament/data/getVagasDoTorneio";
 import type { TournamentStatus } from "@/lib/supabase/database.types";
 
 // Título por torneio (padrão do app: toda rota tem título específico). O
@@ -165,13 +170,24 @@ export default async function TorneioPage({
       : ` • vitória ${torneio.pontos_vitoria} · empate ${torneio.pontos_empate} · derrota ${torneio.pontos_derrota}`
   }`;
 
-  // Lista de participantes (visível a quem vê o torneio) e, SÓ para o dono de
-  // torneio aberto, o código de convite (a RLS de tournament_invites já
-  // restringe — o gate aqui evita uma query inútil para os demais).
-  const [participantes, codigoConvite] = await Promise.all([
-    getParticipantesDoTorneio(id),
-    podeGerirPartidas ? getConviteDoTorneio(id) : Promise.resolve(null),
+  // Modelo clube-cêntrico: AVULSO lista participantes + convite genérico;
+  // COMPETITIVO lista VAGAS (clubes) + códigos POR VAGA. Os códigos são
+  // segredo do dono — o gate evita a query inútil (a RLS de slot_invites /
+  // tournament_invites é a defesa real); torneio encerrado não exibe convite
+  // (beco sem saída).
+  const [participantes, codigoConvite, vagas, codigosVagas] = await Promise.all([
+    ehGerado ? Promise.resolve([]) : getParticipantesDoTorneio(id),
+    !ehGerado && podeGerirPartidas ? getConviteDoTorneio(id) : Promise.resolve(null),
+    ehGerado ? getVagasDoTorneio(id) : Promise.resolve([]),
+    ehGerado && podeGerirPartidas
+      ? getCodigosDasVagas(id)
+      : Promise.resolve(undefined),
   ]);
+
+  // Painéis de início dos formatos gerados: os LADOS são as vagas (slot ids
+  // opacos; clube como rótulo) — as actions validam cabeças/atribuições
+  // contra esses mesmos ids.
+  const lados = vagas.map((vaga) => ({ id: vaga.id, nome: vaga.clube }));
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
@@ -194,7 +210,7 @@ export default async function TorneioPage({
       {mostrarIniciar && ehLiga ? (
         <IniciarTorneioPanel
           tournamentId={id}
-          qtdParticipantes={participantes.length}
+          qtdParticipantes={lados.length}
           idaEVolta={torneio.ida_e_volta}
         />
       ) : null}
@@ -202,7 +218,7 @@ export default async function TorneioPage({
       {mostrarIniciar && ehMataMata ? (
         <IniciarMataMataPanel
           tournamentId={id}
-          participantes={participantes}
+          participantes={lados}
           idaEVolta={torneio.ida_e_volta}
           terceiroLugar={torneio.terceiro_lugar}
         />
@@ -211,7 +227,7 @@ export default async function TorneioPage({
       {mostrarIniciar && ehGrupos ? (
         <IniciarGruposPanel
           tournamentId={id}
-          participantes={participantes}
+          participantes={lados}
           idaEVolta={torneio.ida_e_volta}
           terceiroLugar={torneio.terceiro_lugar}
           faseLiga={ehFaseLiga}
@@ -364,23 +380,37 @@ export default async function TorneioPage({
         </section>
       ) : null}
 
-      <ParticipantsSection
-        tournamentId={id}
-        participantes={participantes}
-        userId={user.id}
-        ehDono={ehDono}
-        torneioEncerrado={torneio.status === "encerrado"}
-        listaCongelada={
-          (ehMataMata || ehGrupos) &&
-          (torneio.status === "ativo" || chave.length > 0 || grupos.length > 0)
-        }
-      />
+      {/* Lados do torneio: VAGAS (clubes) no competitivo — convite POR VAGA,
+          técnico substituível (o congelamento de lista do mata-mata MORREU:
+          a disputa é entre clubes; trocar técnico não toca a chave) —;
+          participantes no avulso (fluxo original intocado). */}
+      {ehGerado ? (
+        <VagasSection
+          vagas={vagas}
+          userId={user.id}
+          ehDono={ehDono}
+          tournamentId={id}
+          torneioEncerrado={torneio.status === "encerrado"}
+          codigos={codigosVagas}
+        />
+      ) : (
+        <>
+          <ParticipantsSection
+            tournamentId={id}
+            participantes={participantes}
+            userId={user.id}
+            ehDono={ehDono}
+            torneioEncerrado={torneio.status === "encerrado"}
+          />
 
-      {/* Convite: só o dono de torneio aberto gerencia (encerrado não aceita
-          entrada — exibir o link seria um beco sem saída). */}
-      {podeGerirPartidas ? (
-        <InviteSection tournamentId={id} code={codigoConvite} />
-      ) : null}
+          {/* Convite genérico (EXCLUSIVO do avulso): só o dono de torneio
+              aberto gerencia (encerrado não aceita entrada — exibir o link
+              seria um beco sem saída). */}
+          {podeGerirPartidas ? (
+            <InviteSection tournamentId={id} code={codigoConvite} />
+          ) : null}
+        </>
+      )}
 
       {/* Lifecycle do TORNEIO (dono): Encerrar fica FORA do gate
           podeGerirPartidas de propósito — em torneio encerrado, Reabrir é o

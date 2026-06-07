@@ -22,6 +22,35 @@ export type UpdateMatchScoreResult =
       fieldErrors?: Record<string, string[] | undefined>
     }
 
+/** Embed to-one da vaga (técnico atual) como o PostgREST devolve: objeto ou null. */
+type VagaTecnico = { user_id: string | null } | null
+
+/** Forma mínima da partida para a checagem de propriedade (avulso + vagas). */
+type MatchProprietario = {
+  participante_1: string | null
+  participante_2: string | null
+  vaga_1?: VagaTecnico
+  vaga_2?: VagaTecnico
+}
+
+/**
+ * Confere se `userId` JOGA a partida: lado avulso (participante_1/2) OU técnico
+ * de uma das vagas competitivas (slot.user_id). Vaga órfã (user_id null) não
+ * concede acesso — o dono age pelo caminho de dono. Os dois modelos são
+ * mutuamente exclusivos no banco (CHECK), então testar ambos é seguro.
+ */
+function ehJogadorDaPartida(
+  match: MatchProprietario,
+  userId: string
+): boolean {
+  return (
+    match.participante_1 === userId ||
+    match.participante_2 === userId ||
+    match.vaga_1?.user_id === userId ||
+    match.vaga_2?.user_id === userId
+  )
+}
+
 /**
  * Atualiza o placar de uma partida.
  *
@@ -30,8 +59,10 @@ export type UpdateMatchScoreResult =
  *   1. Valida a entrada com Zod.
  *   2. Confere a identidade via `auth.getUser()` (valida o JWT no servidor de
  *      auth; não confia apenas no cookie como `getSession`).
- *   3. Verifica a PROPRIEDADE: o usuário precisa ser participante_1 ou
- *      participante_2 da partida — caso contrário, rejeita.
+ *   3. Verifica a PROPRIEDADE: avulso → participante_1/2; competitivo →
+ *      técnico de uma das vagas (slot.user_id === user.id). Vaga órfã (sem
+ *      técnico) não dá acesso por aqui — o dono encerra/reabre pelo caminho
+ *      de dono.
  *   4. O UPDATE só toca colunas de placar; a RLS (`matches_update_participant`)
  *      é a segunda barreira e o `select()` confirma que uma linha foi afetada.
  */
@@ -59,10 +90,15 @@ export async function updateMatchScore(
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
-  // 2) Propriedade — carrega a partida e confere se o usuário participa dela.
+  // 2) Propriedade — carrega a partida (lados avulso + lados por vaga, com o
+  //    técnico atual de cada vaga) e confere se o usuário joga dela.
   const { data: match, error: fetchError } = await supabase
     .from("matches")
-    .select("id, participante_1, participante_2, status, tournament_id")
+    .select(
+      `id, participante_1, participante_2, status, tournament_id,
+       vaga_1:tournament_slots!matches_vaga_1_fkey ( user_id ),
+       vaga_2:tournament_slots!matches_vaga_2_fkey ( user_id )`
+    )
     .eq("id", matchId)
     .maybeSingle()
 
@@ -73,9 +109,10 @@ export async function updateMatchScore(
     return { ok: false, error: "Partida não encontrada." }
   }
 
-  const ehParticipante =
-    user.id === match.participante_1 || user.id === match.participante_2
-  if (!ehParticipante) {
+  // Cast da fronteira: os FK-hints de vaga ainda não constam nos Relationships
+  // de database.types (a fundação os adiciona), então o PostgREST não infere o
+  // embed. O tipo explícito é a fonte de verdade aqui.
+  if (!ehJogadorDaPartida(match as unknown as MatchProprietario, user.id)) {
     return { ok: false, error: "Você não participa desta partida." }
   }
 
@@ -269,7 +306,11 @@ export async function updateMatchTeams(
 
   const { data: match, error: fetchError } = await supabase
     .from("matches")
-    .select("id, participante_1, participante_2, time_1, time_2, status, tournament_id")
+    .select(
+      `id, participante_1, participante_2, time_1, time_2, status, tournament_id,
+       vaga_1:tournament_slots!matches_vaga_1_fkey ( user_id ),
+       vaga_2:tournament_slots!matches_vaga_2_fkey ( user_id )`
+    )
     .eq("id", matchId)
     .maybeSingle()
   if (fetchError) {
@@ -279,9 +320,10 @@ export async function updateMatchTeams(
     return { ok: false, error: "Partida não encontrada." }
   }
 
-  const ehParticipante =
-    user.id === match.participante_1 || user.id === match.participante_2
-  if (!ehParticipante) {
+  // Cast da fronteira: os FK-hints de vaga ainda não constam nos Relationships
+  // de database.types (a fundação os adiciona), então o PostgREST não infere o
+  // embed. O tipo explícito é a fonte de verdade aqui.
+  if (!ehJogadorDaPartida(match as unknown as MatchProprietario, user.id)) {
     return { ok: false, error: "Você não participa desta partida." }
   }
 

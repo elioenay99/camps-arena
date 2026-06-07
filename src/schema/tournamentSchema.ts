@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { LIGA_MAX_PARTICIPANTES } from "@/features/league/gerarTabelaLiga"
+
 /** Defaults de pontuação (convenção do futebol) — compartilhados com o form. */
 export const PONTUACAO_PADRAO = { vitoria: 3, empate: 1, derrota: 0 } as const
 
@@ -17,6 +19,10 @@ const pontos = z
   .min(0, "A pontuação não pode ser negativa.")
   .max(PONTOS_MAX, "Pontuação fora do intervalo permitido.")
 
+/** Tetos de clubes na criação competitiva — espelham os limites dos motores. */
+export const TORNEIO_MIN_CLUBES = 2
+export const TORNEIO_MAX_CLUBES = 32
+
 /**
  * Criação de torneio: título, visibilidade, regras de pontuação e formato.
  * O refine espelha a CHECK `tournaments_pontuacao_coerente` do banco — derrota
@@ -24,6 +30,12 @@ const pontos = z
  * classificação. `formato` espelha o enum `tournament_format`; `idaEVolta`
  * vale em liga e mata-mata; `terceiroLugar` só em mata-mata (a action
  * normaliza para false nos formatos em que a opção não se aplica).
+ *
+ * `clubes` (modelo clube-cêntrico, 2026-06-07): nos formatos COMPETITIVOS a
+ * disputa é entre VAGAS de clube — a criação recebe a lista de team ids (do
+ * cache `teams`), cada um vira uma vaga vazia com convite próprio. Sem
+ * duplicatas; o refine só exige a lista quando o formato é competitivo
+ * (avulso continua pessoa-cêntrico, sem clubes).
  */
 export const createTournamentSchema = z
   .object({
@@ -43,6 +55,13 @@ export const createTournamentSchema = z
     pontosVitoria: pontos.default(PONTUACAO_PADRAO.vitoria),
     pontosEmpate: pontos.default(PONTUACAO_PADRAO.empate),
     pontosDerrota: pontos.default(PONTUACAO_PADRAO.derrota),
+    clubes: z
+      .array(z.uuid({ error: "Clube inválido." }))
+      .max(TORNEIO_MAX_CLUBES, `Selecione no máximo ${TORNEIO_MAX_CLUBES} clubes.`)
+      .default([])
+      .refine((ids) => new Set(ids).size === ids.length, {
+        error: "Há clubes repetidos na seleção.",
+      }),
   })
   .refine((d) => d.pontosDerrota <= d.pontosEmpate, {
     error: "A derrota não pode valer mais pontos que o empate.",
@@ -52,6 +71,23 @@ export const createTournamentSchema = z
     error: "O empate não pode valer mais pontos que a vitória.",
     path: ["pontosEmpate"],
   })
+  // Formato competitivo exige no mínimo 2 clubes (a disputa é entre vagas);
+  // avulso ignora `clubes` por completo.
+  .refine((d) => d.formato === "avulso" || d.clubes.length >= TORNEIO_MIN_CLUBES, {
+    error: `Selecione ao menos ${TORNEIO_MIN_CLUBES} clubes para o torneio.`,
+    path: ["clubes"],
+  })
+  // Teto POR FORMATO na criação: vagas não são removíveis pós-criação (a
+  // geometria é fixa) — uma liga com mais clubes que o motor aceita nasceria
+  // TRAVADA (iniciarTorneio rejeita e não há como reduzir). Os demais formatos
+  // usam o teto geral (32, espelho do mata-mata).
+  .refine(
+    (d) => d.formato !== "liga" || d.clubes.length <= LIGA_MAX_PARTICIPANTES,
+    {
+      error: `A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} clubes.`,
+      path: ["clubes"],
+    }
+  )
 
 export type CreateTournamentInput = z.infer<typeof createTournamentSchema>
 

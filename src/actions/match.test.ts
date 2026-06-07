@@ -26,6 +26,9 @@ interface Cenario {
     participante_1: string | null
     participante_2: string | null
     status?: string
+    // Lados por VAGA (competitivo): embed to-one do técnico atual.
+    vaga_1?: { user_id: string | null } | null
+    vaga_2?: { user_id: string | null } | null
   } | null
   readError?: { message: string } | null
   writeData?: { id: string }[] | null
@@ -199,6 +202,75 @@ describe("updateMatchScore", () => {
     expect(client.writeEqSpy).toHaveBeenCalledWith("id", UUID)
     expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
+  })
+
+  it("competitivo: o TÉCNICO da vaga_1 salva o placar (propriedade por vaga)", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: {
+        id: UUID,
+        participante_1: null,
+        participante_2: null,
+        vaga_1: { user_id: USER_ID },
+        vaga_2: { user_id: OUTRO_ID },
+      },
+      writeData: [{ id: UUID }],
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(true)
+    expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
+  })
+
+  it("competitivo: o TÉCNICO da vaga_2 também salva (simetria por vaga)", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: {
+        id: UUID,
+        participante_1: null,
+        participante_2: null,
+        vaga_1: { user_id: OUTRO_ID },
+        vaga_2: { user_id: USER_ID },
+      },
+      writeData: [{ id: UUID }],
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(true)
+    expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
+  })
+
+  it("competitivo: vaga ÓRFÃ (técnico null) não dá acesso e não escreve", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: {
+        id: UUID,
+        participante_1: null,
+        participante_2: null,
+        // A MINHA vaga está vazia; só o dono age sobre ela (caminho de dono).
+        vaga_1: { user_id: null },
+        vaga_2: { user_id: OUTRO_ID },
+      },
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toBe("Você não participa desta partida.")
+    expect(client.updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("competitivo: técnico de OUTRO clube (nenhuma vaga minha) é rejeitado", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: {
+        id: UUID,
+        participante_1: null,
+        participante_2: null,
+        vaga_1: { user_id: OUTRO_ID },
+        vaga_2: { user_id: null },
+      },
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toBe("Você não participa desta partida.")
+    expect(client.updateSpy).not.toHaveBeenCalled()
   })
 
   it("rejeita quando o UPDATE falha", async () => {

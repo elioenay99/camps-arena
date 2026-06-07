@@ -1,13 +1,25 @@
 "use client"
 
-import { useActionState, useState } from "react"
+import { X } from "lucide-react"
+import { useState, useTransition } from "react"
+import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
+import { toast } from "sonner"
 
+import { selectTeam } from "@/actions/teams"
 import { createTournament, type TournamentFormState } from "@/actions/tournaments"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { PONTOS_MAX, PONTUACAO_PADRAO } from "@/schema/tournamentSchema"
+import { TeamCrest } from "@/features/team/components/TeamCrest"
+import { TeamSearchInput } from "@/features/team/components/TeamSearchInput"
+import type { TeamResult } from "@/schema/teamSchema"
+import {
+  PONTOS_MAX,
+  PONTUACAO_PADRAO,
+  TORNEIO_MAX_CLUBES,
+  TORNEIO_MIN_CLUBES,
+} from "@/schema/tournamentSchema"
 
 const initialState: TournamentFormState = {}
 
@@ -51,6 +63,129 @@ function SubmitButton() {
   )
 }
 
+/** Clube já adicionado: o `id` é o `teams.id` LOCAL (de `selectTeam`) — é ele
+ * que vai no hidden `clubes` (o `externalId` da API não serve à FK do slot). */
+interface ClubeSelecionado {
+  id: string
+  nome: string
+  escudoUrl: string | null
+  externalId: string
+}
+
+/**
+ * Passo de CLUBES dos formatos competitivos (modelo clube-cêntrico): a busca
+ * (TeamSearchInput) devolve um clube da API; `selectTeam` o cacheia em `teams`
+ * e retorna o id LOCAL, que vira hidden `name="clubes"` (a action espera
+ * `formData.getAll("clubes")` com `teams.id`). Sem duplicata; mínimo 2 (a
+ * validação real é a action + RLS; o gate aqui é UX). Avulso não renderiza
+ * este passo.
+ */
+function ClubesStep({
+  clubes,
+  setClubes,
+  erro,
+}: {
+  clubes: ClubeSelecionado[]
+  setClubes: React.Dispatch<React.SetStateAction<ClubeSelecionado[]>>
+  erro?: string
+}) {
+  const [adicionando, startTransition] = useTransition()
+
+  function adicionar(team: TeamResult) {
+    if (clubes.some((c) => c.externalId === team.externalId)) {
+      toast.error("Este clube já está na lista.")
+      return
+    }
+    if (clubes.length >= TORNEIO_MAX_CLUBES) {
+      toast.error(`Selecione no máximo ${TORNEIO_MAX_CLUBES} clubes.`)
+      return
+    }
+    startTransition(async () => {
+      const r = await selectTeam({
+        externalId: team.externalId,
+        nome: team.nome,
+        escudoUrl: team.escudoUrl,
+      })
+      if (!r.ok) {
+        toast.error(r.error)
+        return
+      }
+      // Corrida entre duas adições do mesmo clube (mesmo teams.id): dedup por id.
+      setClubes((atual) =>
+        atual.some((c) => c.id === r.teamId)
+          ? atual
+          : [
+              ...atual,
+              {
+                id: r.teamId,
+                nome: team.nome,
+                escudoUrl: team.escudoUrl,
+                externalId: team.externalId,
+              },
+            ]
+      )
+    })
+  }
+
+  function remover(id: string) {
+    setClubes((atual) => atual.filter((c) => c.id !== id))
+  }
+
+  return (
+    <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
+      <legend className="pb-2 text-sm font-medium">
+        {`Clubes (mínimo ${TORNEIO_MIN_CLUBES})`}
+      </legend>
+      <p className="text-muted-foreground -mt-1 pb-1 text-xs">
+        Cada clube é uma vaga: você gera um convite por clube e quem aceita vira
+        o técnico (substituível depois).
+      </p>
+
+      <TeamSearchInput
+        label="Buscar clube"
+        placeholder={adicionando ? "Adicionando…" : "Buscar clube…"}
+        onSelect={adicionar}
+      />
+
+      {/* Hidden inputs com o teams.id LOCAL — o que a action consome. */}
+      {clubes.map((c) => (
+        <input key={`hidden-${c.id}`} type="hidden" name="clubes" value={c.id} />
+      ))}
+
+      {clubes.length > 0 ? (
+        <ul className="grid list-none gap-2 p-0">
+          {clubes.map((c) => (
+            <li
+              key={c.id}
+              className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <TeamCrest nome={c.nome} escudoUrl={c.escudoUrl} size={22} />
+                <span className="truncate text-sm">{c.nome}</span>
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => remover(c.id)}
+                aria-label={`Remover ${c.nome}`}
+              >
+                <X aria-hidden="true" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-4 text-center text-sm">
+          Nenhum clube adicionado ainda.
+        </p>
+      )}
+
+      {erro ? <p className="text-destructive text-sm">{erro}</p> : null}
+    </fieldset>
+  )
+}
+
 export function TournamentForm() {
   const [state, formAction] = useActionState(createTournament, initialState)
   // Estado local SÓ para progressive disclosure (ida-e-volta em liga e
@@ -59,6 +194,11 @@ export function TournamentForm() {
   const [formato, setFormato] = useState<
     "avulso" | "liga" | "mata_mata" | "grupos_mata_mata" | "fase_liga"
   >("avulso")
+  // Clubes (vagas) dos formatos competitivos — submetidos como hidden
+  // `clubes` pelo ClubesStep; preservados ao alternar o formato (trocar de
+  // liga para mata-mata não descarta a seleção; avulso não os SUBMETE porque
+  // o passo — e os hidden — não renderizam).
+  const [clubes, setClubes] = useState<ClubeSelecionado[]>([])
   const temChave =
     formato === "mata_mata" || formato === "grupos_mata_mata" || formato === "fase_liga"
 
@@ -207,6 +347,15 @@ export function TournamentForm() {
           <p className="text-destructive text-sm">{state.fieldErrors.formato[0]}</p>
         ) : null}
       </fieldset>
+
+      {/* Passo de CLUBES (vagas) — só nos formatos competitivos. */}
+      {formato !== "avulso" ? (
+        <ClubesStep
+          clubes={clubes}
+          setClubes={setClubes}
+          erro={state.fieldErrors?.clubes?.[0]}
+        />
+      ) : null}
 
       {/* border-0/p-0/m-0/min-w-0: o preflight do Tailwind v4 NÃO reseta
           fieldset/legend — sem isso herda borda groove e padding do UA. */}

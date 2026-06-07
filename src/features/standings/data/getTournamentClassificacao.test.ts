@@ -113,6 +113,47 @@ function partidaEncerrada(
   }
 }
 
+interface VagaFixture {
+  id: string
+  team: { nome: string | null; escudo_url: string | null } | null
+  tecnico: { id: string; nome: string | null; celular: string | null } | null
+}
+
+/** Vaga (lado COMPETITIVO): clube + técnico opcional (modelo clube-cêntrico). */
+function vagaFixture(
+  id: string,
+  clube: string | null,
+  tecnico: VagaFixture["tecnico"] = null
+): VagaFixture {
+  return {
+    id,
+    team: clube === null ? null : { nome: clube, escudo_url: `https://media.api-sports.io/football/teams/${id}.png` },
+    tecnico,
+  }
+}
+
+/**
+ * Converte a partida para o modelo COMPETITIVO: lados por VAGA (vaga_1/2 +
+ * v1/v2), participante_* nulos (CHECK matches_lado_vaga_ou_user no banco).
+ */
+function comVagas(
+  partida: ReturnType<typeof partidaEncerrada>,
+  v1: VagaFixture | null,
+  v2: VagaFixture | null
+) {
+  return {
+    ...partida,
+    participante_1: null,
+    participante_2: null,
+    p1: null,
+    p2: null,
+    vaga_1: v1?.id ?? null,
+    vaga_2: v2?.id ?? null,
+    v1,
+    v2,
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   // Ids determinísticos por teste: asserções de id não acoplam à ordem dos it.
@@ -214,6 +255,16 @@ describe("getTournamentClassificacao", () => {
     expect(cols).toContain("time_2")
     expect(cols).toContain("t1:teams!matches_time_1_fkey(id,nome)")
     expect(cols).toContain("t2:teams!matches_time_2_fkey(id,nome)")
+    // Lados competitivos (modelo clube-cêntrico): colunas cruas vaga_* (insumo
+    // do motor) + embed da VAGA com clube e técnico, FK-hints explícitos.
+    expect(cols).toMatch(/(^|,)vaga_1(,|$)/)
+    expect(cols).toMatch(/(^|,)vaga_2(,|$)/)
+    expect(cols).toContain(
+      "v1:tournament_slots!matches_vaga_1_fkey(id,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome,celular))"
+    )
+    expect(cols).toContain(
+      "v2:tournament_slots!matches_vaga_2_fkey(id,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome,celular))"
+    )
     // celular entrou DELIBERADAMENTE (add-match-engagement): insumo do atalho
     // de convocação, consumido só pela projeção de partidas abertas — a
     // contenção de PII é validada no teste de convocação abaixo.
@@ -438,18 +489,19 @@ describe("getTournamentClassificacao", () => {
   })
 
   it("chave projeta partidas com rodada+posicao ordenadas por rodada/posicao/perna com nomes resolvidos", async () => {
-    const ana = { id: "u1", nome: "Ana" }
-    const beto = { id: "u2", nome: "Beto" }
-    const caio = { id: "u3", nome: "Caio" }
-    const duda = { id: "u4", nome: "Duda" }
+    // Competitivo: o lado é a VAGA e o nome resolvido é o CLUBE dela.
+    const ana = vagaFixture("s1", "Ana FC")
+    const beto = vagaFixture("s2", "Beto FC")
+    const caio = vagaFixture("s3", "Caio FC")
+    const duda = vagaFixture("s4", "Duda FC")
     montarClient({
       torneio: { ...TORNEIO, formato: "mata_mata", ida_e_volta: true },
       partidas: [
         // Embaralhadas na entrada para provar a ordenação rodada→posicao→perna.
-        { ...partidaEncerrada(caio, duda, 1, 0), rodada: 1, posicao: 2, perna: 1 }, // m1
-        { ...partidaEncerrada(ana, beto, 2, 1), rodada: 2, posicao: 1, perna: 1 }, // m2 (final)
-        { ...partidaEncerrada(ana, beto, 3, 0), rodada: 1, posicao: 1, perna: 1 }, // m3
-        { ...partidaEncerrada(beto, ana, 0, 2), rodada: 1, posicao: 1, perna: 2 }, // m4
+        { ...comVagas(partidaEncerrada(null, null, 1, 0), caio, duda), rodada: 1, posicao: 2, perna: 1 }, // m1
+        { ...comVagas(partidaEncerrada(null, null, 2, 1), ana, beto), rodada: 2, posicao: 1, perna: 1 }, // m2 (final)
+        { ...comVagas(partidaEncerrada(null, null, 3, 0), ana, beto), rodada: 1, posicao: 1, perna: 1 }, // m3
+        { ...comVagas(partidaEncerrada(null, null, 0, 2), beto, ana), rodada: 1, posicao: 1, perna: 2 }, // m4
       ],
     })
     const r = await getTournamentClassificacao(TORNEIO.id)
@@ -458,8 +510,11 @@ describe("getTournamentClassificacao", () => {
       rodada: 1,
       posicao: 1,
       perna: 1,
-      nome_1: "Ana",
-      nome_2: "Beto",
+      // O id do lado da chave é o SLOT (pareamento de vencedor no bracket).
+      participante_1: "s1",
+      participante_2: "s2",
+      nome_1: "Ana FC",
+      nome_2: "Beto FC",
       placar_1: 3,
       placar_2: 0,
       status: "encerrada",
@@ -481,19 +536,21 @@ describe("getTournamentClassificacao", () => {
   })
 
   it("bye de chave (um lado nulo + posicao) fica DENTRO da chave mas FORA das encerradas/abertas", async () => {
-    const ana = { id: "u1", nome: "Ana" }
+    // Bye competitivo: vaga_2 NULA (o lado vazio é avaliado pelo id cru do
+    // formato — a vaga, não o participante).
+    const ana = vagaFixture("s1", "Ana FC")
     montarClient({
       torneio: { ...TORNEIO, formato: "mata_mata" },
       partidas: [
         // Bye encerrado: avanço direto, não um jogo — ruído no histórico.
-        { ...partidaEncerrada(ana, null, 0, 0), rodada: 1, posicao: 1, perna: null }, // m1
+        { ...comVagas(partidaEncerrada(null, null, 0, 0), ana, null), rodada: 1, posicao: 1, perna: null }, // m1
       ],
     })
     const r = await getTournamentClassificacao(TORNEIO.id)
     expect(r?.partidasEncerradas).toEqual([])
     expect(r?.partidasAbertas).toEqual([])
     expect(r?.chave.map((p) => p.id)).toEqual(["m1"])
-    expect(r?.chave[0]).toMatchObject({ nome_1: "Ana", nome_2: "A definir" })
+    expect(r?.chave[0]).toMatchObject({ nome_1: "Ana FC", nome_2: "A definir" })
   })
 
   it("partidasAbertas de mata-mata ordenam por rodada→posicao→perna", async () => {
@@ -557,16 +614,18 @@ describe("getTournamentClassificacao", () => {
   })
 
   it("classifica POR GRUPO via subconjunto: grupos distintos não se misturam e saem ordenados pelo número", async () => {
-    const ana = { id: "u1", nome: "Ana" }
-    const beto = { id: "u2", nome: "Beto" }
-    const caio = { id: "u3", nome: "Caio" }
-    const duda = { id: "u4", nome: "Duda" }
+    // Competitivo: o motor por grupo roda sobre os SLOT ids (vagas) e o nome
+    // da linha é o clube da vaga.
+    const ana = vagaFixture("s1", "Ana FC")
+    const beto = vagaFixture("s2", "Beto FC")
+    const caio = vagaFixture("s3", "Caio FC")
+    const duda = vagaFixture("s4", "Duda FC")
     montarClient({
       torneio: { ...TORNEIO, formato: "grupos_mata_mata", classificados_por_grupo: 1 },
       partidas: [
         // Entram fora de ordem (grupo 2 antes do 1) para provar a ordenação.
-        { ...partidaEncerrada(caio, duda, 3, 0), grupo: 2, rodada: 1 },
-        { ...partidaEncerrada(ana, beto, 2, 1), grupo: 1, rodada: 1 },
+        { ...comVagas(partidaEncerrada(null, null, 3, 0), caio, duda), grupo: 2, rodada: 1 },
+        { ...comVagas(partidaEncerrada(null, null, 2, 1), ana, beto), grupo: 1, rodada: 1 },
       ],
     })
     const r = await getTournamentClassificacao(TORNEIO.id)
@@ -574,11 +633,11 @@ describe("getTournamentClassificacao", () => {
     expect(r?.grupos.map((g) => g.grupo)).toEqual([1, 2])
     // Subconjunto: o grupo 1 só conhece Ana/Beto; o 2 só Caio/Duda — sem
     // contaminação cruzada entre grupos distintos.
-    expect(r?.grupos[0].linhas.map((l) => l.nome)).toEqual(["Ana", "Beto"])
-    expect(r?.grupos[1].linhas.map((l) => l.nome)).toEqual(["Caio", "Duda"])
+    expect(r?.grupos[0].linhas.map((l) => l.nome)).toEqual(["Ana FC", "Beto FC"])
+    expect(r?.grupos[1].linhas.map((l) => l.nome)).toEqual(["Caio FC", "Duda FC"])
     // E o vencedor de cada grupo fica em 1º (motor rodou só o subconjunto).
-    expect(r?.grupos[0].linhas[0]).toMatchObject({ nome: "Ana", posicao: 1 })
-    expect(r?.grupos[1].linhas[0]).toMatchObject({ nome: "Caio", posicao: 1 })
+    expect(r?.grupos[0].linhas[0]).toMatchObject({ nome: "Ana FC", posicao: 1 })
+    expect(r?.grupos[1].linhas[0]).toMatchObject({ nome: "Caio FC", posicao: 1 })
   })
 
   it("torneio sem partidas de grupo (ex.: mata-mata) projeta grupos vazios", async () => {
@@ -593,6 +652,83 @@ describe("getTournamentClassificacao", () => {
     })
     const r = await getTournamentClassificacao(TORNEIO.id)
     expect(r?.grupos).toEqual([])
+  })
+})
+
+describe("display competitivo — clube como lado, técnico como detalhe", () => {
+  const TEC_ANA = { id: "u1", nome: "Ana", celular: "11912345678" }
+
+  it("linhas classificam VAGAS (nome do clube + escudo) e `clubes` fica vazia", async () => {
+    const v1 = vagaFixture("s1", "Grêmio", TEC_ANA)
+    const v2 = vagaFixture("s2", "Inter")
+    montarClient({
+      torneio: { ...TORNEIO, formato: "liga", pontos_vitoria: 2 },
+      partidas: [{ ...comVagas(partidaEncerrada(null, null, 1, 0), v1, v2), rodada: 1 }],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.linhas).toEqual([
+      expect.objectContaining({
+        participanteId: "s1",
+        nome: "Grêmio",
+        escudoUrl: "https://media.api-sports.io/football/teams/s1.png",
+        posicao: 1,
+        pontos: 2,
+      }),
+      expect.objectContaining({ participanteId: "s2", nome: "Inter", pontos: 0 }),
+    ])
+    // No competitivo o lado JÁ É o clube — a projeção `clubes` (recurso do
+    // avulso) fica vazia para a página não exibir a seção redundante.
+    expect(r?.clubes).toEqual([])
+  })
+
+  it("encerradas/abertas competitivas carregam clube, escudo e técnico; contato é o TÉCNICO", async () => {
+    const v1 = vagaFixture("s1", "Grêmio", TEC_ANA)
+    const v2 = vagaFixture("s2", "Inter") // vaga ÓRFÃ (sem técnico)
+    const fechada = { ...comVagas(partidaEncerrada(null, null, 2, 1), v1, v2), rodada: 1 }
+    const aberta = {
+      ...comVagas(partidaEncerrada(null, null, 0, 0), v1, v2),
+      status: "agendada",
+      rodada: 2,
+    }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "liga" },
+      partidas: [fechada, aberta],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.partidasEncerradas[0]).toMatchObject({
+      nome_1: "Grêmio",
+      nome_2: "Inter",
+      escudo_1: "https://media.api-sports.io/football/teams/s1.png",
+      tecnico_1: { id: "u1", nome: "Ana" },
+      tecnico_2: null,
+    })
+    // Convocação competitiva: o contato é o técnico da vaga; vaga órfã não
+    // tem quem chamar (null).
+    expect(r?.partidasAbertas[0]).toMatchObject({
+      nome_1: "Grêmio",
+      participante_1: { id: "u1", celular: "11912345678" },
+      participante_2: null,
+      tecnico_1: { id: "u1", nome: "Ana" },
+    })
+    // O técnico do histórico NÃO carrega celular (PII contida às abertas).
+    expect(r?.partidasEncerradas[0].tecnico_1).not.toHaveProperty("celular")
+  })
+
+  it("vaga vazia (lado nulo) em partida de liga aparece como 'A definir'", async () => {
+    const v1 = vagaFixture("s1", "Grêmio")
+    montarClient({
+      torneio: { ...TORNEIO, formato: "liga" },
+      partidas: [
+        { ...comVagas(partidaEncerrada(null, null, 1, 0), v1, null), rodada: 1 },
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.partidasEncerradas[0]).toMatchObject({
+      nome_1: "Grêmio",
+      nome_2: "A definir",
+    })
+    // O motor exige os dois lados: partida com vaga nula não pontua.
+    expect(r?.linhas).toEqual([])
   })
 })
 

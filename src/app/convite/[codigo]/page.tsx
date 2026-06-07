@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AcceptInviteForm } from "@/features/tournament/components/AcceptInviteForm";
+import { AcceptSlotInviteForm } from "@/features/tournament/components/AcceptSlotInviteForm";
+import { TeamCrest } from "@/features/team/components/TeamCrest";
 import { codigoConviteSchema } from "@/schema/participantSchema";
 
 // Título genérico de propósito: o título do torneio só aparece no corpo, para
@@ -44,6 +46,15 @@ export default async function ConvitePage({
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Convite de VAGA (torneio competitivo, modelo clube-cêntrico): só faz
+  // sentido com código válido e sessão; tenta o RPC de vaga PRIMEIRO. Achou →
+  // tela de assumir o CLUBE. Não achou (`null`) → cai no fluxo genérico
+  // (avulso) na MESMA rota pública.
+  const vaga =
+    codigoValido.success && user
+      ? await conteudoDeVaga(supabase, codigoValido.data)
+      : null;
+
   let conteudo: React.ReactNode;
 
   if (!codigoValido.success) {
@@ -64,6 +75,8 @@ export default async function ConvitePage({
         </Button>
       </div>
     );
+  } else if (vaga !== null) {
+    conteudo = vaga;
   } else {
     const { data, error } = await supabase.rpc("info_convite", {
       codigo: codigoValido.data,
@@ -135,5 +148,80 @@ function AvisoInvalido() {
     <p className="text-muted-foreground text-sm" role="status">
       {LABEL_INVALIDO}
     </p>
+  );
+}
+
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Caminho do convite de VAGA (torneio competitivo). Tenta `info_convite_vaga`
+ * (security definer — o torneio pode ser privado e invisível até o aceite):
+ * - sem linha → `null` (não é convite de vaga; o caller cai no fluxo avulso);
+ * - `vaga_ocupada` → o clube já tem técnico (peça outro link);
+ * - `ja_tem_vaga` → você já comanda um clube neste torneio;
+ * - `encerrado` → não aceita novos técnicos;
+ * - caso contrário → tela de assumir o CLUBE (escudo + clube + torneio).
+ */
+async function conteudoDeVaga(
+  supabase: SupabaseClient,
+  codigo: string
+): Promise<React.ReactNode | null> {
+  const { data, error } = await supabase.rpc("info_convite_vaga", { codigo });
+  if (error) {
+    throw new Error(`Falha ao carregar o convite: ${error.message}`);
+  }
+  const info = data?.[0] ?? null;
+  if (!info) {
+    return null;
+  }
+
+  const tituloTorneio = info.titulo.trim() || "Torneio";
+  const clube = info.clube.trim() || "Clube";
+
+  if (info.status === "encerrado") {
+    return (
+      <p className="text-muted-foreground text-sm" role="status">
+        {`O torneio "${tituloTorneio}" está encerrado e não aceita novos técnicos.`}
+      </p>
+    );
+  }
+  if (info.ja_tem_vaga) {
+    return (
+      <div className="grid gap-4">
+        <p className="text-sm" role="status">
+          {`Você já comanda um clube em "${tituloTorneio}".`}
+        </p>
+        <Button asChild>
+          <Link href={`/dashboard/torneios/${info.tournament_id}`}>
+            Abrir o torneio
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+  if (info.vaga_ocupada) {
+    return (
+      <p className="text-muted-foreground text-sm" role="status">
+        {`O clube ${clube} já tem um técnico. Peça outro convite a quem organiza "${tituloTorneio}".`}
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex items-center gap-3">
+        <TeamCrest nome={clube} escudoUrl={info.escudo_url} size={40} />
+        <div className="flex min-w-0 flex-col">
+          <span className="truncate text-sm font-medium">{clube}</span>
+          <span className="text-muted-foreground truncate text-xs">
+            {`em "${tituloTorneio}"`}
+          </span>
+        </div>
+      </div>
+      <p className="text-sm">
+        {`Você foi convidado para comandar ${clube} como técnico.`}
+      </p>
+      <AcceptSlotInviteForm codigo={codigo} />
+    </div>
   );
 }

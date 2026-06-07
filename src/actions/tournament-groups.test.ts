@@ -30,16 +30,16 @@ const D = "dddddddd-0000-4000-8000-000000000000"
 
 interface PartidaInseridaGrupo {
   tournament_id: string
-  participante_1: string
-  participante_2: string
+  vaga_1: string
+  vaga_2: string
   grupo: number
   rodada: number
 }
 
 interface PartidaInseridaChave {
   tournament_id: string
-  participante_1: string
-  participante_2: string | null
+  vaga_1: string
+  vaga_2: string | null
   rodada: number
   posicao: number
   perna: number | null
@@ -50,8 +50,8 @@ interface PartidaPersistida {
   grupo: number | null
   rodada: number | null
   posicao: number | null
-  participante_1: string | null
-  participante_2: string | null
+  vaga_1: string | null
+  vaga_2: string | null
   placar_1: number
   placar_2: number
   status: string
@@ -78,9 +78,9 @@ interface Cenario {
   /** iniciarTorneioGrupos: partidas com rodada já existem (idempotência). */
   jaGeradas?: boolean
   geradasError?: boolean
-  /** iniciarTorneioGrupos: user_ids confirmados (elenco completo). */
-  confirmados?: string[]
-  participantesError?: boolean
+  /** iniciarTorneioGrupos: slot ids (vagas) devolvidos por tournament_slots. */
+  vagas?: string[]
+  vagasError?: boolean
   /** gerarMataMataDosGrupos: partidas persistidas (grupos e/ou chave). */
   partidas?: PartidaPersistida[] | null
   partidasError?: boolean
@@ -105,10 +105,10 @@ interface Cenario {
  *    thenable: `await cadeia` resolve as partidas; `.limit(1)` resolve a
  *    detecção (presença de `jaGeradas` no cenário) — distinguimos pela action
  *    exercida no teste.
- *  - participants select: iniciarTorneioGrupos dá await após .eq(...) (elenco
- *    completo); gerarMataMataDosGrupos encadeia .eq(...).in(...) (pré-checagem
- *    dos semeados). Cadeia thenable cobre os dois.
- *  - matches insert: payload em lote (grupos ou chave).
+ *  - tournament_slots select: iniciarTorneioGrupos dá await após .eq(...) —
+ *    as VAGAS (slot ids opacos). gerarMataMataDosGrupos NÃO consulta vagas
+ *    (imutáveis pós-rascunho; existem por construção).
+ *  - matches insert: payload em lote (grupos ou chave), lados por VAGA.
  *  - tournaments update: promoção a 'ativo' + classificados_por_grupo.
  */
 function montarClient(c: Cenario) {
@@ -164,28 +164,11 @@ function montarClient(c: Cenario) {
       }),
   }
 
-  const respostaParticipantes = () => ({
-    data: c.participantesError
-      ? null
-      : (c.confirmados ?? []).map((id) => ({ user_id: id })),
-    error: c.participantesError ? { message: "down" } : null,
-  })
-  const cadeiaParticipantes = {
-    eq: vi.fn(() => cadeiaParticipantes),
-    in: vi.fn(async (_col: string, ids: string[]) => {
-      const r = respostaParticipantes()
-      return {
-        ...r,
-        // .in filtra de verdade: só os semeados que constam no elenco.
-        data: r.data?.filter((linha) => ids.includes(linha.user_id)) ?? null,
-      }
-    }),
-    then: (
-      resolve: (v: {
-        data: { user_id: string }[] | null
-        error: { message: string } | null
-      }) => unknown
-    ) => resolve(respostaParticipantes()),
+  const cadeiaVagas = {
+    eq: vi.fn(async () => ({
+      data: c.vagasError ? null : (c.vagas ?? []).map((id) => ({ id })),
+      error: c.vagasError ? { message: "down" } : null,
+    })),
   }
 
   let chamadaUpdate = 0
@@ -219,8 +202,8 @@ function montarClient(c: Cenario) {
     from: vi.fn((tabela: string) => {
       if (tabela === "tournaments")
         return { select: vi.fn(() => cadeiaTorneioSelect), update: updateSpy }
-      if (tabela === "participants")
-        return { select: vi.fn(() => cadeiaParticipantes) }
+      if (tabela === "tournament_slots")
+        return { select: vi.fn(() => cadeiaVagas) }
       return { select: matchesSelectSpy, insert: insertSpy }
     }),
   }
@@ -244,7 +227,7 @@ function formGrupos(campos: {
   qtdGrupos?: number
   classificadosPorGrupo?: number
   cabecas?: string[]
-  /** Modo manual: par [participanteId, nº do grupo]. */
+  /** Modo manual: par [slot id (vaga), nº do grupo]. */
   atribuicao?: [string, number][]
 }): FormData {
   const fd = new FormData()
@@ -261,14 +244,14 @@ function formGrupos(campos: {
   return fd
 }
 
-/** Linha de partida de GRUPO encerrada (placar configurável). */
+/** Linha de partida de GRUPO encerrada (placar configurável), lados por VAGA. */
 function jogoGrupo(p: Partial<PartidaPersistida>): PartidaPersistida {
   return {
     grupo: 1,
     rodada: 1,
     posicao: null,
-    participante_1: A,
-    participante_2: B,
+    vaga_1: A,
+    vaga_2: B,
     placar_1: 1,
     placar_2: 0,
     status: "encerrada",
@@ -439,17 +422,17 @@ describe("iniciarTorneioGrupos", () => {
     expect(r.error).toMatch(/já foi iniciado/i)
     expect(insertSpy).not.toHaveBeenCalled()
     expect(updateSpy).not.toHaveBeenCalled()
-    // Não consulta participants (não há o que gerar).
-    expect(fromSpy).not.toHaveBeenCalledWith("participants")
+    // Não consulta as vagas (não há o que gerar).
+    expect(fromSpy).not.toHaveBeenCalledWith("tournament_slots")
     // A detecção olha partidas com rodada preenchida.
     expect(geradasSpy).toHaveBeenCalledWith("rodada", "is", null)
   })
 
-  it("erro na query de participants vira mensagem genérica, sem escrever", async () => {
+  it("erro na query de vagas vira mensagem genérica, sem escrever", async () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      participantesError: true,
+      vagasError: true,
     })
     const r = await iniciarTorneioGrupos(
       {},
@@ -465,11 +448,11 @@ describe("iniciarTorneioGrupos", () => {
     expect(updateSpy).not.toHaveBeenCalled()
   })
 
-  it("menos de 2 participantes rejeita com orientação, sem escrever", async () => {
+  it("menos de 2 clubes rejeita com orientação, sem escrever", async () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A],
+      vagas: [A],
     })
     const r = await iniciarTorneioGrupos(
       {},
@@ -480,7 +463,7 @@ describe("iniciarTorneioGrupos", () => {
         classificadosPorGrupo: 1,
       })
     )
-    expect(r.error).toMatch(/pelo menos 2/i)
+    expect(r.error).toMatch(/pelo menos 2 clubes/i)
     expect(insertSpy).not.toHaveBeenCalled()
     expect(updateSpy).not.toHaveBeenCalled()
   })
@@ -489,7 +472,7 @@ describe("iniciarTorneioGrupos", () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     // 2 grupos × 3 classificados = 6 → fora da chave completa (motor lança).
     const r = await iniciarTorneioGrupos(
@@ -511,7 +494,7 @@ describe("iniciarTorneioGrupos", () => {
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
       // Desordenados: a action ordena por code-point antes do motor.
-      confirmados: [C, A, D, B],
+      vagas: [C, A, D, B],
     })
     const r = await iniciarTorneioGrupos(
       {},
@@ -530,15 +513,15 @@ describe("iniciarTorneioGrupos", () => {
     expect(rows).toHaveLength(2)
     expect(rows[0]).toEqual({
       tournament_id: TORNEIO,
-      participante_1: A,
-      participante_2: C,
+      vaga_1: A,
+      vaga_2: C,
       grupo: 1,
       rodada: 1,
     })
     expect(rows[1]).toEqual({
       tournament_id: TORNEIO,
-      participante_1: B,
-      participante_2: D,
+      vaga_1: B,
+      vaga_2: D,
       grupo: 2,
       rodada: 1,
     })
@@ -563,7 +546,7 @@ describe("iniciarTorneioGrupos", () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     // G=2 exige 2 cabeças; só uma marcada.
     const r = await iniciarTorneioGrupos(
@@ -586,7 +569,7 @@ describe("iniciarTorneioGrupos", () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await iniciarTorneioGrupos(
       {},
@@ -607,7 +590,7 @@ describe("iniciarTorneioGrupos", () => {
     const { insertSpy, updatePayloadSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     // grupo 1 = {A,B}; grupo 2 = {C,D} (partição equilibrada).
     const r = await iniciarTorneioGrupos(
@@ -629,14 +612,14 @@ describe("iniciarTorneioGrupos", () => {
     const rows = insertSpy.mock.calls[0][0] as PartidaInseridaGrupo[]
     expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({
-      participante_1: A,
-      participante_2: B,
+      vaga_1: A,
+      vaga_2: B,
       grupo: 1,
       rodada: 1,
     })
     expect(rows[1]).toMatchObject({
-      participante_1: C,
-      participante_2: D,
+      vaga_1: C,
+      vaga_2: D,
       grupo: 2,
       rodada: 1,
     })
@@ -650,7 +633,7 @@ describe("iniciarTorneioGrupos", () => {
     const { insertSpy, updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     // G=2 mas D foi atribuído ao grupo 3.
     const r = await iniciarTorneioGrupos(
@@ -678,7 +661,7 @@ describe("iniciarTorneioGrupos", () => {
     const { updateSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
       insertError: true,
       insertCode: "23505",
     })
@@ -702,7 +685,7 @@ describe("iniciarTorneioGrupos", () => {
     montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
       updateData: [],
     })
     const r = await iniciarTorneioGrupos(
@@ -723,7 +706,7 @@ describe("iniciarTorneioGrupos", () => {
     montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
       updateError: true,
     })
     const r = await iniciarTorneioGrupos(
@@ -746,7 +729,7 @@ describe("iniciarTorneioGrupos — promote-first (corrida e recuperação)", () 
     const { updateSpy, insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     updateSpy.mockImplementation(() => {
       ordem.push("update")
@@ -783,7 +766,7 @@ describe("iniciarTorneioGrupos — promote-first (corrida e recuperação)", () 
         status: "ativo",
         ida_e_volta: false,
       },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await iniciarTorneioGrupos(
       {},
@@ -811,7 +794,7 @@ describe("iniciarTorneioGrupos — promote-first (corrida e recuperação)", () 
         status: "ativo",
         ida_e_volta: false,
       },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
       updateDataPorChamada: [[]],
     })
     const r = await iniciarTorneioGrupos(
@@ -831,7 +814,7 @@ describe("iniciarTorneioGrupos — promote-first (corrida e recuperação)", () 
     const { insertSpy } = montarClient({
       user: { id: DONO },
       torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
-      confirmados: [A, B, C, D],
+      vagas: [A, B, C, D],
     })
     const r = await iniciarTorneioGrupos(
       {},
@@ -910,15 +893,15 @@ describe("gerarMataMataDosGrupos", () => {
       user: { id: DONO },
       torneio: torneioAtivo(),
       partidas: [
-        jogoGrupo({ grupo: 1, participante_1: A, participante_2: C }),
-        jogoGrupo({ grupo: 2, participante_1: B, participante_2: D }),
+        jogoGrupo({ grupo: 1, vaga_1: A, vaga_2: C }),
+        jogoGrupo({ grupo: 2, vaga_1: B, vaga_2: D }),
         // Partida de chave já presente (grupo null, posicao preenchida).
         jogoGrupo({
           grupo: null,
           rodada: 2,
           posicao: 1,
-          participante_1: A,
-          participante_2: B,
+          vaga_1: A,
+          vaga_2: B,
         }),
       ],
     })
@@ -933,11 +916,11 @@ describe("gerarMataMataDosGrupos", () => {
       user: { id: DONO },
       torneio: torneioAtivo(),
       partidas: [
-        jogoGrupo({ grupo: 1, participante_1: A, participante_2: C }),
+        jogoGrupo({ grupo: 1, vaga_1: A, vaga_2: C }),
         jogoGrupo({
           grupo: 2,
-          participante_1: B,
-          participante_2: D,
+          vaga_1: B,
+          vaga_2: D,
           status: "em_andamento",
         }),
       ],
@@ -957,21 +940,20 @@ describe("gerarMataMataDosGrupos", () => {
         jogoGrupo({
           grupo: 1,
           rodada: 1,
-          participante_1: A,
-          participante_2: C,
+          vaga_1: A,
+          vaga_2: C,
           placar_1: 2,
           placar_2: 0,
         }),
         jogoGrupo({
           grupo: 2,
           rodada: 1,
-          participante_1: B,
-          participante_2: D,
+          vaga_1: B,
+          vaga_2: D,
           placar_1: 2,
           placar_2: 0,
         }),
       ],
-      confirmados: [A, B, C, D],
     })
     const r = await gerarMataMataDosGrupos(TORNEIO)
     expect(r).toEqual({ ok: true, sorteioUsado: false })
@@ -982,8 +964,8 @@ describe("gerarMataMataDosGrupos", () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]).toEqual({
       tournament_id: TORNEIO,
-      participante_1: A,
-      participante_2: B,
+      vaga_1: A,
+      vaga_2: B,
       rodada: 2,
       posicao: 1,
       perna: null,
@@ -1003,58 +985,60 @@ describe("gerarMataMataDosGrupos", () => {
         jogoGrupo({
           grupo: 1,
           rodada: 1,
-          participante_1: A,
-          participante_2: C,
+          vaga_1: A,
+          vaga_2: C,
           placar_1: 1,
           placar_2: 1,
         }),
         jogoGrupo({
           grupo: 2,
           rodada: 1,
-          participante_1: B,
-          participante_2: D,
+          vaga_1: B,
+          vaga_2: D,
           placar_1: 1,
           placar_2: 1,
         }),
       ],
-      confirmados: [A, B, C, D],
     })
     const r = await gerarMataMataDosGrupos(TORNEIO)
     expect(r).toEqual({ ok: true, sorteioUsado: true })
     const rows = insertSpy.mock.calls[0][0] as PartidaInseridaChave[]
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ participante_1: A, participante_2: B })
+    expect(rows[0]).toMatchObject({ vaga_1: A, vaga_2: B })
   })
 
-  it("semeado fora de participants vira mensagem acionável, sem INSERT", async () => {
-    const { insertSpy } = montarClient({
+  it("gera SEM pré-checagem de elenco: vagas são imutáveis por construção", async () => {
+    // Modelo clube-cêntrico: a pré-checagem de "semeados em participants"
+    // MORREU — técnico sai/troca sem afetar a vaga, então a geração da chave
+    // não consulta participants nem tournament_slots (a policy de INSERT
+    // valida que cada vaga pertence ao torneio).
+    const { insertSpy, fromSpy } = montarClient({
       user: { id: DONO },
       torneio: torneioAtivo(),
       partidas: [
         jogoGrupo({
           grupo: 1,
           rodada: 1,
-          participante_1: A,
-          participante_2: C,
+          vaga_1: A,
+          vaga_2: C,
           placar_1: 2,
           placar_2: 0,
         }),
         jogoGrupo({
           grupo: 2,
           rodada: 1,
-          participante_1: B,
-          participante_2: D,
+          vaga_1: B,
+          vaga_2: D,
           placar_1: 2,
           placar_2: 0,
         }),
       ],
-      // B (classificado do G2) saiu do torneio por via administrativa.
-      confirmados: [A, C, D],
     })
     const r = await gerarMataMataDosGrupos(TORNEIO)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/não está mais no torneio/i)
-    expect(insertSpy).not.toHaveBeenCalled()
+    expect(r).toEqual({ ok: true, sorteioUsado: false })
+    expect(insertSpy).toHaveBeenCalledTimes(1)
+    expect(fromSpy).not.toHaveBeenCalledWith("participants")
+    expect(fromSpy).not.toHaveBeenCalledWith("tournament_slots")
   })
 
   it("erro no select das partidas vira mensagem genérica, sem escrever", async () => {
@@ -1078,21 +1062,20 @@ describe("gerarMataMataDosGrupos", () => {
         jogoGrupo({
           grupo: 1,
           rodada: 1,
-          participante_1: A,
-          participante_2: C,
+          vaga_1: A,
+          vaga_2: C,
           placar_1: 2,
           placar_2: 0,
         }),
         jogoGrupo({
           grupo: 2,
           rodada: 1,
-          participante_1: B,
-          participante_2: D,
+          vaga_1: B,
+          vaga_2: D,
           placar_1: 2,
           placar_2: 0,
         }),
       ],
-      confirmados: [A, B, C, D],
       insertError: true,
       insertCode: "23505",
     })
@@ -1112,21 +1095,20 @@ describe("gerarMataMataDosGrupos", () => {
         jogoGrupo({
           grupo: 1,
           rodada: 1,
-          participante_1: A,
-          participante_2: C,
+          vaga_1: A,
+          vaga_2: C,
           placar_1: 2,
           placar_2: 0,
         }),
         jogoGrupo({
           grupo: 2,
           rodada: 1,
-          participante_1: B,
-          participante_2: D,
+          vaga_1: B,
+          vaga_2: D,
           placar_1: 2,
           placar_2: 0,
         }),
       ],
-      confirmados: [A, B, C, D],
       insertError: true,
     })
     const r = await gerarMataMataDosGrupos(TORNEIO)

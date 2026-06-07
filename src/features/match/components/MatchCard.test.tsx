@@ -36,8 +36,29 @@ function partida(over: Partial<PartidaAtiva> = {}): PartidaAtiva {
     participante_2: { id: RIVAL, nome: "Rival", avatar: null, celular: "11912345678" },
     time_1: null,
     time_2: null,
+    vaga_1: null,
+    vaga_2: null,
     ...over,
   }
+}
+
+/** Fixture COMPETITIVA: lados são vagas (clube + técnico). */
+function partidaCompetitiva(over: Partial<PartidaAtiva> = {}): PartidaAtiva {
+  return partida({
+    participante_1: null,
+    participante_2: null,
+    vaga_1: {
+      id: "vaga-eu",
+      clube: { nome: "Grêmio", escudo_url: null },
+      tecnico: { id: EU, nome: "Eu", avatar: null, celular: null },
+    },
+    vaga_2: {
+      id: "vaga-rival",
+      clube: { nome: "Internacional", escudo_url: null },
+      tecnico: { id: RIVAL, nome: "Rival", avatar: null, celular: "11912345678" },
+    },
+    ...over,
+  })
 }
 
 describe("MatchCard — atalho de convocação direto no card", () => {
@@ -80,6 +101,89 @@ describe("MatchCard — atalho de convocação direto no card", () => {
         userId={EU}
       />
     )
+    expect(container.querySelector('a[href*="wa.me"]')).toBeNull()
+  })
+})
+
+describe("MatchCard — partida competitiva (clube como lado)", () => {
+  it("exibe o CLUBE no título e o técnico como detalhe", () => {
+    const { container } = render(
+      <MatchCard partida={partidaCompetitiva()} userId={EU} />
+    )
+    // Título = clubes (não pessoas).
+    expect(container.querySelector("h2")).toHaveTextContent(
+      "Grêmio x Internacional"
+    )
+    // Técnico aparece como detalhe sob o placar de cada lado.
+    expect(container).toHaveTextContent("téc. Eu")
+    expect(container).toHaveTextContent("téc. Rival")
+  })
+
+  it("vaga sem técnico mostra 'vaga aberta'", () => {
+    const { container } = render(
+      <MatchCard
+        partida={partidaCompetitiva({
+          vaga_2: {
+            id: "vaga-rival",
+            clube: { nome: "Internacional", escudo_url: null },
+            tecnico: null,
+          },
+        })}
+        userId={EU}
+      />
+    )
+    expect(container).toHaveTextContent("vaga aberta")
+  })
+
+  it("convocação aponta ao técnico da vaga ADVERSÁRIA (celular dele) e sauda ele", () => {
+    const { container } = render(
+      <MatchCard partida={partidaCompetitiva()} userId={EU} />
+    )
+    const link = container.querySelector('a[href^="https://wa.me/5511912345678"]')
+    expect(link).toBeInTheDocument()
+    // Rótulo "Chamar {técnico}" (não o clube).
+    expect(link).toHaveTextContent(/Chamar Rival/)
+    // A saudação é ao técnico adversário.
+    expect(link?.getAttribute("href")).toContain(
+      encodeURIComponent("Fala, Rival!").slice(0, 20)
+    )
+  })
+
+  it("vaga adversária ÓRFÃ (sem técnico/celular) não gera botão de convocação", () => {
+    const { container } = render(
+      <MatchCard
+        partida={partidaCompetitiva({
+          vaga_2: {
+            id: "vaga-rival",
+            clube: { nome: "Internacional", escudo_url: null },
+            tecnico: null,
+          },
+        })}
+        userId={EU}
+      />
+    )
+    expect(container.querySelector('a[href*="wa.me"]')).toBeNull()
+  })
+
+  it("quem não comanda nenhuma vaga não vê convocação nem o celular no HTML", () => {
+    const { container } = render(
+      <MatchCard
+        partida={partidaCompetitiva()}
+        userId="99999999-9999-4999-8999-999999999999"
+      />
+    )
+    expect(container.querySelector('a[href*="wa.me"]')).toBeNull()
+    expect(container.innerHTML).not.toContain("11912345678")
+  })
+
+  it("bye (vaga_2 null) não gera convocação e exibe 'A definir' do outro lado", () => {
+    const { container } = render(
+      <MatchCard
+        partida={partidaCompetitiva({ vaga_2: null, placar_2: 0 })}
+        userId={EU}
+      />
+    )
+    expect(container.querySelector("h2")).toHaveTextContent("Grêmio x A definir")
     expect(container.querySelector('a[href*="wa.me"]')).toBeNull()
   })
 })

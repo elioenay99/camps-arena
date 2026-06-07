@@ -6,13 +6,14 @@ import {
 } from "@/features/tournament/components/ParticipantButtons"
 
 /**
- * Lista de participantes confirmados (RSC). Ações por papel:
+ * Lista de participantes confirmados (RSC) — EXCLUSIVA do formato AVULSO
+ * (modelo clube-cêntrico: competitivos usam VagasSection). Ações por papel:
  * - a PRÓPRIA linha tem "Sair" (qualquer participante, dono incluso);
  * - as demais linhas têm "Remover" quando o usuário é o DONO;
  * - dono fora da lista vê "Participar" (reentrada / torneio legado), só com
  *   torneio não-encerrado (espelha a policy de INSERT).
- * `listaCongelada` (mata-mata ativo) esconde Sair/Remover: a chave em
- * andamento depende de todos os participantes (action + RLS rejeitam).
+ * O congelamento de lista do mata-mata MORREU com o escopo avulso (a chave
+ * competitiva é entre vagas; participants não a sustenta mais).
  * Os botões são UX — a autorização real é action + RLS.
  */
 export function ParticipantsSection({
@@ -21,14 +22,12 @@ export function ParticipantsSection({
   userId,
   ehDono,
   torneioEncerrado,
-  listaCongelada = false,
 }: {
   tournamentId: string
   participantes: ParticipanteDoTorneio[]
   userId: string
   ehDono: boolean
   torneioEncerrado: boolean
-  listaCongelada?: boolean
 }) {
   const souParticipante = participantes.some((p) => p.id === userId)
 
@@ -61,7 +60,7 @@ export function ParticipantsSection({
                   <span className="text-muted-foreground"> (você)</span>
                 ) : null}
               </span>
-              {listaCongelada ? null : p.id === userId ? (
+              {p.id === userId ? (
                 <LeaveTournamentButton tournamentId={tournamentId} />
               ) : ehDono ? (
                 <RemoveParticipantButton

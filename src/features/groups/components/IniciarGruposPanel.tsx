@@ -124,22 +124,22 @@ export function IniciarGruposPanel({
           Iniciar torneio
         </h2>
         <p className="text-muted-foreground text-sm">
-          {`${faseLiga ? "Fase de liga" : "Grupos + mata-mata"} em rascunho • ${qtd} ${qtd === 1 ? "participante confirmado" : "participantes confirmados"}${idaEVolta ? " • ida e volta" : ""}${terceiroLugar ? " • com 3º lugar" : ""}`}
+          {`${faseLiga ? "Fase de liga" : "Grupos + mata-mata"} em rascunho • ${qtd} ${qtd === 1 ? "clube" : "clubes"}${idaEVolta ? " • ida e volta" : ""}${terceiroLugar ? " • com 3º lugar" : ""}`}
         </p>
       </div>
 
       {!suficientes ? (
         <p className="text-muted-foreground text-sm" role="status">
-          O torneio precisa de pelo menos 2 participantes confirmados.
+          O torneio precisa de pelo menos 2 clubes.
           Compartilhe o link de convite abaixo para chamar os jogadores.
         </p>
       ) : !dentroDoLimite ? (
         <p className="text-destructive text-sm" role="alert">
-          {`O torneio aceita no máximo ${MATA_MATA_MAX_PARTICIPANTES} participantes. Remova participantes para iniciar.`}
+          {`O torneio aceita no máximo ${MATA_MATA_MAX_PARTICIPANTES} clubes. Crie o torneio novamente com menos clubes.`}
         </p>
       ) : opcoes.length === 0 ? (
         <p className="text-muted-foreground text-sm" role="status">
-          {`Com ${qtd} participantes não há configuração válida de ${faseLiga ? "classificados" : "grupos e classificados"}. Convide mais jogadores.`}
+          {`Com ${qtd} clubes não há configuração válida de ${faseLiga ? "classificados" : "grupos e classificados"}. Crie o torneio com outra quantidade de clubes.`}
         </p>
       ) : (
         <form action={formAction} className="flex flex-col gap-3" noValidate>
@@ -196,12 +196,12 @@ export function IniciarGruposPanel({
 
           {previa ? (
             <p className="text-sm">
-              {`Ao iniciar: ${previa.jogosGrupos} ${previa.jogosGrupos === 1 ? "jogo" : "jogos"} na ${rotuloFase1.toLowerCase()} (${previa.rodadasGrupos} ${previa.rodadasGrupos === 1 ? "rodada" : "rodadas"}); depois, mata-mata com ${previa.jogosChave} ${previa.jogosChave === 1 ? "jogo" : "jogos"} em ${previa.fasesChave} ${previa.fasesChave === 1 ? "fase" : "fases"}. Depois disso ninguém mais entra no torneio.`}
+              {`Ao iniciar: ${previa.jogosGrupos} ${previa.jogosGrupos === 1 ? "jogo" : "jogos"} na ${rotuloFase1.toLowerCase()} (${previa.rodadasGrupos} ${previa.rodadasGrupos === 1 ? "rodada" : "rodadas"}); depois, mata-mata com ${previa.jogosChave} ${previa.jogosChave === 1 ? "jogo" : "jogos"} em ${previa.fasesChave} ${previa.fasesChave === 1 ? "fase" : "fases"}. A lista de clubes fica fixa; técnicos podem assumir as vagas a qualquer momento.`}
             </p>
           ) : (
             <p className="text-destructive text-sm" role="alert">
               Combinação de grupos e classificados inválida para o número de
-              participantes.
+              clubes.
             </p>
           )}
 
@@ -262,7 +262,7 @@ export function IniciarGruposPanel({
                   <Label htmlFor="modoManual" className="flex-col items-start gap-0.5 font-normal">
                     Montagem manual
                     <span className="text-muted-foreground text-xs font-normal">
-                      Você escolhe o grupo de cada participante (equilíbrio
+                      Você escolhe o grupo de cada clube (equilíbrio
                       máximo de 1 de diferença).
                     </span>
                   </Label>
@@ -296,7 +296,7 @@ export function IniciarGruposPanel({
           {modo === "manual" && !faseLiga ? (
             <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
               <legend className="pb-2 text-sm font-medium">
-                Grupo de cada participante
+                Grupo de cada clube
               </legend>
               {participantes.map((p) => (
                 <div

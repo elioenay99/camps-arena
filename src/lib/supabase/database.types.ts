@@ -125,6 +125,8 @@ export interface Database {
           tournament_id: string
           participante_1: string | null
           participante_2: string | null
+          vaga_1: string | null
+          vaga_2: string | null
           time_1: string | null
           time_2: string | null
           placar_1: number
@@ -142,6 +144,8 @@ export interface Database {
           tournament_id: string
           participante_1?: string | null
           participante_2?: string | null
+          vaga_1?: string | null
+          vaga_2?: string | null
           time_1?: string | null
           time_2?: string | null
           placar_1?: number
@@ -159,6 +163,8 @@ export interface Database {
           tournament_id?: string
           participante_1?: string | null
           participante_2?: string | null
+          vaga_1?: string | null
+          vaga_2?: string | null
           time_1?: string | null
           time_2?: string | null
           placar_1?: number
@@ -202,6 +208,18 @@ export interface Database {
             referencedRelation: "teams"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "matches_vaga_1_fkey"
+            columns: ["vaga_1"]
+            referencedRelation: "tournament_slots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_vaga_2_fkey"
+            columns: ["vaga_2"]
+            referencedRelation: "tournament_slots"
+            referencedColumns: ["id"]
+          },
         ]
       }
       participants: {
@@ -231,6 +249,78 @@ export interface Database {
             foreignKeyName: "participants_user_id_fkey"
             columns: ["user_id"]
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tournament_slots: {
+        Row: {
+          id: string
+          tournament_id: string
+          team_id: string
+          user_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tournament_id: string
+          team_id: string
+          user_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tournament_id?: string
+          team_id?: string
+          user_id?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_slots_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_slots_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_slots_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      slot_invites: {
+        Row: {
+          slot_id: string
+          code: string
+          created_at: string
+        }
+        Insert: {
+          slot_id: string
+          code: string
+          created_at?: string
+        }
+        Update: {
+          slot_id?: string
+          code?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slot_invites_slot_id_fkey"
+            columns: ["slot_id"]
+            isOneToOne: true
+            referencedRelation: "tournament_slots"
             referencedColumns: ["id"]
           },
         ]
@@ -288,6 +378,22 @@ export interface Database {
           status: TournamentStatus
           formato: TournamentFormat
           ja_participa: boolean
+        }[]
+      }
+      aceitar_convite_vaga: {
+        Args: { codigo: string }
+        Returns: string
+      }
+      info_convite_vaga: {
+        Args: { codigo: string }
+        Returns: {
+          tournament_id: string
+          titulo: string
+          status: TournamentStatus
+          clube: string
+          escudo_url: string | null
+          vaga_ocupada: boolean
+          ja_tem_vaga: boolean
         }[]
       }
     }

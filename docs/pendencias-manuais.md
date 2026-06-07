@@ -1419,13 +1419,13 @@ create policy participants_delete_self_or_owner on public.participants
   );
 ```
 
-- [ ] **12.3 — (recomendado) Conferir o caminho feliz**: crie um torneio
+- [x] **12.3 — (recomendado) Conferir o caminho feliz**: crie um torneio
   "Grupos + mata-mata" pela app; entre com outras contas pelo convite (4+);
   inicie com 2 grupos × 2 classificados; encerre os jogos dos grupos; clique
   "Gerar mata-mata" e confira a chave (semifinais com cruzamento A1×B2 /
   B1×A2); avance até o campeão. Repita rápido com "Fase de liga".
 
-- [ ] **12.4 — (recomendado) Conferir as TRAVAS**:
+- [x] **12.4 — (recomendado) Conferir as TRAVAS**:
 
 ```sql
 -- Deve FALHAR (grupo e posicao na mesma partida):
@@ -1453,3 +1453,537 @@ create policy participants_delete_self_or_owner on public.participants
 > `alter table public.tournaments drop column classificados_por_grupo;`
 > Os valores novos do enum NÃO são removíveis (limitação do Postgres) —
 > ficam órfãos e inofensivos.
+
+---
+
+## 13) Modelo clube-cêntrico — vagas de clube, convite por vaga (add-club-tournaments)
+
+Torneios COMPETITIVOS (liga, mata-mata, grupos, fase de liga) passam a ser de
+CLUBES: vagas (`tournament_slots`) com técnico anulável e convite por vaga.
+`participants`/convite genérico ficam EXCLUSIVOS do formato avulso. Partidas
+competitivas referenciam VAGAS (`matches.vaga_1/vaga_2`).
+
+**Pré-requisito — limpeza dos dados de teste** (decisão de 2026-06-07: dados
+descartáveis; torneios competitivos antigos não têm vagas e quebrariam a UI):
+
+```sql
+delete from public.tournaments where formato <> 'avulso';
+```
+
+- [x] **13.1 — Run único (tabelas, colunas, RPCs, trigger, policies):**
+
+```sql
+-- ---------- Tabela: tournament_slots (vaga de CLUBE no torneio) ----------
+-- Modelo clube-cêntrico (2026-06-07): nos formatos COMPETITIVOS (liga,
+-- mata_mata, grupos_mata_mata, fase_liga) a disputa é entre VAGAS — cada
+-- vaga É um clube; o técnico (user) é metadado ANULÁVEL e substituível a
+-- qualquer momento sem tocar partidas. `participants` segue EXCLUSIVO do
+-- formato avulso. user_id SET NULL: apagar a conta esvazia a vaga sem
+-- derrubar o torneio. team RESTRICT: explicita a dependência do cache.
+create table if not exists public.tournament_slots (
+  id            uuid primary key default gen_random_uuid(),
+  tournament_id uuid not null references public.tournaments (id) on delete cascade,
+  team_id       uuid not null references public.teams (id) on delete restrict,
+  user_id       uuid references public.users (id) on delete set null,
+  created_at    timestamptz not null default now(),
+  constraint slots_team_unico_no_torneio unique (tournament_id, team_id)
+);
+
+create index if not exists tournament_slots_tournament_idx
+  on public.tournament_slots (tournament_id);
+create index if not exists tournament_slots_user_idx
+  on public.tournament_slots (user_id);
+-- Um usuário comanda no MAIOR um clube por torneio (parcial: vagas órfãs
+-- convivem aos montes).
+create unique index if not exists slots_um_clube_por_tecnico
+  on public.tournament_slots (tournament_id, user_id)
+  where user_id is not null;
+
+-- ---------- Tabela: slot_invites (código de convite POR VAGA, 1:1) ----------
+-- Mesmo padrão do tournament_invites: o código é SEGREDO do dono e mora FORA
+-- de tabela com SELECT amplo (slots são visíveis a quem vê o torneio).
+-- Regenerar é UPDATE do code — o link antigo morre atomicamente.
+create table if not exists public.slot_invites (
+  slot_id    uuid primary key references public.tournament_slots (id) on delete cascade,
+  code       text not null unique,
+  created_at timestamptz not null default now()
+);
+
+-- Lados por VAGA (modelo clube-cêntrico; aditivo, idempotente). Partidas de
+-- formatos COMPETITIVOS referenciam vagas; `participante_1/2` ficam SÓ para
+-- o avulso. RESTRICT: a partida nunca perde o lado (vagas são imutáveis fora
+-- do rascunho). Bye na chave = vaga_2 NULL com vaga_1 preenchida (espelho do
+-- modelo por participante).
+alter table public.matches
+  add column if not exists vaga_1 uuid references public.tournament_slots (id) on delete restrict;
+alter table public.matches
+  add column if not exists vaga_2 uuid references public.tournament_slots (id) on delete restrict;
+
+create index if not exists matches_vaga_1_idx on public.matches (vaga_1);
+create index if not exists matches_vaga_2_idx on public.matches (vaga_2);
+
+-- Uma partida usa UM modelo de lado: pessoas (avulso) OU vagas (competitivo).
+alter table public.matches drop constraint if exists matches_lado_vaga_ou_user;
+alter table public.matches
+  add constraint matches_lado_vaga_ou_user
+  check (
+    (participante_1 is null and participante_2 is null)
+    or (vaga_1 is null and vaga_2 is null)
+  );
+
+alter table public.matches drop constraint if exists matches_vagas_distintas;
+alter table public.matches
+  add constraint matches_vagas_distintas
+  check (vaga_1 is null or vaga_2 is null or vaga_1 <> vaga_2);
+
+-- Barreira de dupla geração da liga POR VAGA (mesma semântica do índice por
+-- participante — que segue valendo para o histórico avulso/legado): pares de
+-- vagas idênticos na mesma rodada colidem. Grupos seguem serializados pelo
+-- promote-first (partições divergentes não colidem aqui).
+create unique index if not exists matches_liga_par_unico_vaga
+  on public.matches (tournament_id, rodada, vaga_1, vaga_2)
+  where rodada is not null and vaga_1 is not null;
+
+alter table public.tournament_slots   enable row level security;
+alter table public.slot_invites       enable row level security;
+
+create or replace function public.eh_participante(t_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.participants p
+    where p.tournament_id = t_id
+      and p.user_id = (select auth.uid())
+  )
+  or exists (
+    -- Modelo clube-cêntrico: técnico de vaga também "participa" (vê torneio
+    -- privado em que comanda clube).
+    select 1 from public.tournament_slots s
+    where s.tournament_id = t_id
+      and s.user_id = (select auth.uid())
+  );
+$$;
+
+create or replace function public.lock_match_relations()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if new.participante_1 is distinct from old.participante_1
+       or new.participante_2 is distinct from old.participante_2
+       or new.vaga_1 is distinct from old.vaga_1
+       or new.vaga_2 is distinct from old.vaga_2
+       or new.tournament_id is distinct from old.tournament_id
+       or new.rodada is distinct from old.rodada
+       or new.posicao is distinct from old.posicao
+       or new.perna is distinct from old.perna
+       or new.grupo is distinct from old.grupo
+    then
+      raise exception 'Não é permitido alterar participantes, torneio, rodada, grupo ou slot da partida';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists matches_lock_relations on public.matches;
+create trigger matches_lock_relations
+  before update on public.matches
+  for each row execute function public.lock_match_relations();
+
+-- ---------- RPCs de convite POR VAGA (modelo clube-cêntrico) ----------
+-- aceitar_convite_vaga: assume a vaga se (e só se) ela estiver VAZIA — o
+-- UPDATE filtrado por user_id IS NULL é a serialização da corrida entre dois
+-- aceites (0 linhas = perdeu/ocupada). DIFERENTE do convite genérico: vale
+-- com o torneio ATIVO (substituição no meio do torneio é o requisito) — só
+-- 'encerrado' recusa. O unique parcial slots_um_clube_por_tecnico barra quem
+-- já comanda outro clube (23505 → mensagem da action).
+create or replace function public.aceitar_convite_vaga(codigo text)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid        uuid := auth.uid();
+  v_slot       uuid;
+  v_tournament uuid;
+  v_status     public.tournament_status;
+  v_linhas     integer;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  select si.slot_id, ts.tournament_id, t.status
+    into v_slot, v_tournament, v_status
+    from public.slot_invites si
+    join public.tournament_slots ts on ts.id = si.slot_id
+    join public.tournaments t on t.id = ts.tournament_id
+   where si.code = codigo;
+
+  if v_slot is null then
+    raise exception 'CONVITE_INVALIDO';
+  end if;
+  if v_status = 'encerrado' then
+    raise exception 'TORNEIO_ENCERRADO';
+  end if;
+
+  update public.tournament_slots
+     set user_id = v_uid
+   where id = v_slot
+     and user_id is null;
+  get diagnostics v_linhas = row_count;
+  if v_linhas = 0 then
+    raise exception 'VAGA_OCUPADA';
+  end if;
+
+  return v_tournament;
+end;
+$$;
+
+-- Preview do convite de vaga (página pública /convite/[codigo] para logados):
+-- devolve o suficiente para a tela decidir o caminho, sem vazar nada além.
+drop function if exists public.info_convite_vaga(text);
+create function public.info_convite_vaga(codigo text)
+returns table (
+  tournament_id uuid,
+  titulo        text,
+  status        public.tournament_status,
+  clube         text,
+  escudo_url    text,
+  vaga_ocupada  boolean,
+  ja_tem_vaga   boolean
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select t.id,
+         t.titulo,
+         t.status,
+         tm.nome,
+         tm.escudo_url,
+         ts.user_id is not null,
+         exists (
+           select 1 from public.tournament_slots s2
+           where s2.tournament_id = t.id
+             and s2.user_id = auth.uid()
+         )
+    from public.slot_invites si
+    join public.tournament_slots ts on ts.id = si.slot_id
+    join public.teams tm on tm.id = ts.team_id
+    join public.tournaments t on t.id = ts.tournament_id
+   where si.code = codigo;
+$$;
+
+revoke execute on function public.aceitar_convite_vaga(text) from public, anon;
+grant execute on function public.aceitar_convite_vaga(text) to authenticated;
+revoke execute on function public.info_convite_vaga(text) from public, anon;
+grant execute on function public.info_convite_vaga(text) to authenticated;
+
+-- ---------- Trigger: vagas imutáveis fora do rascunho ----------
+-- Clube e torneio da vaga são a GEOMETRIA da disputa: editáveis só em
+-- rascunho (policies) e travados aqui como defesa extra. user_id (técnico)
+-- fica de fora — trocar técnico é o ponto do modelo.
+create or replace function public.lock_slot_relations()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if new.tournament_id is distinct from old.tournament_id then
+      raise exception 'Não é permitido mover a vaga de torneio';
+    end if;
+    if new.team_id is distinct from old.team_id
+       and exists (
+         select 1 from public.tournaments t
+         where t.id = old.tournament_id
+           and t.status <> 'rascunho'
+       )
+    then
+      raise exception 'O clube da vaga não pode mudar após o início do torneio';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists tournament_slots_lock_relations on public.tournament_slots;
+create trigger tournament_slots_lock_relations
+  before update on public.tournament_slots
+  for each row execute function public.lock_slot_relations();
+
+drop policy if exists matches_select_visivel on public.matches;
+create policy matches_select_visivel on public.matches
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and (t.is_public
+             or t.created_by = auth.uid()
+             or public.eh_participante(t.id))
+    )
+    or auth.uid() = participante_1
+    or auth.uid() = participante_2
+    or exists (
+      select 1 from public.tournament_slots s
+      where s.id in (matches.vaga_1, matches.vaga_2)
+        and s.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists matches_insert_tournament_owner on public.matches;
+create policy matches_insert_tournament_owner on public.matches
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+        and t.status <> 'encerrado'
+        and (t.formato = 'avulso' or matches.rodada is not null)
+    )
+    and (participante_1 is null or exists (
+      select 1 from public.participants p
+      where p.tournament_id = matches.tournament_id
+        and p.user_id = matches.participante_1
+    ))
+    and (participante_2 is null or exists (
+      select 1 from public.participants p
+      where p.tournament_id = matches.tournament_id
+        and p.user_id = matches.participante_2
+    ))
+    -- Lados por VAGA: cada vaga informada precisa pertencer AO torneio da
+    -- partida (vaga estrangeira corromperia a disputa de terceiros).
+    and (vaga_1 is null or exists (
+      select 1 from public.tournament_slots s
+      where s.id = matches.vaga_1
+        and s.tournament_id = matches.tournament_id
+    ))
+    and (vaga_2 is null or exists (
+      select 1 from public.tournament_slots s
+      where s.id = matches.vaga_2
+        and s.tournament_id = matches.tournament_id
+    ))
+  );
+
+drop policy if exists matches_update_participant on public.matches;
+create policy matches_update_participant on public.matches
+  for update to authenticated
+  using (
+    auth.uid() = participante_1
+    or auth.uid() = participante_2
+    or exists (
+      select 1 from public.tournament_slots s
+      where s.id in (matches.vaga_1, matches.vaga_2)
+        and s.user_id = auth.uid()
+    )
+  )
+  with check (
+    auth.uid() = participante_1
+    or auth.uid() = participante_2
+    or exists (
+      select 1 from public.tournament_slots s
+      where s.id in (matches.vaga_1, matches.vaga_2)
+        and s.user_id = auth.uid()
+    )
+  );
+
+-- Modelo clube-cêntrico: participants é EXCLUSIVO do formato avulso e o
+-- congelamento por formato com chave MORREU (formatos competitivos usam
+-- vagas — sair/expulsar é esvaziar a vaga, livre até o encerramento).
+drop policy if exists participants_delete_self_or_owner on public.participants;
+create policy participants_delete_self_or_owner on public.participants
+  for delete to authenticated
+  using (
+    user_id = auth.uid()
+    or exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+-- ----- tournament_invites: TUDO restrito ao dono do torneio -----
+-- O código é o segredo que dá entrada — convidado não lê a tabela (valida o
+-- código apenas via aceitar_convite/info_convite, security definer).
+
+-- ---------- Policies: tournament_slots (vagas de clube) ----------
+-- SELECT: quem vê o torneio vê as vagas (clube + técnico são o elenco
+-- público da disputa; o CÓDIGO do convite mora em slot_invites, só do dono).
+drop policy if exists slots_select_visivel on public.tournament_slots;
+create policy slots_select_visivel on public.tournament_slots
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and (t.is_public
+             or t.created_by = auth.uid()
+             or public.eh_participante(t.id))
+    )
+  );
+
+-- INSERT/DELETE: só o dono, e SÓ EM RASCUNHO — a geometria (quais clubes)
+-- pertence à disputa depois de gerada. WITH CHECK do INSERT exige vaga
+-- nascendo VAZIA (atribuição de técnico só pelo aceite).
+drop policy if exists slots_insert_owner_rascunho on public.tournament_slots;
+create policy slots_insert_owner_rascunho on public.tournament_slots
+  for insert to authenticated
+  with check (
+    user_id is null
+    and exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+        and t.status = 'rascunho'
+    )
+  );
+
+drop policy if exists slots_delete_owner_rascunho on public.tournament_slots;
+create policy slots_delete_owner_rascunho on public.tournament_slots
+  for delete to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+        and t.status = 'rascunho'
+    )
+  );
+
+-- UPDATE em dois caminhos, ambos com WITH CHECK que SÓ aceita esvaziar
+-- (user_id nulo) — atribuir técnico é EXCLUSIVO do RPC de aceite (consenso
+-- por link; o RPC é SECURITY DEFINER e não passa por aqui):
+--  1) o PRÓPRIO técnico desiste; 2) o DONO expulsa (qualquer vaga dele).
+-- Torneio encerrado congela (não exists rascunho/ativo). A troca de team_id
+-- pelo dono em rascunho também passa por aqui (lock_slot_relations trava
+-- fora do rascunho).
+drop policy if exists slots_update_tecnico_desiste on public.tournament_slots;
+create policy slots_update_tecnico_desiste on public.tournament_slots
+  for update to authenticated
+  using (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id and t.status <> 'encerrado'
+    )
+  )
+  with check (user_id is null);
+
+drop policy if exists slots_update_owner on public.tournament_slots;
+create policy slots_update_owner on public.tournament_slots
+  for update to authenticated
+  using (
+    exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+        and t.status <> 'encerrado'
+    )
+  )
+  with check (
+    user_id is null
+    and exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.created_by = auth.uid()
+        and t.status <> 'encerrado'
+    )
+  );
+
+-- ---------- Policies: slot_invites (código por vaga — segredo do dono) ----------
+drop policy if exists slot_invites_select_owner on public.slot_invites;
+create policy slot_invites_select_owner on public.slot_invites
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.tournament_slots s
+      join public.tournaments t on t.id = s.tournament_id
+      where s.id = slot_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+drop policy if exists slot_invites_insert_owner on public.slot_invites;
+create policy slot_invites_insert_owner on public.slot_invites
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.tournament_slots s
+      join public.tournaments t on t.id = s.tournament_id
+      where s.id = slot_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+drop policy if exists slot_invites_update_owner on public.slot_invites;
+create policy slot_invites_update_owner on public.slot_invites
+  for update to authenticated
+  using (
+    exists (
+      select 1 from public.tournament_slots s
+      join public.tournaments t on t.id = s.tournament_id
+      where s.id = slot_id
+        and t.created_by = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.tournament_slots s
+      join public.tournaments t on t.id = s.tournament_id
+      where s.id = slot_id
+        and t.created_by = auth.uid()
+    )
+  );
+
+drop policy if exists slot_invites_delete_owner on public.slot_invites;
+create policy slot_invites_delete_owner on public.slot_invites
+  for delete to authenticated
+  using (
+    exists (
+      select 1 from public.tournament_slots s
+      join public.tournaments t on t.id = s.tournament_id
+      where s.id = slot_id
+        and t.created_by = auth.uid()
+    )
+  );
+```
+
+- [x] **13.2 — (recomendado) Conferir o caminho feliz**: crie um torneio
+      competitivo pela app (com 2+ clubes), copie o convite de UMA vaga,
+      assuma com outra conta, inicie o torneio SEM técnicos nas demais
+      vagas e confira a classificação por clube. Desista da vaga e
+      reassuma pelo mesmo link (substituição no meio do torneio).
+
+- [x] **13.3 — (recomendado) Conferir as TRAVAS**: tentar UPDATE direto de
+      `tournament_slots.user_id` para um uuid de terceiro (deve falhar no
+      WITH CHECK — só esvaziar passa); tentar trocar `team_id` com torneio
+      ativo (deve falhar no trigger); SELECT em `slot_invites` com conta
+      não-dona (0 linhas).
+
+**Rollback**: `drop table public.slot_invites; drop table
+public.tournament_slots cascade;` + remover as colunas `vaga_1/vaga_2`, o
+CHECK `matches_lado_vaga_ou_user` e o índice `matches_liga_par_unico_vaga`
+de matches + restaurar as versões anteriores de `eh_participante`,
+`lock_match_relations` e das policies (git do schema.sql).

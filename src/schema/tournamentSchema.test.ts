@@ -5,10 +5,15 @@ import {
   createTournamentSchema,
   iniciarMataMataSchema,
   PONTOS_MAX,
+  TORNEIO_MAX_CLUBES,
 } from "@/schema/tournamentSchema"
 
 const UUID_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 const UUID_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+/** Gera uuids v4 distintos e válidos para listas de clubes. */
+const uuidDeIndice = (i: number) =>
+  `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`
 
 const PADRAO = {
   pontosVitoria: 3,
@@ -17,6 +22,7 @@ const PADRAO = {
   formato: "avulso",
   idaEVolta: false,
   terceiroLugar: false,
+  clubes: [],
 }
 
 describe("createTournamentSchema", () => {
@@ -30,14 +36,16 @@ describe("createTournamentSchema", () => {
     expect(r).toEqual({ titulo: "Liga", isPublic: false, ...PADRAO })
   })
 
-  it("aceita formato liga com idaEVolta", () => {
+  it("aceita formato liga com idaEVolta (com a lista de clubes obrigatória)", () => {
     const r = createTournamentSchema.parse({
       titulo: "Liga",
       formato: "liga",
       idaEVolta: true,
+      clubes: [UUID_A, UUID_B],
     })
     expect(r.formato).toBe("liga")
     expect(r.idaEVolta).toBe(true)
+    expect(r.clubes).toEqual([UUID_A, UUID_B])
   })
 
   it("aceita formato mata_mata com terceiroLugar (opção exclusiva do mata-mata)", () => {
@@ -45,6 +53,7 @@ describe("createTournamentSchema", () => {
       titulo: "Copa",
       formato: "mata_mata",
       terceiroLugar: true,
+      clubes: [UUID_A, UUID_B],
     })
     expect(r.formato).toBe("mata_mata")
     expect(r.terceiroLugar).toBe(true)
@@ -179,6 +188,109 @@ describe("createTournamentSchema", () => {
       createTournamentSchema.safeParse({ titulo: "Copa", pontosVitoria: Number.NaN })
         .success
     ).toBe(false)
+  })
+
+  describe("clubes (modelo clube-cêntrico)", () => {
+    it("competitivo SEM clubes (ou com 1 só) é rejeitado apontando o campo", () => {
+      for (const clubes of [undefined, [], [UUID_A]]) {
+        const r = createTournamentSchema.safeParse({
+          titulo: "Liga",
+          formato: "liga",
+          ...(clubes !== undefined ? { clubes } : {}),
+        })
+        expect(r.success).toBe(false)
+        if (!r.success) {
+          expect(z.flattenError(r.error).fieldErrors.clubes).toBeTruthy()
+        }
+      }
+    })
+
+    it("a exigência vale para TODOS os formatos competitivos", () => {
+      for (const formato of ["liga", "mata_mata", "grupos_mata_mata", "fase_liga"]) {
+        expect(
+          createTournamentSchema.safeParse({ titulo: "Copa", formato }).success
+        ).toBe(false)
+      }
+    })
+
+    it("avulso ignora clubes: lista vazia ou ausente passa", () => {
+      expect(createTournamentSchema.safeParse({ titulo: "Copa" }).success).toBe(true)
+      expect(
+        createTournamentSchema.safeParse({ titulo: "Copa", clubes: [] }).success
+      ).toBe(true)
+    })
+
+    it("rejeita clube repetido na seleção", () => {
+      const r = createTournamentSchema.safeParse({
+        titulo: "Liga",
+        formato: "liga",
+        clubes: [UUID_A, UUID_A],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(z.flattenError(r.error).fieldErrors.clubes).toBeTruthy()
+      }
+    })
+
+    it("rejeita id que não é uuid", () => {
+      expect(
+        createTournamentSchema.safeParse({
+          titulo: "Liga",
+          formato: "liga",
+          clubes: [UUID_A, "lixo"],
+        }).success
+      ).toBe(false)
+    })
+
+    it("LIGA tem teto próprio (motor aceita menos que o teto geral): 20 passa, 21 rejeita", () => {
+      // Vagas não são removíveis pós-criação — sem este gate, uma liga com
+      // 21+ clubes nasceria travada (iniciarTorneio rejeita > 20).
+      const clubes = (n: number) => Array.from({ length: n }, (_, i) => uuidDeIndice(i))
+      expect(
+        createTournamentSchema.safeParse({
+          titulo: "Liga",
+          formato: "liga",
+          clubes: clubes(20),
+        }).success
+      ).toBe(true)
+      const r = createTournamentSchema.safeParse({
+        titulo: "Liga",
+        formato: "liga",
+        clubes: clubes(21),
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(z.flattenError(r.error).fieldErrors.clubes?.[0]).toMatch(/máximo 20/)
+      }
+      // Os demais formatos seguem o teto geral: 21 clubes passam no mata-mata.
+      expect(
+        createTournamentSchema.safeParse({
+          titulo: "Copa",
+          formato: "mata_mata",
+          clubes: clubes(21),
+        }).success
+      ).toBe(true)
+    })
+
+    it("aceita o teto exato e rejeita acima (TORNEIO_MAX_CLUBES)", () => {
+      const noTeto = Array.from({ length: TORNEIO_MAX_CLUBES }, (_, i) =>
+        uuidDeIndice(i)
+      )
+      expect(
+        createTournamentSchema.safeParse({
+          titulo: "Copa",
+          formato: "mata_mata",
+          clubes: noTeto,
+        }).success
+      ).toBe(true)
+      expect(
+        createTournamentSchema.safeParse({
+          titulo: "Copa",
+          formato: "mata_mata",
+          clubes: [...noTeto, uuidDeIndice(TORNEIO_MAX_CLUBES)],
+        }).success
+      ).toBe(false)
+    })
   })
 })
 

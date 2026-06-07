@@ -40,12 +40,9 @@ interface Cenario {
   rpcData?: string | null
   rpcError?: string | null
   rpcThrows?: boolean
-  /** Lookup de tournaments (propriedade por filtro / gate de chave gerada). */
-  torneio?: { id: string; formato?: string; status?: string } | null
+  /** Lookup de tournaments (propriedade por filtro de removerParticipante). */
+  torneio?: { id: string; status?: string } | null
   torneioError?: boolean
-  /** Há partidas geradas (com rodada)? Gate de mata-mata encerrado. */
-  jaGeradas?: boolean
-  geradasError?: boolean
   /** Linhas afetadas pelo delete (select de confirmação). */
   deleteLinhas?: Array<{ user_id: string }>
   deleteError?: boolean
@@ -62,51 +59,23 @@ function montarClient(c: Cenario) {
     }
   })
   const filtroSpy = vi.fn()
-  // Cada select de tournaments abre uma cadeia NOVA que rastreia os próprios
-  // filtros: o gate chaveEmAndamento filtra por formato=mata_mata e o mock
-  // honra esse filtro (torneio de outro formato → null), espelhando o banco.
   const tournamentsSelect = vi.fn(() => {
-    const filtros: Array<[string, unknown]> = []
     const cadeia = {
       eq: vi.fn((col: string, val: unknown) => {
         filtroSpy("eq", col, val)
-        filtros.push([col, val])
         return cadeia
       }),
       neq: vi.fn((col: string, val: unknown) => {
         filtroSpy("neq", col, val)
         return cadeia
       }),
-      in: vi.fn((col: string, val: unknown) => {
-        filtroSpy("in", col, val)
-        filtros.push([`in:${col}`, val])
-        return cadeia
-      }),
-      maybeSingle: vi.fn(async () => {
-        const incompativel = filtros.some(
-          ([col, val]) =>
-            (col === "formato" &&
-              (c.torneio?.formato ?? "avulso") !== val) ||
-            (col === "in:formato" &&
-              !(val as string[]).includes(c.torneio?.formato ?? "avulso"))
-        )
-        return {
-          data: incompativel ? null : (c.torneio ?? null),
-          error: c.torneioError ? { message: "down" } : null,
-        }
-      }),
+      maybeSingle: vi.fn(async () => ({
+        data: c.torneio ?? null,
+        error: c.torneioError ? { message: "down" } : null,
+      })),
     }
     return cadeia
   })
-  // Detecção de partidas geradas (gate de mata-mata encerrado).
-  const cadeiaMatches = {
-    eq: vi.fn(() => cadeiaMatches),
-    not: vi.fn(() => cadeiaMatches),
-    limit: vi.fn(async () => ({
-      data: c.geradasError ? null : c.jaGeradas ? [{ id: "m1" }] : [],
-      error: c.geradasError ? { message: "down" } : null,
-    })),
-  }
   const deleteFiltroSpy = vi.fn()
   const cadeiaDelete = {
     eq: vi.fn((col: string, val: unknown) => {
@@ -137,7 +106,6 @@ function montarClient(c: Cenario) {
     rpc: rpcSpy,
     from: vi.fn((tabela: string) => {
       if (tabela === "tournaments") return { select: tournamentsSelect }
-      if (tabela === "matches") return { select: vi.fn(() => cadeiaMatches) }
       return { delete: deleteSpy, upsert: upsertSpy }
     }),
   }
@@ -236,6 +204,21 @@ describe("sairDoTorneio", () => {
     expect(mockRevalidate).toHaveBeenCalledWith(`/dashboard/torneios/${TORNEIO}`)
   })
 
+  it("sair é LIVRE com o torneio ativo (avulso; sem congelamento por chave)", async () => {
+    // O gate de chave gerada morreu junto com o modelo pessoa-cêntrico nos
+    // formatos competitivos: o avulso é entre pessoas e a saída nunca trava.
+    const { deleteSpy, fromSpy } = montarClient({
+      user: { id: ALVO },
+      deleteLinhas: [{ user_id: ALVO }],
+    })
+    const r = await sairDoTorneio(TORNEIO)
+    expect(r).toEqual({ ok: true })
+    expect(deleteSpy).toHaveBeenCalled()
+    // Nenhum lookup de torneios/matches antes do delete (gate removido).
+    expect(fromSpy).not.toHaveBeenCalledWith("tournaments")
+    expect(fromSpy).not.toHaveBeenCalledWith("matches")
+  })
+
   it("0 linhas afetadas = não participava", async () => {
     montarClient({ user: { id: ALVO }, deleteLinhas: [] })
     const r = await sairDoTorneio(TORNEIO)
@@ -246,71 +229,6 @@ describe("sairDoTorneio", () => {
     montarClient({ user: { id: ALVO }, deleteError: true })
     const r = await sairDoTorneio(TORNEIO)
     expect(r.ok).toBe(false)
-  })
-
-  it("mata-mata ATIVO congela a saída (chave depende de todos), sem deletar", async () => {
-    // O gate busca o torneio por formato=mata_mata e decide pelo status:
-    // ativo = chave em andamento → sair travaria o avanço de fase.
-    const { deleteSpy, filtroSpy } = montarClient({
-      user: { id: ALVO },
-      torneio: { id: TORNEIO, formato: "mata_mata", status: "ativo" },
-    })
-    const r = await sairDoTorneio(TORNEIO)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/disputa.*já foi gerada/i)
-    expect(deleteSpy).not.toHaveBeenCalled()
-    // O gate filtra pelos formatos COM CHAVE (mata-mata, grupos, fase de liga).
-    expect(filtroSpy).toHaveBeenCalledWith("in", "formato", [
-      "mata_mata",
-      "grupos_mata_mata",
-      "fase_liga",
-    ])
-  })
-
-  it("mata-mata ENCERRADO com chave gerada também congela (encerrado é reabrível)", async () => {
-    // Sem este gate, encerrar → sair → reabrir recriaria o travamento
-    // permanente do avanço de fase que o congelamento de 'ativo' fechou.
-    const { deleteSpy } = montarClient({
-      user: { id: ALVO },
-      torneio: { id: TORNEIO, formato: "mata_mata", status: "encerrado" },
-      jaGeradas: true,
-    })
-    const r = await sairDoTorneio(TORNEIO)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/disputa.*já foi gerada/i)
-    expect(deleteSpy).not.toHaveBeenCalled()
-  })
-
-  it("mata-mata encerrado SEM chave (cancelado no rascunho) segue livre", async () => {
-    const { deleteSpy } = montarClient({
-      user: { id: ALVO },
-      torneio: { id: TORNEIO, formato: "mata_mata", status: "encerrado" },
-      jaGeradas: false,
-      deleteLinhas: [{ user_id: ALVO }],
-    })
-    const r = await sairDoTorneio(TORNEIO)
-    expect(r).toEqual({ ok: true })
-    expect(deleteSpy).toHaveBeenCalled()
-  })
-
-  it("erro na detecção de chave gerada vira mensagem genérica, sem deletar", async () => {
-    const { deleteSpy } = montarClient({
-      user: { id: ALVO },
-      torneio: { id: TORNEIO, formato: "mata_mata", status: "encerrado" },
-      geradasError: true,
-    })
-    const r = await sairDoTorneio(TORNEIO)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/não foi possível/i)
-    expect(deleteSpy).not.toHaveBeenCalled()
-  })
-
-  it("erro no lookup do gate vira mensagem genérica, sem deletar", async () => {
-    const { deleteSpy } = montarClient({ user: { id: ALVO }, torneioError: true })
-    const r = await sairDoTorneio(TORNEIO)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/não foi possível/i)
-    expect(deleteSpy).not.toHaveBeenCalled()
   })
 })
 
@@ -348,6 +266,19 @@ describe("removerParticipante", () => {
     expect(mockRevalidate).toHaveBeenCalledWith(`/dashboard/torneios/${TORNEIO}`)
   })
 
+  it("remoção é LIVRE com o torneio ativo (avulso; sem congelamento por chave)", async () => {
+    const { deleteSpy, fromSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, status: "ativo" },
+      deleteLinhas: [{ user_id: ALVO }],
+    })
+    const r = await removerParticipante({ tournamentId: TORNEIO, userId: ALVO })
+    expect(r).toEqual({ ok: true })
+    expect(deleteSpy).toHaveBeenCalled()
+    // Sem consulta a matches (gate de chave gerada removido).
+    expect(fromSpy).not.toHaveBeenCalledWith("matches")
+  })
+
   it("0 linhas afetadas = usuário não participava", async () => {
     montarClient({
       user: { id: DONO },
@@ -359,39 +290,6 @@ describe("removerParticipante", () => {
       ok: false,
       error: "Este usuário não participa do torneio.",
     })
-  })
-
-  it("mata-mata ATIVO congela a remoção (mesmo sendo o dono), sem deletar", async () => {
-    const { deleteSpy } = montarClient({
-      user: { id: DONO },
-      torneio: { id: TORNEIO, formato: "mata_mata", status: "ativo" },
-    })
-    const r = await removerParticipante({ tournamentId: TORNEIO, userId: ALVO })
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/disputa.*já foi gerada/i)
-    expect(deleteSpy).not.toHaveBeenCalled()
-  })
-
-  it("mata-mata ENCERRADO com chave gerada congela a remoção", async () => {
-    const { deleteSpy } = montarClient({
-      user: { id: DONO },
-      torneio: { id: TORNEIO, formato: "mata_mata", status: "encerrado" },
-      jaGeradas: true,
-    })
-    const r = await removerParticipante({ tournamentId: TORNEIO, userId: ALVO })
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/disputa.*já foi gerada/i)
-    expect(deleteSpy).not.toHaveBeenCalled()
-  })
-
-  it("mata-mata em RASCUNHO segue removível (chave ainda não gerada)", async () => {
-    montarClient({
-      user: { id: DONO },
-      torneio: { id: TORNEIO, formato: "mata_mata", status: "rascunho" },
-      deleteLinhas: [{ user_id: ALVO }],
-    })
-    const r = await removerParticipante({ tournamentId: TORNEIO, userId: ALVO })
-    expect(r).toEqual({ ok: true })
   })
 })
 

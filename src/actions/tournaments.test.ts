@@ -14,10 +14,23 @@ import { createClient } from "@/lib/supabase/server"
 const mockCreateClient = vi.mocked(createClient)
 
 const TORNEIO = "11111111-1111-4111-8111-111111111111"
+/** Ids de clube (uuid do cache teams) para a criação competitiva. */
+const CLUBE_A = "aaaaaaaa-0000-4000-8000-000000000000"
+const CLUBE_B = "bbbbbbbb-0000-4000-8000-000000000000"
+/** Ids das vagas devolvidas pelo INSERT em lote de tournament_slots. */
+const VAGA_1 = "11111111-aaaa-4aaa-8aaa-111111111111"
+const VAGA_2 = "22222222-aaaa-4aaa-8aaa-222222222222"
 
 function formData(campos: Record<string, string>) {
   const fd = new FormData()
   for (const [k, v] of Object.entries(campos)) fd.set(k, v)
+  return fd
+}
+
+/** FormData com clubes (inputs hidden name="clubes", lidos por getAll). */
+function formDataComClubes(campos: Record<string, string>, clubes: string[]) {
+  const fd = formData(campos)
+  for (const c of clubes) fd.append("clubes", c)
   return fd
 }
 
@@ -27,15 +40,25 @@ interface Cenario {
   insertError?: boolean
   insertThrows?: boolean
   participanteError?: boolean
-  /** Códigos de erro devolvidos pelos inserts SUCESSIVOS do invite. */
+  /** Códigos de erro devolvidos pelos inserts SUCESSIVOS do invite (avulso). */
   inviteErrosPorTentativa?: (string | null)[]
+  /** Vagas geradas pelo INSERT de tournament_slots (competitivo). */
+  vagasGeradas?: { id: string }[] | null
+  vagasError?: boolean
+  /** Códigos de erro dos inserts SUCESSIVOS de slot_invites (competitivo). */
+  slotInvitesErrosPorTentativa?: (string | null)[]
+  /** Falha do DELETE compensatório (vagas falharam → torneio é removido). */
+  deleteError?: boolean
 }
 
 /**
- * Cliente falso para as três escritas da action:
+ * Cliente falso para as escritas da action. Avulso:
  *  - tournaments: insert().select().single() — devolve o id criado.
  *  - participants: insert() — entrada automática do dono.
  *  - tournament_invites: insert() — geração do código (com retry de colisão).
+ * Competitivo (formato gerado):
+ *  - tournament_slots: insert().select('id') — vagas (uma por clube), devolve ids.
+ *  - slot_invites: insert() — lote de codes (com retry de colisão).
  */
 function montarClient(c: Cenario) {
   const insertSpy = vi.fn((payload: unknown) => {
@@ -63,6 +86,40 @@ function montarClient(c: Cenario) {
     tentativaInvite++
     return { error: codigo ? { message: "erro", code: codigo } : null }
   })
+  // tournament_slots: insert(...).select('id') — devolve as vagas criadas.
+  const slotsInsertSpy = vi.fn((_payload: unknown) => {
+    void _payload
+    return {
+      select: vi.fn(async () => ({
+        data: c.vagasError
+          ? null
+          : (c.vagasGeradas ?? [{ id: VAGA_1 }, { id: VAGA_2 }]),
+        error: c.vagasError ? { message: "rls", code: "42501" } : null,
+      })),
+    }
+  })
+  let tentativaSlotInvite = 0
+  const slotInvitesInsertSpy = vi.fn(async (_payload: unknown) => {
+    void _payload
+    const codigo = c.slotInvitesErrosPorTentativa?.[tentativaSlotInvite] ?? null
+    tentativaSlotInvite++
+    return { error: codigo ? { message: "erro", code: codigo } : null }
+  })
+  // tournaments DELETE (compensação quando as vagas falham): cadeia
+  // .delete().eq(id).eq(created_by) thenable.
+  const deleteFiltroSpy = vi.fn()
+  const cadeiaDelete = {
+    eq: vi.fn((col: string, val: unknown) => {
+      deleteFiltroSpy("eq", col, val)
+      return cadeiaDelete
+    }),
+    then: (resolve: (v: { error: { message: string; code: string } | null }) => unknown) =>
+      resolve({
+        error: c.deleteError ? { message: "down", code: "XX000" } : null,
+      }),
+  }
+  const deleteSpy = vi.fn(() => cadeiaDelete)
+
   const client = {
     auth: {
       getUser: vi.fn(async () => ({
@@ -71,13 +128,25 @@ function montarClient(c: Cenario) {
       })),
     },
     from: vi.fn((tabela: string) => {
-      if (tabela === "tournaments") return { insert: insertSpy }
+      if (tabela === "tournaments")
+        return { insert: insertSpy, delete: deleteSpy }
       if (tabela === "participants") return { insert: participanteInsertSpy }
+      if (tabela === "tournament_slots") return { insert: slotsInsertSpy }
+      if (tabela === "slot_invites") return { insert: slotInvitesInsertSpy }
       return { insert: inviteInsertSpy }
     }),
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
-  return { insertSpy, participanteInsertSpy, inviteInsertSpy, fromSpy: client.from }
+  return {
+    insertSpy,
+    participanteInsertSpy,
+    inviteInsertSpy,
+    slotsInsertSpy,
+    slotInvitesInsertSpy,
+    deleteSpy,
+    deleteFiltroSpy,
+    fromSpy: client.from,
+  }
 }
 
 beforeEach(() => vi.clearAllMocks())
@@ -133,7 +202,10 @@ describe("createTournament", () => {
     await expect(
       createTournament(
         {},
-        formData({ titulo: "Liga", isPublic: "on", formato: "liga", idaEVolta: "on" })
+        formDataComClubes(
+          { titulo: "Liga", isPublic: "on", formato: "liga", idaEVolta: "on" },
+          [CLUBE_A, CLUBE_B]
+        )
       )
     ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
     expect(insertSpy).toHaveBeenCalledWith(
@@ -148,7 +220,13 @@ describe("createTournament", () => {
   it("liga sem ida-e-volta grava ida_e_volta false (e ainda nasce rascunho)", async () => {
     const { insertSpy } = montarClient({ user: { id: "dono-1" } })
     await expect(
-      createTournament({}, formData({ titulo: "Liga", isPublic: "on", formato: "liga" }))
+      createTournament(
+        {},
+        formDataComClubes({ titulo: "Liga", isPublic: "on", formato: "liga" }, [
+          CLUBE_A,
+          CLUBE_B,
+        ])
+      )
     ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
     expect(insertSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -178,13 +256,16 @@ describe("createTournament", () => {
     await expect(
       createTournament(
         {},
-        formData({
-          titulo: "Copa",
-          isPublic: "on",
-          formato: "mata_mata",
-          idaEVolta: "on",
-          terceiroLugar: "on",
-        })
+        formDataComClubes(
+          {
+            titulo: "Copa",
+            isPublic: "on",
+            formato: "mata_mata",
+            idaEVolta: "on",
+            terceiroLugar: "on",
+          },
+          [CLUBE_A, CLUBE_B]
+        )
       )
     ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
     expect(insertSpy).toHaveBeenCalledWith(
@@ -202,12 +283,15 @@ describe("createTournament", () => {
     await expect(
       createTournament(
         {},
-        formData({
-          titulo: "Liga",
-          isPublic: "on",
-          formato: "liga",
-          terceiroLugar: "on",
-        })
+        formDataComClubes(
+          {
+            titulo: "Liga",
+            isPublic: "on",
+            formato: "liga",
+            terceiroLugar: "on",
+          },
+          [CLUBE_A, CLUBE_B]
+        )
       )
     ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
     expect(insertSpy).toHaveBeenCalledWith(
@@ -220,12 +304,15 @@ describe("createTournament", () => {
     await expect(
       createTournament(
         {},
-        formData({
-          titulo: "Copa",
-          isPublic: "on",
-          formato: "mata_mata",
-          idaEVolta: "on",
-        })
+        formDataComClubes(
+          {
+            titulo: "Copa",
+            isPublic: "on",
+            formato: "mata_mata",
+            idaEVolta: "on",
+          },
+          [CLUBE_A, CLUBE_B]
+        )
       )
     ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
     expect(insertSpy).toHaveBeenCalledWith(
@@ -242,7 +329,7 @@ describe("createTournament", () => {
     expect(mockCreateClient).not.toHaveBeenCalled()
   })
 
-  it("dono entra como participante e o convite é gerado (código de 16 chars)", async () => {
+  it("AVULSO: dono entra como participante e o convite é gerado (código de 16 chars)", async () => {
     const { participanteInsertSpy, inviteInsertSpy } = montarClient({
       user: { id: "dono-1" },
     })
@@ -261,6 +348,175 @@ describe("createTournament", () => {
     }
     expect(payload.tournament_id).toBe(TORNEIO)
     expect(payload.code).toMatch(/^[0-9a-z]{16}$/)
+  })
+
+  it("COMPETITIVO sem clubes suficientes (< 2) não toca o banco", async () => {
+    const r = await createTournament(
+      {},
+      formDataComClubes({ titulo: "Liga", formato: "liga" }, [CLUBE_A])
+    )
+    expect(r.fieldErrors?.clubes).toBeTruthy()
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("COMPETITIVO com clubes duplicados não toca o banco", async () => {
+    const r = await createTournament(
+      {},
+      formDataComClubes({ titulo: "Liga", formato: "liga" }, [CLUBE_A, CLUBE_A])
+    )
+    expect(r.fieldErrors?.clubes).toBeTruthy()
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("COMPETITIVO grava uma VAGA por clube (técnico vazio) e um code por vaga", async () => {
+    const { slotsInsertSpy, slotInvitesInsertSpy, participanteInsertSpy, inviteInsertSpy } =
+      montarClient({
+        user: { id: "dono-1" },
+        vagasGeradas: [{ id: VAGA_1 }, { id: VAGA_2 }],
+      })
+    await expect(
+      createTournament(
+        {},
+        formDataComClubes({ titulo: "Liga", isPublic: "on", formato: "liga" }, [
+          CLUBE_A,
+          CLUBE_B,
+        ])
+      )
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+
+    // Vagas: uma por clube, sem user_id (técnico só pelo aceite do convite).
+    expect(slotsInsertSpy).toHaveBeenCalledTimes(1)
+    const vagasPayload = slotsInsertSpy.mock.calls[0][0] as {
+      tournament_id: string
+      team_id: string
+    }[]
+    expect(vagasPayload).toEqual([
+      { tournament_id: TORNEIO, team_id: CLUBE_A },
+      { tournament_id: TORNEIO, team_id: CLUBE_B },
+    ])
+    for (const v of vagasPayload) expect(v).not.toHaveProperty("user_id")
+
+    // Um code por vaga (16 chars), em lote.
+    expect(slotInvitesInsertSpy).toHaveBeenCalledTimes(1)
+    const codesPayload = slotInvitesInsertSpy.mock.calls[0][0] as {
+      slot_id: string
+      code: string
+    }[]
+    expect(codesPayload.map((c) => c.slot_id).sort()).toEqual(
+      [VAGA_1, VAGA_2].sort()
+    )
+    for (const c of codesPayload) expect(c.code).toMatch(/^[0-9a-z]{16}$/)
+
+    // Competitivo NÃO usa participants nem convite genérico.
+    expect(participanteInsertSpy).not.toHaveBeenCalled()
+    expect(inviteInsertSpy).not.toHaveBeenCalled()
+  })
+
+  it("COMPETITIVO: colisão (23505) regenera TODOS os codes e re-tenta o lote 1x", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { slotInvitesInsertSpy } = montarClient({
+      user: { id: "dono-1" },
+      vagasGeradas: [{ id: VAGA_1 }, { id: VAGA_2 }],
+      slotInvitesErrosPorTentativa: ["23505", null],
+    })
+    await expect(
+      createTournament(
+        {},
+        formDataComClubes({ titulo: "Liga", isPublic: "on", formato: "liga" }, [
+          CLUBE_A,
+          CLUBE_B,
+        ])
+      )
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(slotInvitesInsertSpy).toHaveBeenCalledTimes(2)
+    const c1 = (slotInvitesInsertSpy.mock.calls[0][0] as { code: string }[])[0].code
+    const c2 = (slotInvitesInsertSpy.mock.calls[1][0] as { code: string }[])[0].code
+    expect(c1).not.toBe(c2)
+    consoleSpy.mockRestore()
+  })
+
+  it("COMPETITIVO: erro não-colisão nos codes não ganha retry (recuperável na UI)", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { slotInvitesInsertSpy } = montarClient({
+      user: { id: "dono-1" },
+      vagasGeradas: [{ id: VAGA_1 }, { id: VAGA_2 }],
+      slotInvitesErrosPorTentativa: ["42501"],
+    })
+    await expect(
+      createTournament(
+        {},
+        formDataComClubes({ titulo: "Liga", isPublic: "on", formato: "liga" }, [
+          CLUBE_A,
+          CLUBE_B,
+        ])
+      )
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/torneios/${TORNEIO}`)
+    expect(slotInvitesInsertSpy).toHaveBeenCalledTimes(1)
+    consoleSpy.mockRestore()
+  })
+
+  it("COMPETITIVO: falha nas vagas COMPENSA — deleta o torneio e retorna erro, sem redirect", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { slotInvitesInsertSpy, deleteSpy, deleteFiltroSpy } = montarClient({
+      user: { id: "dono-1" },
+      vagasError: true,
+    })
+    // Competitivo sem vagas é beco sem saída (não há UI para repor clubes):
+    // a action remove o torneio recém-criado e devolve o erro ao form (o
+    // useActionState preserva os campos para o re-submit).
+    const r = await createTournament(
+      {},
+      formDataComClubes({ titulo: "Liga", isPublic: "on", formato: "liga" }, [
+        CLUBE_A,
+        CLUBE_B,
+      ])
+    )
+    expect(r.error).toMatch(/nada foi salvo/i)
+    expect(slotInvitesInsertSpy).not.toHaveBeenCalled()
+    expect(deleteSpy).toHaveBeenCalledTimes(1)
+    // Compensação filtrada por id + dono (nunca deleta torneio de terceiro).
+    expect(deleteFiltroSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
+    expect(deleteFiltroSpy).toHaveBeenCalledWith("eq", "created_by", "dono-1")
+    expect(consoleSpy).toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
+
+  it("COMPETITIVO: vagas vazias sem erro (0 linhas) também compensam", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { deleteSpy } = montarClient({
+      user: { id: "dono-1" },
+      vagasGeradas: [],
+    })
+    const r = await createTournament(
+      {},
+      formDataComClubes({ titulo: "Liga", isPublic: "on", formato: "liga" }, [
+        CLUBE_A,
+        CLUBE_B,
+      ])
+    )
+    expect(r.error).toMatch(/nada foi salvo/i)
+    expect(deleteSpy).toHaveBeenCalledTimes(1)
+    consoleSpy.mockRestore()
+  })
+
+  it("COMPETITIVO: DELETE compensatório falho não muda a resposta (erro, sem redirect)", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    montarClient({
+      user: { id: "dono-1" },
+      vagasError: true,
+      deleteError: true,
+    })
+    // Best-effort: sobra um rascunho sem vagas (invisível ao jogo), mas o
+    // usuário recebe o MESMO erro acionável.
+    const r = await createTournament(
+      {},
+      formDataComClubes({ titulo: "Liga", isPublic: "on", formato: "liga" }, [
+        CLUBE_A,
+        CLUBE_B,
+      ])
+    )
+    expect(r.error).toMatch(/nada foi salvo/i)
+    consoleSpy.mockRestore()
   })
 
   it("falha nas escritas complementares NÃO derruba a criação (recuperável na UI)", async () => {

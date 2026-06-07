@@ -32,22 +32,21 @@ export function IniciarTorneioPanel({
           Iniciar torneio
         </h2>
         <p className="text-muted-foreground text-sm">
-          {`Liga em rascunho • ${qtdParticipantes} ${qtdParticipantes === 1 ? "participante confirmado" : "participantes confirmados"} • ${idaEVolta ? "ida e volta" : "ida simples"}`}
+          {`Liga em rascunho • ${qtdParticipantes} ${qtdParticipantes === 1 ? "clube" : "clubes"} • ${idaEVolta ? "ida e volta" : "ida simples"}`}
         </p>
       </div>
 
       {participantesSuficientes && dentroDoLimite ? (
         <p className="text-sm">
-          {`Ao iniciar, a tabela completa é gerada: ${previa.partidas} ${previa.partidas === 1 ? "partida" : "partidas"} em ${previa.rodadas} ${previa.rodadas === 1 ? "rodada" : "rodadas"}. Depois disso ninguém mais entra na liga.`}
+          {`Ao iniciar, a tabela completa é gerada: ${previa.partidas} ${previa.partidas === 1 ? "partida" : "partidas"} em ${previa.rodadas} ${previa.rodadas === 1 ? "rodada" : "rodadas"}. A lista de clubes fica fixa; técnicos podem assumir as vagas a qualquer momento.`}
         </p>
       ) : participantesSuficientes ? (
         <p className="text-destructive text-sm" role="status">
-          {`A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} participantes. Remova participantes para iniciar.`}
+          {`A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} clubes. Crie o torneio novamente com menos clubes.`}
         </p>
       ) : (
         <p className="text-muted-foreground text-sm" role="status">
-          A liga precisa de pelo menos 2 participantes confirmados. Compartilhe
-          o link de convite abaixo para chamar os jogadores.
+          A liga precisa de pelo menos 2 clubes.
         </p>
       )}
 

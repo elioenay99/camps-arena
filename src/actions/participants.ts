@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
-import { FORMATOS_COM_CHAVE } from "@/features/knockout/gerarChaveMataMata"
 import { gerarCodigoConvite } from "@/lib/invite-code"
 import { createClient } from "@/lib/supabase/server"
 import {
@@ -89,61 +88,13 @@ export async function aceitarConvite(
 }
 
 /**
- * Formato COM CHAVE (mata-mata, grupos, fase de liga) em andamento congela a
- * lista de participantes: o INSERT da chave — da fase seguinte, ou da chave
- * FUTURA no caso dos grupos — exige cada semeado em `participants` (cláusula
- * da RLS de INSERT de matches); uma saída no meio travaria o avanço/geração
- * PARA SEMPRE (RLS rejeita, retry nunca resolve, e o convite não readmite
- * fora de rascunho). O congelamento vale em ATIVO e também em ENCERRADO com
- * partidas geradas (achado da validação do add-tournament-closing: encerrar →
- * sair → reabrir recriaria exatamente o travamento) — participar de uma
- * disputa gerada é histórico do torneio. Liga não sofre (todas as partidas
- * nascem no Iniciar e não há chave futura); rascunho segue livre. A policy
- * `participants_delete_self_or_owner` é o backstop no banco.
- */
-async function chaveEmAndamento(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  tournamentId: string
-): Promise<{ travado: boolean } | { erro: true }> {
-  const { data: torneio, error } = await supabase
-    .from("tournaments")
-    .select("id, status")
-    .eq("id", tournamentId)
-    .in("formato", [...FORMATOS_COM_CHAVE])
-    .maybeSingle()
-  if (error) {
-    return { erro: true }
-  }
-  if (!torneio) {
-    return { travado: false }
-  }
-  if (torneio.status === "ativo") {
-    return { travado: true }
-  }
-  if (torneio.status === "rascunho") {
-    return { travado: false }
-  }
-  // Encerrado: travado se a disputa chegou a ser gerada (reabrir devolve
-  // 'ativo' e o avanço/geração voltaria a depender de todos os semeados).
-  const { data: geradas, error: geradasError } = await supabase
-    .from("matches")
-    .select("id")
-    .eq("tournament_id", tournamentId)
-    .not("rodada", "is", null)
-    .limit(1)
-  if (geradasError) {
-    return { erro: true }
-  }
-  return { travado: (geradas ?? []).length > 0 }
-}
-
-const ERRO_CHAVE_EM_ANDAMENTO =
-  "A disputa deste torneio já foi gerada — os participantes fazem parte dela. Saídas e remoções só antes de iniciar."
-
-/**
- * Sai do torneio por conta própria. O DELETE filtra pelo PRÓPRIO user.id —
- * não há como sair "pelos outros"; a RLS (`participants_delete_self_or_owner`)
- * é a segunda barreira. Partidas já criadas não são tocadas (histórico).
+ * Sai do torneio por conta própria (formato AVULSO). O DELETE filtra pelo
+ * PRÓPRIO user.id — não há como sair "pelos outros"; a RLS
+ * (`participants_delete_self_or_owner`) é a segunda barreira. Sair é LIVRE
+ * mesmo com o torneio ativo: no avulso as partidas são entre pessoas e já
+ * criadas não são tocadas (histórico). O congelamento por chave gerada morreu
+ * junto com o modelo pessoa-cêntrico nos formatos competitivos (agora os
+ * lados da disputa são VAGAS imutáveis pós-rascunho, não participants).
  */
 export async function sairDoTorneio(
   input: unknown
@@ -161,14 +112,6 @@ export async function sairDoTorneio(
   } = await supabase.auth.getUser()
   if (authError || !user) {
     return { ok: false, error: "Você precisa estar autenticado." }
-  }
-
-  const chave = await chaveEmAndamento(supabase, parsed.data.tournamentId)
-  if ("erro" in chave) {
-    return { ok: false, error: "Não foi possível sair do torneio agora. Tente novamente." }
-  }
-  if (chave.travado) {
-    return { ok: false, error: ERRO_CHAVE_EM_ANDAMENTO }
   }
 
   const { data: removidas, error } = await supabase
@@ -191,9 +134,11 @@ export async function sairDoTorneio(
 }
 
 /**
- * Remove um participante (gesto do DONO do torneio). Propriedade conferida
- * por FILTRO no servidor (torneio inexistente, alheio ou invisível recebem a
- * MESMA resposta — sem oráculo); RLS é a segunda barreira.
+ * Remove um participante (gesto do DONO do torneio — formato AVULSO).
+ * Propriedade conferida por FILTRO no servidor (torneio inexistente, alheio ou
+ * invisível recebem a MESMA resposta — sem oráculo); RLS é a segunda barreira.
+ * Sem congelamento por chave: nos competitivos os lados são VAGAS (slots), não
+ * participants — a remoção aqui só toca o avulso.
  */
 export async function removerParticipante(
   input: unknown
@@ -225,15 +170,6 @@ export async function removerParticipante(
   }
   if (!torneio) {
     return { ok: false, error: erroPropriedade }
-  }
-  // Mesmo congelamento de sairDoTorneio: remover participante de chave
-  // gerada travaria o avanço de fase (ver chaveEmAndamento).
-  const chave = await chaveEmAndamento(supabase, parsed.data.tournamentId)
-  if ("erro" in chave) {
-    return { ok: false, error: "Não foi possível remover o participante agora. Tente novamente." }
-  }
-  if (chave.travado) {
-    return { ok: false, error: ERRO_CHAVE_EM_ANDAMENTO }
   }
 
   const { data: removidas, error } = await supabase
