@@ -30,7 +30,7 @@ O sistema SHALL permitir SELECT em uma partida quando o torneio dela for visíve
 - **THEN** a partida é retornada
 
 ### Requirement: Escrita restrita ao dono da partida
-O sistema SHALL permitir UPDATE em uma partida para o usuário autenticado que é um dos participantes daquela partida OU para o dono do torneio da partida. Triggers SHALL garantir que (a) a coluna `status` só mude quando o autor é o dono do torneio (`service_role` isento); (b) o placar de partida `encerrada` não mude para nenhum papel, exceto `service_role`; (c) `participante_1/2`, `tournament_id`, `rodada`, `posicao` e `perna` sejam imutáveis após o INSERT (exceto `service_role`); e (d) em torneio `mata_mata`, o encerramento exija resultado decisivo e a reabertura seja bloqueada com fase posterior gerada ou em partida-bye (trigger `valida_resultado_mata_mata`).
+O sistema SHALL permitir UPDATE em uma partida para o usuário autenticado que é um dos participantes daquela partida OU para o dono do torneio da partida. Triggers SHALL garantir que (a) a coluna `status` só mude quando o autor é o dono do torneio (`service_role` isento); (b) o placar de partida `encerrada` não mude para nenhum papel, exceto `service_role`; (c) `participante_1/2`, `tournament_id`, `rodada`, `posicao`, `perna` e `grupo` sejam imutáveis após o INSERT (exceto `service_role`); e (d) nos formatos com CHAVE (`mata_mata`, `grupos_mata_mata`, `fase_liga`), o encerramento de partida de chave exija resultado decisivo e a reabertura seja bloqueada com fase posterior gerada ou em partida-bye (trigger `valida_resultado_mata_mata` — partidas de GRUPO seguem livres para empatar, como na liga).
 
 #### Scenario: Participante atualiza placar
 - **WHEN** um participante autenticado da partida envia um UPDATE de placar em partida não-encerrada
@@ -53,11 +53,15 @@ O sistema SHALL permitir UPDATE em uma partida para o usuário autenticado que �
 - **THEN** o trigger bloqueia a operação
 
 #### Scenario: Empate decisivo bloqueado no banco
-- **WHEN** um UPDATE direto tenta encerrar jogo decisivo de mata-mata sem vencedor (jogo único empatado; volta com agregado igual; volta antes da ida)
+- **WHEN** um UPDATE direto tenta encerrar jogo decisivo de chave sem vencedor (jogo único empatado; volta com agregado igual; volta antes da ida) em qualquer formato com chave
 - **THEN** o trigger `valida_resultado_mata_mata` rejeita a operação
 
+#### Scenario: Partida de grupo empata livremente
+- **WHEN** um UPDATE encerra uma partida de GRUPO (coluna `grupo` não nula) com placar igual
+- **THEN** o trigger NÃO bloqueia (empate pontua na classificação do grupo)
+
 #### Scenario: Reabertura pós-avanço bloqueada no banco
-- **WHEN** um UPDATE direto tenta reabrir partida de mata-mata com fase posterior existente ou partida-bye
+- **WHEN** um UPDATE direto tenta reabrir partida de chave com fase posterior existente ou partida-bye
 - **THEN** o trigger rejeita a operação
 
 ### Requirement: Visibilidade de torneios por dono e público
@@ -126,11 +130,11 @@ O sistema SHALL permitir SELECT em `participants` quando o torneio
 correspondente for visível ao solicitante; INSERT direto apenas para o DONO do
 torneio inserindo a si mesmo (`user_id = auth.uid()`) — convidados entram
 exclusivamente pela função `aceitar_convite`; DELETE para o próprio
-participante (sair) ou para o dono do torneio (remover), EXCETO em torneio
-`mata_mata` com a chave GERADA — `status = 'ativo'`, ou qualquer status com
-partidas geradas (`rodada` não nula) — porque a chave em andamento depende de
-cada participante e o torneio encerrado é reabrível (ver capabilities
-`knockout-format` e `tournament-lifecycle`). UPDATE NÃO SHALL ser permitido.
+participante (sair) ou para o dono do torneio (remover), EXCETO nos formatos
+COM CHAVE (`mata_mata`, `grupos_mata_mata`, `fase_liga`) quando `status =
+'ativo'` ou quando existem partidas geradas (`rodada` não nula) fora de
+rascunho — a chave (atual ou futura, no caso dos grupos) depende de cada
+participante, e torneio encerrado é reabrível. UPDATE NÃO SHALL ser permitido.
 
 #### Scenario: Lista visível junto com o torneio
 - **WHEN** um usuário que enxerga o torneio consulta os participantes dele
@@ -141,11 +145,11 @@ cada participante e o torneio encerrado é reabrível (ver capabilities
 - **THEN** a política RLS rejeita a operação
 
 #### Scenario: Sair e remover cobertos por DELETE
-- **WHEN** o próprio participante (ou o dono do torneio) executa DELETE da linha em torneio que não é mata-mata com chave gerada
+- **WHEN** o próprio participante (ou o dono do torneio) executa DELETE da linha em torneio fora dos formatos com chave congelada
 - **THEN** a operação é aceita; para qualquer outro usuário é rejeitada
 
-#### Scenario: Mata-mata com chave gerada bloqueia DELETE no banco
-- **WHEN** um DELETE direto em `participants` referencia mata-mata ativo, ou encerrado com partidas geradas
+#### Scenario: Formatos com chave bloqueiam DELETE no banco
+- **WHEN** um DELETE direto em `participants` referencia mata-mata, grupos ou fase de liga em estado congelado (ativo, ou com partidas geradas fora do rascunho)
 - **THEN** a política RLS rejeita a operação, mesmo para o dono ou o próprio participante
 
 ### Requirement: Políticas de tournament_invites

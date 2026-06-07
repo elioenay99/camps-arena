@@ -4,7 +4,7 @@
 TBD - created by archiving change add-tournament-ownership. Update Purpose after archive.
 ## Requirements
 ### Requirement: Criação de torneio com dono
-O sistema SHALL permitir que um usuário autenticado crie um torneio via Server Action, validando `titulo`, visibilidade, regras de pontuação (vitória/empate/derrota, inteiros 0–100, coerência `derrota <= empate <= vitoria`) e formato (`avulso`, `liga` ou `mata_mata`; em liga e mata-mata, a opção `ida_e_volta`; em mata-mata, a opção `terceiro_lugar`) com Zod antes de gravar. O torneio criado SHALL registrar como dono (`created_by`) o usuário da sessão, definido no servidor — a aplicação NÃO SHALL confiar em um dono informado pelo cliente. Torneios de formato `liga` e `mata_mata` SHALL nascer com `status = 'rascunho'` (período de adesão por convite); torneio `avulso` SHALL continuar nascendo `ativo`. `ida_e_volta` e `terceiro_lugar` SHALL ser normalizados no servidor para `false` nos formatos em que não se aplicam. A action SHALL exigir sessão válida (defesa em profundidade além da RLS). Após gravar o torneio, a action SHALL inserir o dono como participante e gerar o código de convite (gerado no servidor); falha nessas escritas complementares NÃO SHALL impedir a criação do torneio (estados recuperáveis pela UI: "Participar" e "Gerar link").
+O sistema SHALL permitir que um usuário autenticado crie um torneio via Server Action, validando `titulo`, visibilidade, regras de pontuação (vitória/empate/derrota, inteiros 0–100, coerência `derrota <= empate <= vitoria`) e formato (`avulso`, `liga`, `mata_mata`, `grupos_mata_mata` ou `fase_liga`; nos formatos gerados, a opção `ida_e_volta`; nos formatos com chave, a opção `terceiro_lugar`) com Zod antes de gravar. O torneio criado SHALL registrar como dono (`created_by`) o usuário da sessão, definido no servidor — a aplicação NÃO SHALL confiar em um dono informado pelo cliente. Todo formato GERADO (`liga`, `mata_mata`, `grupos_mata_mata`, `fase_liga`) SHALL nascer com `status = 'rascunho'` (período de adesão por convite); torneio `avulso` SHALL continuar nascendo `ativo`. `ida_e_volta` e `terceiro_lugar` SHALL ser normalizados no servidor para `false` nos formatos em que não se aplicam. A action SHALL exigir sessão válida (defesa em profundidade além da RLS). Após gravar o torneio, a action SHALL inserir o dono como participante e gerar o código de convite (gerado no servidor); falha nessas escritas complementares NÃO SHALL impedir a criação do torneio (estados recuperáveis pela UI: "Participar" e "Gerar link").
 
 #### Scenario: Torneio criado pelo dono
 - **WHEN** um usuário autenticado submete um título válido
@@ -50,8 +50,12 @@ O sistema SHALL permitir que um usuário autenticado crie um torneio via Server 
 - **WHEN** o usuário cria um torneio escolhendo o formato mata-mata (com ou sem ida-e-volta e 3º lugar)
 - **THEN** o torneio é gravado com `formato = 'mata_mata'`, as opções escolhidas e `status = 'rascunho'`
 
+#### Scenario: Grupos e fase de liga nascem em rascunho com as opções escolhidas
+- **WHEN** o usuário cria um torneio escolhendo grupos+mata-mata ou fase de liga (com ou sem ida-e-volta e 3º lugar)
+- **THEN** o torneio é gravado com o formato escolhido, as opções e `status = 'rascunho'` (G e K ficam para o painel de início)
+
 #### Scenario: Opções de formato não se aplicam fora dele
-- **WHEN** a criação chega com `terceiro_lugar` marcado num formato que não é mata-mata (ou `ida_e_volta` em avulso)
+- **WHEN** a criação chega com `terceiro_lugar` marcado num formato sem chave (ou `ida_e_volta` em avulso)
 - **THEN** o servidor grava `false` para a opção inaplicável
 
 #### Scenario: Avulso preserva o comportamento atual
@@ -59,6 +63,6 @@ O sistema SHALL permitir que um usuário autenticado crie um torneio via Server 
 - **THEN** o torneio é gravado com `formato = 'avulso'` e `status = 'ativo'`, como antes
 
 #### Scenario: Formato inválido é rejeitado
-- **WHEN** a criação é submetida com um formato fora de avulso/liga/mata-mata
+- **WHEN** a criação é submetida com um formato fora do enum
 - **THEN** a action retorna erro por campo e nenhuma escrita é feita
 

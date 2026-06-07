@@ -4,7 +4,7 @@
 TBD - created by archiving change add-standings-page. Update Purpose after archive.
 ## Requirements
 ### Requirement: Página de classificação do torneio
-O sistema SHALL oferecer a página protegida `/dashboard/torneios/[id]` exibindo título e status do torneio e a visualização de progresso adequada ao FORMATO: em torneio `avulso` ou `liga`, as regras de pontuação e a tabela de classificação calculada pelo motor `computeStandings` (com a classificação de clubes); em torneio `mata_mata`, a CHAVE eliminatória (capability `knockout-format`) — sem tabela de pontos nem classificação de clubes. Sem partida encerrada (avulso/liga), a página SHALL exibir um estado vazio orientativo.
+O sistema SHALL oferecer a página protegida `/dashboard/torneios/[id]` exibindo título e status do torneio e a visualização de progresso adequada ao FORMATO: em torneio `avulso` ou `liga`, as regras de pontuação e a tabela de classificação calculada pelo motor `computeStandings` (com a classificação de clubes); em torneio `mata_mata`, a CHAVE eliminatória; em `grupos_mata_mata` e `fase_liga`, uma tabela de classificação POR GRUPO (única na fase de liga) e — quando gerada — a chave (capability `group-stage-format`). Sem partida encerrada (formatos com classificação), a página SHALL exibir um estado vazio orientativo.
 
 #### Scenario: Tabela renderizada com nomes e posições
 - **WHEN** um usuário autenticado abre a página de um torneio avulso ou liga visível com partidas encerradas
@@ -13,6 +13,10 @@ O sistema SHALL oferecer a página protegida `/dashboard/torneios/[id]` exibindo
 #### Scenario: Mata-mata renderiza a chave
 - **WHEN** um usuário autenticado abre a página de um torneio mata-mata iniciado
 - **THEN** a página mostra a chave por fases no lugar da classificação por pontos
+
+#### Scenario: Grupos renderizam tabelas por grupo e a chave
+- **WHEN** um usuário autenticado abre a página de um torneio de grupos ou fase de liga iniciado
+- **THEN** a página mostra a classificação por grupo (única na fase de liga) e, quando gerada, a chave
 
 #### Scenario: Sem partidas encerradas
 - **WHEN** o torneio avulso ou liga visível ainda não tem partida encerrada
@@ -23,7 +27,7 @@ O sistema SHALL oferecer a página protegida `/dashboard/torneios/[id]` exibindo
 - **THEN** a página responde com notFound (404), sem distinguir os casos
 
 ### Requirement: Fetcher de classificação
-O sistema SHALL prover `getTournamentClassificacao` que busca o torneio (com regras, formato, opções de formato e `created_by`) e as partidas com nomes embutidos numa única viagem por recurso, executa o motor e devolve as linhas com nome resolvido, a lista de partidas encerradas (`partidasEncerradas`), a classificação de clubes (`clubes`) E as partidas em aberto (`partidasAbertas` — não-encerradas, com nomes, placar e status). A consulta de partidas SHALL incluir `posicao` e `perna` (mesma viagem — a chave do mata-mata deriva do mesmo snapshot). Torneio não retornado pela RLS SHALL resultar em `null`; falha de query SHALL lançar erro amigável.
+O sistema SHALL prover `getTournamentClassificacao` que busca o torneio (com regras, formato, opções de formato e `created_by`) e as partidas com nomes embutidos numa única viagem por recurso, executa o motor e devolve as linhas com nome resolvido, a lista de partidas encerradas (`partidasEncerradas`), a classificação de clubes (`clubes`), as partidas em aberto (`partidasAbertas`), a chave (partidas com `posicao`) E as partidas de grupos com seus números de grupo (insumo das tabelas por grupo). A consulta de partidas SHALL incluir `posicao`, `perna` e `grupo` (mesma viagem — todas as projeções derivam do mesmo snapshot). Torneio não retornado pela RLS SHALL resultar em `null`; falha de query SHALL lançar erro amigável.
 
 #### Scenario: Nomes resolvidos a partir dos embeds
 - **WHEN** as partidas retornam embeds de participantes com nomes
@@ -35,7 +39,7 @@ O sistema SHALL prover `getTournamentClassificacao` que busca o torneio (com reg
 
 #### Scenario: Todas as projeções do mesmo snapshot
 - **WHEN** o fetcher retorna
-- **THEN** classificação, histórico, clubes, partidas em aberto e a chave do mata-mata derivam da MESMA consulta de partidas
+- **THEN** classificação, histórico, clubes, partidas em aberto, chave e grupos derivam da MESMA consulta de partidas
 
 ### Requirement: Exibição de rodada nas listas de partidas
 As listas de partidas da página do torneio SHALL identificar a rodada quando a
