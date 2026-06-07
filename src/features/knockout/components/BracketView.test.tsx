@@ -220,6 +220,55 @@ describe("BracketView — disputa de 3º lugar", () => {
   })
 })
 
+describe("BracketView — rodada-base (chave após fase de grupos)", () => {
+  it("chave de 4 começando na rodada 4 rotula 'Semifinais'/'Final' pela fase RELATIVA e destaca o campeão", () => {
+    // Pós-grupos: a chave não começa na rodada 1. Semis em rodada 4, final em
+    // rodada 5. A view deriva a rodada-base (4) e trabalha com fases relativas
+    // (semis = fase 1, final = fase 2) — os rótulos são os mesmos do mata-mata
+    // puro. Final encerrada 2x1 ⇒ banner do campeão.
+    render(
+      <BracketView
+        partidas={[
+          partida({ id: "s1", rodada: 4, posicao: 1, nome_1: "Ana", nome_2: "Beto" }),
+          partida({ id: "s2", rodada: 4, posicao: 2, nome_1: "Caio", nome_2: "Dani" }),
+          partida({
+            id: "final",
+            rodada: 5,
+            posicao: 1,
+            nome_1: "Ana",
+            nome_2: "Caio",
+            placar_1: 2,
+            placar_2: 1,
+            status: "encerrada",
+          }),
+        ]}
+      />
+    )
+
+    expect(screen.getByRole("heading", { name: "Semifinais" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Final" })).toBeInTheDocument()
+    expect(screen.getByText(/Campeão: Ana/)).toBeInTheDocument()
+  })
+
+  it("chave de 4 em base != 1 com a final ainda não gerada mostra a coluna Final como placeholder", () => {
+    // Só as semis (rodada 4) existem. A coluna Final (fase relativa 2) vem do
+    // nº de fases derivado do tamanho, não das partidas: existe mesmo vazia, e
+    // o slot futuro é "A definir".
+    render(
+      <BracketView
+        partidas={[
+          partida({ id: "s1", rodada: 4, posicao: 1, nome_1: "Ana", nome_2: "Beto" }),
+          partida({ id: "s2", rodada: 4, posicao: 2, nome_1: "Caio", nome_2: "Dani" }),
+        ]}
+      />
+    )
+
+    expect(screen.getByRole("heading", { name: "Semifinais" })).toBeInTheDocument()
+    const final = screen.getByRole("region", { name: "Final" })
+    expect(within(final).getAllByText("A definir")).toHaveLength(2)
+  })
+})
+
 describe("BracketView — destaque do vencedor", () => {
   it("aplica font-semibold no vencedor de confronto encerrado e não no perdedor", () => {
     // Final encerrada 2x0: Ana vence. O nome do vencedor recebe negrito; o do

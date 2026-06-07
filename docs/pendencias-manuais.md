@@ -1201,3 +1201,255 @@ create policy participants_delete_self_or_owner on public.participants
 >
 > Rollback: recriar a policy na versão da seção 10 (cláusula só com
 > `t.status = 'ativo'`).
+
+---
+
+## 12. Supabase — formatos Grupos + mata-mata e Fase de liga (`add-group-stage-format`)
+
+Formatos estilo Copa (grupos → chave) e Champions (liga única → chave). **Sem
+isto os formatos novos ficam indisponíveis** (o form os oferece, mas o INSERT
+falha com valor de enum inexistente); os formatos existentes NÃO são afetados.
+Aplicar no **SQL Editor** em **DOIS Runs separados** — o Postgres proíbe usar
+valores novos de enum na mesma transação que os criou, e a policy do bloco B
+os referencia em DDL:
+
+- [ ] **12.1 — Bloco A (rode SOZINHO e primeiro):**
+
+```sql
+-- Novos valores do enum de formato (aditivo; idempotente).
+alter type public.tournament_format add value if not exists 'grupos_mata_mata';
+alter type public.tournament_format add value if not exists 'fase_liga';
+```
+
+- [ ] **12.2 — Bloco B (colunas + CHECKs + lock + trigger + policy):**
+
+```sql
+-- Classificados por grupo (K): gravado ao INICIAR um formato de grupos —
+-- o "Gerar mata-mata" o consome depois. NULL nos demais formatos.
+alter table public.tournaments
+  add column if not exists classificados_por_grupo integer;
+
+alter table public.tournaments drop constraint if exists tournaments_classificados_positivo;
+alter table public.tournaments
+  add constraint tournaments_classificados_positivo
+  check (classificados_por_grupo is null or classificados_por_grupo >= 1);
+
+-- Número do grupo: partida de GRUPO = grupo + rodada; partida de CHAVE =
+-- posicao + rodada (+ perna). Mutuamente exclusivos.
+alter table public.matches
+  add column if not exists grupo integer;
+
+alter table public.matches drop constraint if exists matches_grupo_positivo;
+alter table public.matches
+  add constraint matches_grupo_positivo
+  check (grupo is null or grupo >= 1);
+
+alter table public.matches drop constraint if exists matches_grupo_ou_posicao;
+alter table public.matches
+  add constraint matches_grupo_ou_posicao
+  check (grupo is null or posicao is null);
+
+-- lock_match_relations passa a travar também `grupo` (assinatura inalterada:
+-- OR REPLACE preserva grants).
+create or replace function public.lock_match_relations()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if new.participante_1 is distinct from old.participante_1
+       or new.participante_2 is distinct from old.participante_2
+       or new.tournament_id is distinct from old.tournament_id
+       or new.rodada is distinct from old.rodada
+       or new.posicao is distinct from old.posicao
+       or new.perna is distinct from old.perna
+       or new.grupo is distinct from old.grupo
+    then
+      raise exception 'Não é permitido alterar participantes, torneio, rodada, grupo ou slot da partida';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+-- valida_resultado_mata_mata passa a cobrir os TRÊS formatos com chave;
+-- regras de resultado SÓ em partidas de chave (posicao não nula) — jogo de
+-- GRUPO empata e reabre livre ATÉ a chave existir (depois a classificação
+-- foi consumida pelo cruzamento).
+create or replace function public.valida_resultado_mata_mata()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_formato public.tournament_format;
+  v_outra_status public.match_status;
+  v_outra_placar_1 integer;
+  v_outra_placar_2 integer;
+  v_encerrando boolean := new.status = 'encerrada' and old.status <> 'encerrada';
+  v_reabrindo boolean := old.status = 'encerrada' and new.status <> 'encerrada';
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) = 'service_role'
+  then
+    return new;
+  end if;
+
+  if new.rodada is null or not (v_encerrando or v_reabrindo) then
+    return new;
+  end if;
+
+  select t.formato into v_formato
+    from public.tournaments t
+   where t.id = new.tournament_id;
+  if v_formato not in ('mata_mata', 'grupos_mata_mata', 'fase_liga') then
+    return new;
+  end if;
+
+  if v_encerrando and new.posicao is not null then
+    if new.participante_1 is null or new.participante_2 is null then
+      return new; -- bye: avanço direto, sem placar a validar
+    end if;
+    if new.perna is null then
+      if new.placar_1 = new.placar_2 then
+        raise exception 'Jogo decisivo de mata-mata não pode terminar empatado';
+      end if;
+    elsif new.perna = 2 then
+      select m.status, m.placar_1, m.placar_2
+        into v_outra_status, v_outra_placar_1, v_outra_placar_2
+        from public.matches m
+       where m.tournament_id = new.tournament_id
+         and m.rodada = new.rodada
+         and m.posicao = new.posicao
+         and m.perna = 1;
+      if not found or v_outra_status <> 'encerrada' then
+        raise exception 'Encerre o jogo de ida antes do jogo de volta';
+      end if;
+      if (v_outra_placar_1 + new.placar_2) = (v_outra_placar_2 + new.placar_1) then
+        raise exception 'Agregado empatado: o placar da volta deve incluir a decisão';
+      end if;
+    elsif new.perna = 1 then
+      -- Re-encerramento da ida com a volta já fechada (reabrir→corrigir→
+      -- re-encerrar): revalida o agregado completo. Aqui NEW é a ida, então
+      -- agregado do mandante = new.placar_1 + volta.placar_2.
+      select m.status, m.placar_1, m.placar_2
+        into v_outra_status, v_outra_placar_1, v_outra_placar_2
+        from public.matches m
+       where m.tournament_id = new.tournament_id
+         and m.rodada = new.rodada
+         and m.posicao = new.posicao
+         and m.perna = 2;
+      if found and v_outra_status = 'encerrada'
+         and (new.placar_1 + v_outra_placar_2) = (new.placar_2 + v_outra_placar_1)
+      then
+        raise exception 'Agregado empatado: corrija o placar antes de encerrar';
+      end if;
+    end if;
+  end if;
+
+  if v_reabrindo then
+    if new.posicao is not null then
+      if new.participante_1 is null or new.participante_2 is null then
+        raise exception 'Partida de avanço direto (bye) não pode ser reaberta';
+      end if;
+      if exists (
+        select 1 from public.matches m
+        where m.tournament_id = new.tournament_id
+          and m.posicao is not null
+          and m.rodada > new.rodada
+      ) then
+        raise exception 'A fase seguinte já foi gerada — as fases anteriores estão congeladas';
+      end if;
+    elsif new.grupo is not null then
+      if exists (
+        select 1 from public.matches m
+        where m.tournament_id = new.tournament_id
+          and m.posicao is not null
+      ) then
+        raise exception 'O mata-mata já foi gerado — a classificação dos grupos está congelada';
+      end if;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists matches_valida_resultado_mata_mata on public.matches;
+create trigger matches_valida_resultado_mata_mata
+  before update on public.matches
+  for each row execute function public.valida_resultado_mata_mata();
+
+-- Congelamento de participants estendido aos formatos novos (a chave —
+-- atual ou FUTURA, no caso dos grupos — exige cada semeado em participants).
+drop policy if exists participants_delete_self_or_owner on public.participants;
+create policy participants_delete_self_or_owner on public.participants
+  for delete to authenticated
+  using (
+    (
+      user_id = auth.uid()
+      or exists (
+        select 1 from public.tournaments t
+        where t.id = tournament_id
+          and t.created_by = auth.uid()
+      )
+    )
+    and not exists (
+      select 1 from public.tournaments t
+      where t.id = tournament_id
+        and t.formato in ('mata_mata', 'grupos_mata_mata', 'fase_liga')
+        and (
+          t.status = 'ativo'
+          or exists (
+            select 1 from public.matches m
+            where m.tournament_id = t.id
+              and m.rodada is not null
+          )
+        )
+    )
+  );
+```
+
+- [ ] **12.3 — (recomendado) Conferir o caminho feliz**: crie um torneio
+  "Grupos + mata-mata" pela app; entre com outras contas pelo convite (4+);
+  inicie com 2 grupos × 2 classificados; encerre os jogos dos grupos; clique
+  "Gerar mata-mata" e confira a chave (semifinais com cruzamento A1×B2 /
+  B1×A2); avance até o campeão. Repita rápido com "Fase de liga".
+
+- [ ] **12.4 — (recomendado) Conferir as TRAVAS**:
+
+```sql
+-- Deve FALHAR (grupo e posicao na mesma partida):
+-- insert into public.matches (tournament_id, rodada, grupo, posicao)
+--   values ('<torneio>', 1, 1, 1);  -- via service_role
+
+-- Deve FALHAR (reabrir jogo de grupo com o mata-mata já gerado):
+-- update public.matches set status = 'em_andamento'
+--   where id = '<jogo-de-grupo-encerrado-apos-gerar-chave>';
+
+-- Deve FALHAR (sair de torneio de grupos ATIVO — 0 linhas deletadas):
+-- delete from public.participants
+--   where tournament_id = '<grupos-ativo>' and user_id = auth.uid();
+```
+
+> Fonte de verdade: `supabase/schema.sql` (enum/colunas/CHECKs,
+> lock_match_relations, valida_resultado_mata_mata, policy de participants).
+>
+> Rollback: recriar `lock_match_relations`/`valida_resultado_mata_mata` e a
+> policy `participants_delete_self_or_owner` nas versões da seção 10/11
+> (assinaturas inalteradas — CREATE OR REPLACE/DROP POLICY bastam). Depois:
+> `alter table public.matches drop constraint matches_grupo_positivo, drop constraint matches_grupo_ou_posicao;`
+> `alter table public.matches drop column grupo;`
+> `alter table public.tournaments drop constraint tournaments_classificados_positivo;`
+> `alter table public.tournaments drop column classificados_por_grupo;`
+> Os valores novos do enum NÃO são removíveis (limitação do Postgres) —
+> ficam órfãos e inofensivos.

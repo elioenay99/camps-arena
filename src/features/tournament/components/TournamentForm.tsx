@@ -56,7 +56,11 @@ export function TournamentForm() {
   // Estado local SÓ para progressive disclosure (ida-e-volta em liga e
   // mata-mata; 3º lugar só em mata-mata); o valor submetido é o do radio
   // nativo — sem ele o form continua funcional.
-  const [formato, setFormato] = useState<"avulso" | "liga" | "mata_mata">("avulso")
+  const [formato, setFormato] = useState<
+    "avulso" | "liga" | "mata_mata" | "grupos_mata_mata" | "fase_liga"
+  >("avulso")
+  const temChave =
+    formato === "mata_mata" || formato === "grupos_mata_mata" || formato === "fase_liga"
 
   return (
     <form action={formAction} className="grid gap-4" noValidate>
@@ -133,6 +137,42 @@ export function TournamentForm() {
             </span>
           </Label>
         </div>
+        <div className="flex items-start gap-2">
+          <input
+            id="formatoGrupos"
+            name="formato"
+            type="radio"
+            value="grupos_mata_mata"
+            checked={formato === "grupos_mata_mata"}
+            onChange={() => setFormato("grupos_mata_mata")}
+            className="mt-1 size-4 accent-primary"
+          />
+          <Label htmlFor="formatoGrupos" className="font-normal flex-col items-start gap-0.5">
+            Grupos + mata-mata
+            <span className="text-muted-foreground text-xs font-normal">
+              Estilo Copa: fase de grupos classificando para as eliminatórias.
+              Você define grupos e classificados ao iniciar.
+            </span>
+          </Label>
+        </div>
+        <div className="flex items-start gap-2">
+          <input
+            id="formatoFaseLiga"
+            name="formato"
+            type="radio"
+            value="fase_liga"
+            checked={formato === "fase_liga"}
+            onChange={() => setFormato("fase_liga")}
+            className="mt-1 size-4 accent-primary"
+          />
+          <Label htmlFor="formatoFaseLiga" className="font-normal flex-col items-start gap-0.5">
+            Fase de liga + mata-mata
+            <span className="text-muted-foreground text-xs font-normal">
+              Estilo Champions: todos jogam uma liga única e os melhores avançam
+              para as eliminatórias.
+            </span>
+          </Label>
+        </div>
         {formato !== "avulso" ? (
           <div className="ml-6 flex items-center gap-2">
             <input
@@ -144,11 +184,13 @@ export function TournamentForm() {
             <Label htmlFor="idaEVolta" className="font-normal">
               {formato === "liga"
                 ? "Ida e volta (dois turnos)"
-                : "Ida e volta (confrontos em dois jogos; final e 3º lugar em jogo único)"}
+                : formato === "mata_mata"
+                  ? "Ida e volta (confrontos em dois jogos; final e 3º lugar em jogo único)"
+                  : "Ida e volta (dois turnos nos grupos e duas pernas na chave; final e 3º lugar em jogo único)"}
             </Label>
           </div>
         ) : null}
-        {formato === "mata_mata" ? (
+        {temChave ? (
           <div className="ml-6 flex items-center gap-2">
             <input
               id="terceiroLugar"

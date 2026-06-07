@@ -1,6 +1,7 @@
 import {
   decidirConfronto,
   ehTerceiroLugar,
+  rodadaBaseDaChave,
   rotuloFase,
   tamanhoChaveDasPartidas,
   totalFases,
@@ -127,21 +128,25 @@ export function BracketView({
 }) {
   const s = tamanhoChaveDasPartidas(partidas)
   const fases = totalFases(s)
+  // Rodada-base: nos formatos de grupos a chave começa após as rodadas de
+  // grupos (rodadas contínuas) — a view trabalha com FASES relativas.
+  const base = rodadaBaseDaChave(partidas)
   // O 3º lugar só existe se as DUAS semifinais têm perdedor real — com bye
   // na semi (chave de 4 com N=3) ele não é gerado. Mesma regra do motor.
   const temByeNaPrimeiraFase = partidas.some(
-    (p) => p.rodada === 1 && (p.participante_1 === null || p.participante_2 === null)
+    (p) => p.rodada === base && (p.participante_1 === null || p.participante_2 === null)
   )
   const terceiroPrevisto = terceiroLugar && (s > 4 || !temByeNaPrimeiraFase)
 
-  // Agrupa por fase → slot (pernas do mesmo confronto ficam juntas).
+  // Agrupa por FASE relativa → slot (pernas do mesmo confronto juntas).
   const porFase = new Map<number, Map<number, PartidaDaChave[]>>()
   for (const p of partidas) {
-    const slots = porFase.get(p.rodada) ?? new Map<number, PartidaDaChave[]>()
+    const fase = p.rodada - base + 1
+    const slots = porFase.get(fase) ?? new Map<number, PartidaDaChave[]>()
     const doSlot = slots.get(p.posicao) ?? []
     doSlot.push(p)
     slots.set(p.posicao, doSlot)
-    porFase.set(p.rodada, slots)
+    porFase.set(fase, slots)
   }
 
   // Campeão: confronto regular (posicao 1) da rodada final decidido.

@@ -17,7 +17,9 @@ e sinalizando que houve sorteio; (d) cruza os classificados num chaveamento
 determinístico — G=1 usa bracket seeding padrão (seed 1 × seed K, 2 × K−1,
 com seeds 1 e 2 em metades opostas); G≥2 usa o padrão Copa (pares de grupos
 adjacentes, i-ésimo de um × (K+1−i)-ésimo do outro, lados alternados em
-metades opostas — mesmos grupos só se reencontram na final); (e) calcula a
+metades opostas — separação máxima possível: com K=2 mesmos grupos só se
+reencontram na final; com K≥4 dois classificados do mesmo grupo podem se
+cruzar a partir da 2ª fase); (e) calcula a
 prévia (jogos de grupos + jogos da chave, rodadas) pela MESMA fonte do motor.
 
 #### Scenario: Grupos equilibrados em qualquer N
@@ -55,15 +57,22 @@ prévia (jogos de grupos + jogos da chave, rodadas) pela MESMA fonte do motor.
 ### Requirement: Iniciar torneio de grupos com configuração no painel
 O sistema SHALL expor uma Server Action de início para os formatos
 `grupos_mata_mata` e `fase_liga` que recebe quantidade de grupos (G — fixa em
-1 na fase de liga), classificados por grupo (K) e o MODO de distribuição
-(`sorteio` | `potes` | `manual`) com o payload do modo. A action SHALL
-conferir por FILTRO dono + formato + `status = 'rascunho'`; validar G·K ∈
-{2,4,8,16,32} e K menor que o tamanho do menor grupo; inserir TODAS as
-partidas de grupos em LOTE ÚNICO (com `grupo` e `rodada`); e promover o
-torneio a `'ativo'` gravando `classificados_por_grupo` na MESMA escrita
-(ordem falha-segura; retry idempotente detecta partidas geradas e só
-promove). O modo NÃO SHALL ser persistido; corrida de dupla geração SHALL ser
-barrada pelo índice de par único (23505 → orientação de recarregar).
+1 na fase de liga; fase de liga SHALL aceitar apenas o modo sorteio),
+classificados por grupo (K) e o MODO de distribuição (`sorteio` | `potes` |
+`manual`) com o payload do modo. A action SHALL conferir por FILTRO dono +
+formato + estado; validar G·K ∈ {2,4,8,16,32} e K menor que o tamanho do
+menor grupo. A geração SHALL ser PROMOTE-FIRST: o torneio é promovido a
+`'ativo'` (gravando `classificados_por_grupo` na MESMA escrita) por UPDATE
+atômico filtrado por `status = 'rascunho'` ANTES do INSERT — o índice de par
+único NÃO barra dupla geração de grupos (sorteios concorrentes produzem
+partições diferentes cujos pares não colidem), então a promoção é a
+serialização: 0 linhas afetadas = perdedor da corrida, que aborta SEM
+inserir. Só o vencedor insere TODAS as partidas de grupos em LOTE ÚNICO (com
+`grupo` e `rodada`). Crash entre a promoção e o INSERT (torneio `ativo` sem
+partidas) SHALL ser recuperável: o re-run rebaixa atomicamente para
+`rascunho` (UPDATE filtrado por `ativo` — recuperadores concorrentes também
+serializam) e refaz o fluxo; a página SHALL reexibir o painel de início nesse
+estado. O modo NÃO SHALL ser persistido.
 
 #### Scenario: Iniciar gera os grupos e ativa
 - **WHEN** o dono inicia um torneio de grupos em rascunho com G, K e modo válidos
@@ -77,9 +86,13 @@ barrada pelo índice de par único (23505 → orientação de recarregar).
 - **WHEN** G·K não é potência de 2 suportada, ou K não cabe no menor grupo
 - **THEN** a action rejeita com mensagem clara e nada é inserido
 
-#### Scenario: Retry idempotente
-- **WHEN** o Iniciar é repetido após falha na promoção
-- **THEN** as partidas não são re-inseridas; o status é promovido e K gravado
+#### Scenario: Perdedor da corrida não insere
+- **WHEN** duas submissões de início concorrem (duas abas)
+- **THEN** apenas a que promoveu o status (1 linha afetada) insere as partidas; a outra recebe orientação de recarregar sem inserir nada
+
+#### Scenario: Crash entre promoção e INSERT é recuperável
+- **WHEN** o torneio ficou `ativo` sem nenhuma partida gerada e o dono reabre a página
+- **THEN** o painel de início reaparece e o re-run rebaixa para rascunho, repromove e insere normalmente
 
 ### Requirement: Geração do mata-mata a partir dos grupos
 O sistema SHALL expor a Server Action `gerarMataMataDosGrupos` que, conferindo

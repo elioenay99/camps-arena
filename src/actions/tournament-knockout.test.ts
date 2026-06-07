@@ -49,9 +49,9 @@ interface PartidaPersistida {
 interface Cenario {
   user?: { id: string } | null
   authError?: boolean
-  /** Lookup do torneio (dono + mata_mata + estado). */
+  /** Lookup do torneio (dono + formato + estado). */
   torneio?:
-    | { id: string; ida_e_volta: boolean; terceiro_lugar: boolean }
+    | { id: string; ida_e_volta: boolean; terceiro_lugar: boolean; formato?: string }
     | null
   torneioError?: boolean
   /** Partidas com rodada já existentes (detecção de chave gerada). */
@@ -99,6 +99,10 @@ function montarClient(c: Cenario) {
   const cadeiaTorneioSelect = {
     eq: vi.fn((col: string, val: unknown) => {
       filtroTorneioSpy("eq", col, val)
+      return cadeiaTorneioSelect
+    }),
+    in: vi.fn((col: string, val: unknown) => {
+      filtroTorneioSpy("in", col, val)
       return cadeiaTorneioSelect
     }),
     maybeSingle: vi.fn(async () => ({
@@ -677,19 +681,46 @@ describe("avancarFase", () => {
     expect(insertSpy).not.toHaveBeenCalled()
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
-    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "formato", "mata_mata")
+    expect(filtroTorneioSpy).toHaveBeenCalledWith("in", "formato", [
+      "mata_mata",
+      "grupos_mata_mata",
+      "fase_liga",
+    ])
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "status", "ativo")
   })
 
   it("chave não gerada (0 partidas) vira erro próprio, sem escrever", async () => {
     const { insertSpy } = montarClient({
       user: { id: DONO },
-      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      torneio: {
+        id: TORNEIO,
+        ida_e_volta: false,
+        terceiro_lugar: false,
+        formato: "mata_mata",
+      },
       partidas: [],
     })
     const r = await avancarFase(TORNEIO)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toMatch(/ainda não foi gerada/i)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it("formato de grupos sem chave orienta a gerar o mata-mata primeiro", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: {
+        id: TORNEIO,
+        ida_e_volta: false,
+        terceiro_lugar: false,
+        formato: "grupos_mata_mata",
+      },
+      // Só partidas de GRUPO (posicao null): a chave ainda não existe.
+      partidas: [jogada({ posicao: null, participante_1: A, participante_2: B })],
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/gere o mata-mata/i)
     expect(insertSpy).not.toHaveBeenCalled()
   })
 

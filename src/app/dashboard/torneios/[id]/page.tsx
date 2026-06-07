@@ -5,10 +5,14 @@ import { z } from "zod";
 
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
+import { GerarMataMataButton } from "@/features/groups/components/GerarMataMataButton";
+import { IniciarGruposPanel } from "@/features/groups/components/IniciarGruposPanel";
+import { rotuloGrupo } from "@/features/groups/gerarFaseDeGrupos";
 import { AvancarFaseButton } from "@/features/knockout/components/AvancarFaseButton";
 import { BracketView } from "@/features/knockout/components/BracketView";
 import { IniciarMataMataPanel } from "@/features/knockout/components/IniciarMataMataPanel";
 import {
+  rodadaBaseDaChave,
   tamanhoChaveDasPartidas,
   totalFases,
 } from "@/features/knockout/gerarChaveMataMata";
@@ -77,8 +81,15 @@ export default async function TorneioPage({
     notFound();
   }
 
-  const { torneio, linhas, partidasEncerradas, clubes, partidasAbertas, chave } =
-    classificacao;
+  const {
+    torneio,
+    linhas,
+    partidasEncerradas,
+    clubes,
+    partidasAbertas,
+    chave,
+    grupos,
+  } = classificacao;
   const titulo = torneio.titulo.trim() || "Torneio";
   // Console do dono para PARTIDAS (encerrar/reabrir partida). O botão é UX —
   // a autorização real é a action + RLS + trigger de matches. Torneio
@@ -87,32 +98,66 @@ export default async function TorneioPage({
   // semeados) não tem console.
   const ehDono = torneio.created_by !== null && torneio.created_by === user.id;
   const podeGerirPartidas = ehDono && torneio.status !== "encerrado";
-  // Formato gerado (liga/mata-mata): partidas nascem da geração (sem "Nova
-  // partida"); o painel de início só existe no rascunho do dono.
+  // Formato gerado: partidas nascem da geração (sem "Nova partida"); o
+  // painel de início só existe no rascunho do dono.
   const ehLiga = torneio.formato === "liga";
   const ehMataMata = torneio.formato === "mata_mata";
+  const ehFaseLiga = torneio.formato === "fase_liga";
+  const ehGrupos = torneio.formato === "grupos_mata_mata" || ehFaseLiga;
+  const ehGerado = ehLiga || ehMataMata || ehGrupos;
+  // Grupos: o painel também aparece em ATIVO sem nenhuma partida gerada —
+  // estado de RECUPERAÇÃO do fluxo promote-first (crash entre a promoção e o
+  // INSERT); a action rebaixa para rascunho e refaz (ver iniciarTorneioGrupos).
+  const gruposEmRecuperacao =
+    ehGrupos &&
+    torneio.status === "ativo" &&
+    grupos.length === 0 &&
+    chave.length === 0;
   const mostrarIniciar =
-    ehDono && (ehLiga || ehMataMata) && torneio.status === "rascunho";
+    ehDono &&
+    ehGerado &&
+    (torneio.status === "rascunho" || gruposEmRecuperacao);
 
-  // Avançar fase: dono de mata-mata ativo com chave gerada e final ainda não
-  // criada (a action revalida tudo; o gate aqui é UX). Geometria derivada da
-  // PRÓPRIA chave — o nº atual de participantes pode ter mudado (saídas).
+  // Avançar fase: dono de formato com chave, ativo, chave gerada e final
+  // ainda não criada (a action revalida tudo; o gate aqui é UX). Geometria
+  // derivada da PRÓPRIA chave em FASES RELATIVAS (rodada-base ≠ 1 nos
+  // formatos de grupos — rodadas contínuas).
   const fasesTotais = chave.length > 0 ? totalFases(tamanhoChaveDasPartidas(chave)) : 0;
-  const faseAtual = chave.length > 0 ? Math.max(...chave.map((p) => p.rodada)) : 0;
+  const faseAtual =
+    chave.length > 0
+      ? Math.max(...chave.map((p) => p.rodada)) - rodadaBaseDaChave(chave) + 1
+      : 0;
   const mostrarAvancar =
     podeGerirPartidas &&
-    ehMataMata &&
+    (ehMataMata || ehGrupos) &&
     torneio.status === "ativo" &&
     chave.length > 0 &&
     faseAtual < fasesTotais;
 
+  // Gerar mata-mata (formatos de grupos): dono, ativo, grupos gerados e
+  // chave ainda não criada. `pendentes` orienta o que falta (gate de UX).
+  const jogosDeGrupoPendentes = partidasAbertas.filter(
+    (p) => p.grupo !== null
+  ).length;
+  const mostrarGerarMataMata =
+    podeGerirPartidas &&
+    ehGrupos &&
+    torneio.status === "ativo" &&
+    grupos.length > 0 &&
+    chave.length === 0;
+
   // Rótulo do formato no subtítulo; pontuação só onde há classificação por
-  // pontos (mata-mata é eliminatória — exibir 3/1/0 ali seria ruído).
+  // pontos (mata-mata puro é eliminatória — exibir 3/1/0 ali seria ruído).
+  const sufixoOpcoes = `${torneio.ida_e_volta ? " (ida e volta)" : ""}${torneio.terceiro_lugar ? " com 3º lugar" : ""}`;
   const rotuloFormato = ehLiga
     ? `Liga${torneio.ida_e_volta ? " (ida e volta)" : ""}`
     : ehMataMata
-      ? `Mata-mata${torneio.ida_e_volta ? " (ida e volta)" : ""}${torneio.terceiro_lugar ? " com 3º lugar" : ""}`
-      : "Torneio";
+      ? `Mata-mata${sufixoOpcoes}`
+      : ehFaseLiga
+        ? `Fase de liga + mata-mata${sufixoOpcoes}`
+        : ehGrupos
+          ? `Grupos + mata-mata${sufixoOpcoes}`
+          : "Torneio";
   const subtitulo = `${rotuloFormato} ${LABEL_STATUS[torneio.status]}${
     ehMataMata
       ? ""
@@ -136,7 +181,7 @@ export default async function TorneioPage({
         </div>
         {/* Formato gerado não aceita partida manual: as partidas nascem da
             tabela/chave. */}
-        {podeGerirPartidas && !ehLiga && !ehMataMata ? (
+        {podeGerirPartidas && !ehGerado ? (
           <Button asChild size="sm">
             <Link href={`/dashboard/torneios/${id}/partidas/nova`}>
               Nova partida
@@ -162,8 +207,18 @@ export default async function TorneioPage({
         />
       ) : null}
 
-      {/* Mata-mata: a CHAVE substitui a classificação por pontos (e a de
-          clubes) — pontos corridos não significam nada em eliminatória. */}
+      {mostrarIniciar && ehGrupos ? (
+        <IniciarGruposPanel
+          tournamentId={id}
+          participantes={participantes}
+          idaEVolta={torneio.ida_e_volta}
+          terceiroLugar={torneio.terceiro_lugar}
+          faseLiga={ehFaseLiga}
+        />
+      ) : null}
+
+      {/* Mata-mata puro: a CHAVE substitui a classificação por pontos (e a
+          de clubes) — pontos corridos não significam nada em eliminatória. */}
       {ehMataMata ? (
         <section aria-labelledby="chave-titulo" className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -180,7 +235,76 @@ export default async function TorneioPage({
             <BracketView partidas={chave} terceiroLugar={torneio.terceiro_lugar} />
           )}
         </section>
-      ) : (
+      ) : null}
+
+      {/* Formatos de grupos: classificação POR GRUPO (única na fase de
+          liga) + a chave quando gerada. */}
+      {ehGrupos ? (
+        <>
+          <section
+            aria-labelledby="grupos-titulo"
+            className="flex flex-col gap-4"
+          >
+            <h2 id="grupos-titulo" className="text-lg font-semibold">
+              {ehFaseLiga ? "Classificação" : "Fase de grupos"}
+            </h2>
+            {grupos.length === 0 ? (
+              <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+                Os grupos aparecem quando o torneio for iniciado.
+              </p>
+            ) : (
+              grupos.map((g) => (
+                <div key={g.grupo} className="flex flex-col gap-2">
+                  {!ehFaseLiga ? (
+                    <h3 className="text-sm font-medium">{rotuloGrupo(g.grupo)}</h3>
+                  ) : null}
+                  {g.linhas.length === 0 ? (
+                    <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center text-sm">
+                      A classificação aparece depois da primeira partida
+                      encerrada.
+                    </p>
+                  ) : (
+                    <StandingsTable linhas={g.linhas} />
+                  )}
+                </div>
+              ))
+            )}
+          </section>
+
+          {grupos.length > 0 ? (
+            <section
+              aria-labelledby="chave-grupos-titulo"
+              className="flex flex-col gap-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 id="chave-grupos-titulo" className="text-lg font-semibold">
+                  Mata-mata
+                </h2>
+                {mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : null}
+              </div>
+              {chave.length === 0 ? (
+                mostrarGerarMataMata ? (
+                  <GerarMataMataButton
+                    tournamentId={id}
+                    pendentes={jogosDeGrupoPendentes}
+                  />
+                ) : (
+                  <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-8 text-center text-sm">
+                    O mata-mata aparece quando a fase de grupos terminar.
+                  </p>
+                )
+              ) : (
+                <BracketView
+                  partidas={chave}
+                  terceiroLugar={torneio.terceiro_lugar}
+                />
+              )}
+            </section>
+          ) : null}
+        </>
+      ) : null}
+
+      {!ehMataMata && !ehGrupos ? (
         <section aria-labelledby="classificacao-titulo" className="flex flex-col gap-4">
           <h2 id="classificacao-titulo" className="text-lg font-semibold">
             Classificação
@@ -193,7 +317,7 @@ export default async function TorneioPage({
             <StandingsTable linhas={linhas} />
           )}
         </section>
-      )}
+      ) : null}
 
       {/* Em aberto: contexto para todos; botão Encerrar só para o dono. */}
       {partidasAbertas.length > 0 ? (
@@ -240,7 +364,8 @@ export default async function TorneioPage({
         ehDono={ehDono}
         torneioEncerrado={torneio.status === "encerrado"}
         listaCongelada={
-          ehMataMata && (torneio.status === "ativo" || chave.length > 0)
+          (ehMataMata || ehGrupos) &&
+          (torneio.status === "ativo" || chave.length > 0 || grupos.length > 0)
         }
       />
 

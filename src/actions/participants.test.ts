@@ -77,11 +77,18 @@ function montarClient(c: Cenario) {
         filtroSpy("neq", col, val)
         return cadeia
       }),
+      in: vi.fn((col: string, val: unknown) => {
+        filtroSpy("in", col, val)
+        filtros.push([`in:${col}`, val])
+        return cadeia
+      }),
       maybeSingle: vi.fn(async () => {
         const incompativel = filtros.some(
           ([col, val]) =>
-            col === "formato" &&
-            (c.torneio?.formato ?? "avulso") !== val
+            (col === "formato" &&
+              (c.torneio?.formato ?? "avulso") !== val) ||
+            (col === "in:formato" &&
+              !(val as string[]).includes(c.torneio?.formato ?? "avulso"))
         )
         return {
           data: incompativel ? null : (c.torneio ?? null),
@@ -250,9 +257,14 @@ describe("sairDoTorneio", () => {
     })
     const r = await sairDoTorneio(TORNEIO)
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/chave.*já foi gerada/i)
+    if (!r.ok) expect(r.error).toMatch(/disputa.*já foi gerada/i)
     expect(deleteSpy).not.toHaveBeenCalled()
-    expect(filtroSpy).toHaveBeenCalledWith("eq", "formato", "mata_mata")
+    // O gate filtra pelos formatos COM CHAVE (mata-mata, grupos, fase de liga).
+    expect(filtroSpy).toHaveBeenCalledWith("in", "formato", [
+      "mata_mata",
+      "grupos_mata_mata",
+      "fase_liga",
+    ])
   })
 
   it("mata-mata ENCERRADO com chave gerada também congela (encerrado é reabrível)", async () => {
@@ -265,7 +277,7 @@ describe("sairDoTorneio", () => {
     })
     const r = await sairDoTorneio(TORNEIO)
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/chave.*já foi gerada/i)
+    if (!r.ok) expect(r.error).toMatch(/disputa.*já foi gerada/i)
     expect(deleteSpy).not.toHaveBeenCalled()
   })
 
@@ -356,7 +368,7 @@ describe("removerParticipante", () => {
     })
     const r = await removerParticipante({ tournamentId: TORNEIO, userId: ALVO })
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/chave.*já foi gerada/i)
+    if (!r.ok) expect(r.error).toMatch(/disputa.*já foi gerada/i)
     expect(deleteSpy).not.toHaveBeenCalled()
   })
 
@@ -368,7 +380,7 @@ describe("removerParticipante", () => {
     })
     const r = await removerParticipante({ tournamentId: TORNEIO, userId: ALVO })
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/chave.*já foi gerada/i)
+    if (!r.ok) expect(r.error).toMatch(/disputa.*já foi gerada/i)
     expect(deleteSpy).not.toHaveBeenCalled()
   })
 

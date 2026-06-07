@@ -20,6 +20,18 @@ import type { MatchStatus } from "@/lib/supabase/database.types"
 /** Limite de participantes (chave de 32 → 5 fases). */
 export const MATA_MATA_MAX_PARTICIPANTES = 32
 
+/**
+ * Formatos cuja disputa inclui uma CHAVE eliminatória (atual ou futura).
+ * Compartilhado por actions/policies de congelamento e avanço de fase.
+ */
+export const FORMATOS_COM_CHAVE = [
+  "mata_mata",
+  "grupos_mata_mata",
+  "fase_liga",
+] as const
+
+export type FormatoComChave = (typeof FORMATOS_COM_CHAVE)[number]
+
 /** Tamanhos de chave válidos no modo potes (sem byes — chave completa). */
 export const TAMANHOS_POTES = [4, 8, 16, 32] as const
 
@@ -220,18 +232,21 @@ export function montarConfrontosManual(
 /**
  * Partidas da 1ª fase a partir dos confrontos montados. Ida-e-volta gera as
  * duas pernas com lados invertidos — EXCETO quando a 1ª fase já é a final
- * (N <= 2): final é sempre jogo único (decisão de produto).
+ * (confronto único): final é sempre jogo único (decisão de produto).
+ * `rodadaBase` (default 1) permite à chave começar APÓS outra fase (formatos
+ * de grupos usam rodadas contínuas — ver D2 do add-group-stage-format).
  */
 export function gerarFaseInicial(
   confrontos: ConfrontoChave[],
-  idaEVolta: boolean
+  idaEVolta: boolean,
+  rodadaBase = 1
 ): PartidaChave[] {
   const ehFinal = confrontos.length === 1
   return confrontos.flatMap((c): PartidaChave[] => {
     if (c.participante_2 === null) {
       return [
         {
-          rodada: 1,
+          rodada: rodadaBase,
           posicao: c.posicao,
           perna: null,
           participante_1: c.participante_1,
@@ -243,7 +258,7 @@ export function gerarFaseInicial(
     if (idaEVolta && !ehFinal) {
       return [
         {
-          rodada: 1,
+          rodada: rodadaBase,
           posicao: c.posicao,
           perna: 1,
           participante_1: c.participante_1,
@@ -251,7 +266,7 @@ export function gerarFaseInicial(
           bye: false,
         },
         {
-          rodada: 1,
+          rodada: rodadaBase,
           posicao: c.posicao,
           perna: 2,
           participante_1: c.participante_2,
@@ -262,7 +277,7 @@ export function gerarFaseInicial(
     }
     return [
       {
-        rodada: 1,
+        rodada: rodadaBase,
         posicao: c.posicao,
         perna: null,
         participante_1: c.participante_1,
@@ -325,29 +340,50 @@ export function decidirConfronto(
 /** Slot do 3º lugar: convive com a final (posicao 1) na rodada final. */
 export const POSICAO_TERCEIRO_LUGAR = 2
 
-/** A disputa de 3º lugar é a posicao 2 da rodada final. */
+/**
+ * A disputa de 3º lugar é a posicao 2 da FASE final. `faseRelativa` =
+ * rodada − rodadaBase + 1 (chamadores que trabalham com rodadas contínuas
+ * normalizam antes; no mata-mata puro base = 1 e fase = rodada).
+ */
 export function ehTerceiroLugar(
-  rodada: number | null,
+  faseRelativa: number | null,
   posicao: number | null,
   fases: number
 ): boolean {
-  return rodada === fases && posicao === POSICAO_TERCEIRO_LUGAR
+  return faseRelativa === fases && posicao === POSICAO_TERCEIRO_LUGAR
+}
+
+/**
+ * Rodada-base da chave: a MENOR rodada entre as partidas com `posicao`. No
+ * mata-mata puro é 1; nos formatos de grupos a chave começa após as rodadas
+ * de grupos (rodadas contínuas — colisão de par no índice único é evitada
+ * por construção).
+ */
+export function rodadaBaseDaChave(partidas: PartidaJogada[]): number {
+  let menor = Number.POSITIVE_INFINITY
+  for (const p of partidas) {
+    if (p.posicao !== null && p.rodada !== null && p.rodada < menor) {
+      menor = p.rodada
+    }
+  }
+  if (!Number.isFinite(menor)) {
+    throw new Error("Chave sem partidas geradas.")
+  }
+  return menor
 }
 
 /**
  * Tamanho da chave derivado das PARTIDAS persistidas (2 × maior posicao da
- * fase 1 — byes incluídos). Não usa o nº atual de participantes: sair do
- * torneio depois de iniciado não pode mudar a geometria da chave.
+ * fase inicial — byes incluídos). Não usa o nº atual de participantes: sair
+ * do torneio depois de iniciado não pode mudar a geometria da chave.
  */
 export function tamanhoChaveDasPartidas(partidas: PartidaJogada[]): number {
+  const base = rodadaBaseDaChave(partidas)
   let maior = 0
   for (const p of partidas) {
-    if (p.rodada === 1 && p.posicao !== null && p.posicao > maior) {
+    if (p.rodada === base && p.posicao !== null && p.posicao > maior) {
       maior = p.posicao
     }
-  }
-  if (maior === 0) {
-    throw new Error("Chave sem partidas na primeira fase.")
   }
   return maior * 2
 }
@@ -372,7 +408,11 @@ export function gerarProximaFase(
   )
   const s = tamanhoChaveDasPartidas(geradas)
   const fases = totalFases(s)
-  const faseAtual = Math.max(...geradas.map((p) => p.rodada))
+  const base = rodadaBaseDaChave(geradas)
+  const rodadaAtual = Math.max(...geradas.map((p) => p.rodada))
+  // Fase RELATIVA: a chave pode começar após as rodadas de grupos (rodadas
+  // contínuas) — a geometria é a mesma do mata-mata puro (base = 1).
+  const faseAtual = rodadaAtual - base + 1
   if (faseAtual >= fases) {
     return [] // final (e 3º lugar, se houver) já gerados — torneio decidido
   }
@@ -380,7 +420,7 @@ export function gerarProximaFase(
   // Agrupa a fase atual por slot e decide cada confronto.
   const porSlot = new Map<number, PartidaJogada[]>()
   for (const p of geradas) {
-    if (p.rodada !== faseAtual) continue
+    if (p.rodada !== rodadaAtual) continue
     const lista = porSlot.get(p.posicao) ?? []
     lista.push(p)
     porSlot.set(p.posicao, lista)
@@ -402,7 +442,7 @@ export function gerarProximaFase(
     resultados.push(resultado)
   }
 
-  const proxima = faseAtual + 1
+  const proxima = rodadaAtual + 1
   const ehFinal = slotsEsperados / 2 === 1
   const novas: PartidaChave[] = []
   for (let i = 0; i < slotsEsperados / 2; i++) {

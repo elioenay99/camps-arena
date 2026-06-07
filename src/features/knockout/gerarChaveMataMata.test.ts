@@ -12,6 +12,7 @@ import {
   montarConfrontosSorteio,
   POSICAO_TERCEIRO_LUGAR,
   previaMataMata,
+  rodadaBaseDaChave,
   rotuloFase,
   tamanhoChave,
   tamanhoChaveDasPartidas,
@@ -499,5 +500,172 @@ describe("rótulos e 3º lugar", () => {
     expect(ehTerceiroLugar(2, 1, 2)).toBe(false)
     expect(ehTerceiroLugar(1, 2, 2)).toBe(false)
     expect(ehTerceiroLugar(null, null, 2)).toBe(false)
+  })
+})
+
+/**
+ * Rodada-base != 1 — a chave nasce APÓS a fase de grupos (rodadas contínuas,
+ * D2 do add-group-stage-format). O motor não pode mais assumir "fase 1 =
+ * rodada 1": tamanho, base e avanço derivam das partidas com `posicao`, e as
+ * partidas de GRUPO (posicao null) que convivem no mesmo lote são ignoradas.
+ */
+describe("rodada-base (chave após fase de grupos)", () => {
+  /** Partidas de grupo do mesmo torneio: têm rodada mas NÃO têm posicao. */
+  function partidasDeGrupo(): PartidaJogada[] {
+    return [1, 2, 3].map((rodada) => ({
+      rodada,
+      posicao: null,
+      perna: null,
+      participante_1: "g1",
+      participante_2: "g2",
+      placar_1: 1,
+      placar_2: 0,
+      status: "encerrada" as const,
+    }))
+  }
+
+  it("gerarFaseInicial com rodadaBase posiciona toda a fase na rodada informada", () => {
+    const partidas = gerarFaseInicial(
+      montarConfrontosSorteio(ids(4), identidade),
+      false,
+      5
+    )
+    expect(partidas).toHaveLength(2)
+    expect(partidas.every((p) => p.rodada === 5)).toBe(true)
+  })
+
+  it("rodadaBaseDaChave ignora partidas sem posicao e acha a MENOR rodada com posicao", () => {
+    // Partidas de grupo (posicao null, rodadas 1..3) NÃO podem rebaixar a base
+    // da chave: a base é o piso das rodadas que têm posicao (a chave em si).
+    const chave = gerarFaseInicial(
+      montarConfrontosSorteio(ids(4), identidade),
+      false,
+      5
+    )
+    const todas: PartidaJogada[] = [
+      ...partidasDeGrupo(),
+      ...chave.map((p) => ({
+        rodada: p.rodada,
+        posicao: p.posicao,
+        perna: p.perna,
+        participante_1: p.participante_1,
+        participante_2: p.participante_2,
+        placar_1: 0,
+        placar_2: 0,
+        status: "agendada" as const,
+      })),
+    ]
+    expect(rodadaBaseDaChave(todas)).toBe(5)
+  })
+
+  it("tamanhoChaveDasPartidas mede a chave na rodada-base (não na rodada 1)", () => {
+    // Posicoes 1 e 2 na rodada 5 ⇒ chave de 4, mesmo com lixo de grupo antes.
+    const chave = encerrarFase(
+      gerarFaseInicial(montarConfrontosSorteio(ids(4), identidade), false, 5)
+    )
+    expect(tamanhoChaveDasPartidas([...partidasDeGrupo(), ...chave])).toBe(4)
+  })
+
+  it("gerarProximaFase: chave de 4 na base 5 encerra a fase 1 e gera a FINAL na rodada 6, ignorando partidas de grupo no lote", () => {
+    // Fase 1 = rodada 5 encerrada ⇒ próxima fase (final) na rodada 6. As
+    // partidas de grupo (rodada 1..3, posicao null) compartilham o lote mas
+    // são filtradas: não viram base, não viram slot, não afetam o avanço.
+    const semis = encerrarFase(
+      gerarFaseInicial(montarConfrontosSorteio(ids(4), identidade), false, 5)
+    )
+    const proxima = gerarProximaFase([...partidasDeGrupo(), ...semis], {
+      idaEVolta: false,
+      terceiroLugar: false,
+    })
+    expect(proxima).toHaveLength(1)
+    expect(proxima[0]).toMatchObject({
+      rodada: 6,
+      posicao: 1,
+      participante_1: "p01",
+      participante_2: "p03",
+    })
+  })
+
+  it("semifinais em base != 1 com 3º lugar geram final + 3º na rodada certa", () => {
+    // Chave de 4 começando na rodada 7: a fase final cai na rodada 8 (final
+    // posicao 1 + disputa de 3º posicao 2), independente da base.
+    const semis = encerrarFase(
+      gerarFaseInicial(montarConfrontosSorteio(ids(4), identidade), false, 7)
+    )
+    const finalETerceiro = gerarProximaFase(semis, {
+      idaEVolta: false,
+      terceiroLugar: true,
+    })
+    expect(finalETerceiro).toHaveLength(2)
+    expect(finalETerceiro[0]).toMatchObject({
+      rodada: 8,
+      posicao: 1,
+      participante_1: "p01",
+      participante_2: "p03",
+    })
+    expect(finalETerceiro[1]).toMatchObject({
+      rodada: 8,
+      posicao: POSICAO_TERCEIRO_LUGAR,
+      participante_1: "p02",
+      participante_2: "p04",
+    })
+  })
+
+  it("chave em base 5 já decidida (final existe) → nada a gerar ([])", () => {
+    // Chave de 2 começando na rodada 5: a fase 1 (rodada 5) JÁ é a final.
+    // Encerrada, faseAtual === fases ⇒ avanço devolve [].
+    const finalUnica = encerrarFase(
+      gerarFaseInicial(montarConfrontosSorteio(ids(2), identidade), false, 5)
+    )
+    expect(
+      gerarProximaFase([...partidasDeGrupo(), ...finalUnica], {
+        idaEVolta: false,
+        terceiroLugar: false,
+      })
+    ).toEqual([])
+  })
+
+  it("equivalência: a MESMA chave em base 1 e base 7 produz os mesmos resultados relativos", () => {
+    // Invariância da generalização: deslocar a rodada-base não muda a chave —
+    // só as rodadas absolutas. Normalizando pela base (fase relativa), as duas
+    // execuções coincidem em posicao/perna/participantes/fase.
+    function simular(base: number) {
+      const confrontos = montarConfrontosSorteio(ids(8), identidade)
+      const fase = gerarFaseInicial(confrontos, false, base)
+      const todas: PartidaJogada[] = [...encerrarFase(fase)]
+      const eventos: Array<{
+        faseRelativa: number
+        posicao: number
+        perna: number | null
+        participante_1: string
+        participante_2: string | null
+      }> = fase.map((p) => ({
+        faseRelativa: p.rodada - base + 1,
+        posicao: p.posicao,
+        perna: p.perna,
+        participante_1: p.participante_1,
+        participante_2: p.participante_2,
+      }))
+      for (;;) {
+        const proxima = gerarProximaFase(todas, {
+          idaEVolta: false,
+          terceiroLugar: false,
+        })
+        if (proxima.length === 0) break
+        for (const p of proxima) {
+          eventos.push({
+            faseRelativa: p.rodada - base + 1,
+            posicao: p.posicao,
+            perna: p.perna,
+            participante_1: p.participante_1,
+            participante_2: p.participante_2,
+          })
+        }
+        todas.push(...encerrarFase(proxima))
+      }
+      return eventos
+    }
+
+    expect(simular(7)).toEqual(simular(1))
   })
 })

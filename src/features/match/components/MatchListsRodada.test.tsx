@@ -28,6 +28,7 @@ describe("rótulo de rodada nas listas de partidas", () => {
             status: "agendada",
             rodada: 2,
             perna: null,
+            grupo: null,
           },
           {
             id: "m2",
@@ -38,6 +39,7 @@ describe("rótulo de rodada nas listas de partidas", () => {
             status: "em_andamento",
             rodada: null,
             perna: null,
+            grupo: null,
           },
         ]}
       />
@@ -62,6 +64,7 @@ describe("rótulo de rodada nas listas de partidas", () => {
             status: "agendada",
             rodada: 1,
             perna: 1,
+            grupo: null,
           },
           {
             id: "m2",
@@ -72,6 +75,7 @@ describe("rótulo de rodada nas listas de partidas", () => {
             status: "agendada",
             rodada: 1,
             perna: 2,
+            grupo: null,
           },
         ]}
       />
@@ -94,6 +98,7 @@ describe("rótulo de rodada nas listas de partidas", () => {
             encerradaEm: "2026-06-04T12:00:00Z",
             rodada: 5,
             perna: null,
+            grupo: null,
           },
           {
             id: "m2",
@@ -104,6 +109,7 @@ describe("rótulo de rodada nas listas de partidas", () => {
             encerradaEm: "2026-06-03T12:00:00Z",
             rodada: null,
             perna: null,
+            grupo: null,
           },
         ]}
       />

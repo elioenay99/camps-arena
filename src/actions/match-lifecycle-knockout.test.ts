@@ -78,6 +78,7 @@ function montarClient(c: Cenario) {
       })
       cadeia.eq = vi.fn(() => cadeia)
       cadeia.gt = vi.fn(() => cadeia)
+      cadeia.not = vi.fn(() => cadeia)
       cadeia.maybeSingle = vi.fn(ehPartida ? terminalPartida : terminalAux)
       cadeia.limit = vi.fn(terminalAux)
       return cadeia
@@ -334,5 +335,40 @@ describe("lifecycle de mata-mata só dispara em torneio mata_mata com rodada", (
     const r = await encerrarPartida(PARTIDA)
     expect(r).toEqual({ ok: true })
     expect(updateSpy).toHaveBeenCalledWith({ status: "encerrada" })
+  })
+})
+
+describe("formatos de grupos — lifecycle de partida de GRUPO", () => {
+  it("encerrar jogo de GRUPO empatado passa (empate pontua na classificação)", async () => {
+    const { updateSpy } = montarClient({
+      formato: "grupos_mata_mata",
+      match: partida({ posicao: null, perna: null, placar_1: 1, placar_2: 1 }),
+    })
+    const r = await encerrarPartida(PARTIDA)
+    expect(r).toEqual({ ok: true })
+    expect(updateSpy).toHaveBeenCalledWith({ status: "encerrada" })
+  })
+
+  it("reabrir jogo de GRUPO com o mata-mata já gerado é barrado com mensagem precisa", async () => {
+    const { updateSpy } = montarClient({
+      formato: "grupos_mata_mata",
+      match: partida({ posicao: null, status: "encerrada" }),
+      aux: [{ id: "partida-da-chave" }],
+    })
+    const r = await reabrirPartida(PARTIDA)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/mata-mata já foi gerado/i)
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("reabrir jogo de GRUPO antes da chave existir segue livre", async () => {
+    const { updateSpy } = montarClient({
+      formato: "fase_liga",
+      match: partida({ posicao: null, status: "encerrada" }),
+      aux: [],
+    })
+    const r = await reabrirPartida(PARTIDA)
+    expect(r).toEqual({ ok: true })
+    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento" })
   })
 })

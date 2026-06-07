@@ -34,7 +34,7 @@ export const createTournamentSchema = z
       .max(80, "Título muito longo."),
     isPublic: z.boolean().default(true),
     formato: z
-      .enum(["avulso", "liga", "mata_mata"], {
+      .enum(["avulso", "liga", "mata_mata", "grupos_mata_mata", "fase_liga"], {
         error: "Formato de torneio inválido.",
       })
       .default("avulso"),
@@ -73,3 +73,31 @@ export const iniciarMataMataSchema = z.object({
 })
 
 export type IniciarMataMataInput = z.infer<typeof iniciarMataMataSchema>
+
+/**
+ * Início de torneio de grupos (grupos_mata_mata/fase_liga): G, K e o modo
+ * chegam do form do painel — só K persiste (coluna). O Zod valida a FORMA;
+ * a geometria (G·K potência de 2, K < menor grupo) e a coerência com os
+ * participantes ficam na action/motor.
+ */
+export const iniciarGruposSchema = z.object({
+  tournamentId: z.uuid({ error: "Torneio inválido." }),
+  modo: z.enum(["sorteio", "potes", "manual"], {
+    error: "Modo de distribuição inválido.",
+  }),
+  qtdGrupos: z
+    .number({ error: "Quantidade de grupos inválida." })
+    .int()
+    .min(1)
+    .max(8),
+  classificadosPorGrupo: z
+    .number({ error: "Classificados por grupo inválido." })
+    .int()
+    .min(1)
+    .max(16),
+  cabecas: z.array(z.uuid()).default([]),
+  /** Modo manual: grupo escolhido por participante (uuid → nº do grupo). */
+  atribuicao: z.array(z.tuple([z.uuid(), z.number().int().min(1).max(8)])).default([]),
+})
+
+export type IniciarGruposInput = z.infer<typeof iniciarGruposSchema>

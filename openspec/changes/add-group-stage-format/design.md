@@ -75,8 +75,11 @@ máxima 1, distribuição round-robin dos sorteados); K < tamanho do MENOR grupo
 - **G≥2**: grupos em pares adjacentes (A,B), (C,D)…; dentro de cada par,
   confrontos i-ésimo de um × (K+1−i)-ésimo do outro, alternando o grupo
   "mandante" (A1×B2 e B1×A2 em metades opostas da chave — padrão Copa para
-  K=2, generalizado para K=4 com o mesmo princípio). Mesmos grupos só se
-  reencontram na final.
+  K=2, generalizado para K=4 com o mesmo princípio). Separação de grupos:
+  com K=2, mesmos grupos só se reencontram na final; com K≥4, dois
+  classificados do MESMO grupo podem se cruzar a partir da 2ª fase —
+  inerente a poucos grupos com muitos classificados (achado da validação:
+  a promessa original era mais forte do que o matematicamente possível).
 - Tudo função pura com testes pinando: Copa (G=4, K=2), Copa antiga (G=8,
   K=2), Champions (G=1, K=8/16), mínimo (G=2, K=1).
 
@@ -97,6 +100,20 @@ coluna `tournaments.classificados_por_grupo` (anulável), gravada na MESMA
 promoção de status do Iniciar. O modo (sorteio/potes/manual) não persiste
 (padrão do mata-mata). Potes: G cabeças, uma por grupo (checkboxes); manual:
 um select de grupo por participante.
+
+### D6b — Iniciar grupos é PROMOTE-FIRST (achado da validação adversarial)
+
+Diferente da liga/mata-mata, o índice de par único NÃO barra dupla geração
+de GRUPOS: sorteios concorrentes produzem partições diferentes → pares
+diferentes que não colidem (≈43% das ordenações em N=8/G=2 escapam — provado
+numericamente pelo juiz). A serialização é a PROMOÇÃO atômica ANTES do
+INSERT: `update ... set status='ativo', classificados_por_grupo=K where
+status='rascunho'` — 0 linhas = perdedor da corrida, aborta SEM inserir; só
+o vencedor insere o lote. Recuperação de crash entre a promoção e o INSERT
+("ativo" sem partidas): o re-run REBAIXA atomicamente para rascunho (UPDATE
+filtrado por 'ativo' também serializa dois recuperadores) e refaz; a página
+reexibe o painel de início nesse estado. Bônus: K fica atômico com a
+geometria validada no mesmo run (fecha também o achado de retry divergente).
 
 ### D7 — Transição grupos→chave: action própria `gerarMataMataDosGrupos`
 

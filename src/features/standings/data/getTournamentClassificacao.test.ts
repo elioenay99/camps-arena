@@ -524,4 +524,72 @@ describe("getTournamentClassificacao", () => {
     expect(r?.partidasEncerradas[0]).toMatchObject({ perna: 1 })
     expect(r?.partidasAbertas[0]).toMatchObject({ perna: 2 })
   })
+
+  it("select de partidas inclui grupo (insumo da classificação por grupo)", async () => {
+    const client = montarClient({ torneio: TORNEIO, partidas: [] })
+    await getTournamentClassificacao(TORNEIO.id)
+    const cols = String(client.partidasSelectSpy.mock.calls[0][0]).replace(/\s+/g, "")
+    // Regex ancorada: `grupo` é coluna crua de TOPO; `toContain("grupo")` daria
+    // falso positivo em qualquer alias/coluna que contenha a substring.
+    expect(cols).toMatch(/(^|,)grupo(,|$)/)
+  })
+
+  it("select do torneio inclui classificados_por_grupo (K do formato de grupos)", async () => {
+    const torneioSelectSpy = vi.fn()
+    const client = {
+      from: vi.fn(() => ({
+        select: vi.fn((cols: unknown) => {
+          torneioSelectSpy(cols)
+          return {
+            eq: vi.fn(() => ({
+              maybeSingle: vi.fn(async () => ({ data: null, error: null })),
+            })),
+          }
+        }),
+      })),
+    }
+    mockCreateClient.mockResolvedValue(client as unknown as never)
+    await getTournamentClassificacao(TORNEIO.id)
+    const cols = String(torneioSelectSpy.mock.calls[0][0]).replace(/\s+/g, "")
+    expect(cols).toMatch(/(^|,)classificados_por_grupo(,|$)/)
+  })
+
+  it("classifica POR GRUPO via subconjunto: grupos distintos não se misturam e saem ordenados pelo número", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    const caio = { id: "u3", nome: "Caio" }
+    const duda = { id: "u4", nome: "Duda" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "grupos_mata_mata", classificados_por_grupo: 1 },
+      partidas: [
+        // Entram fora de ordem (grupo 2 antes do 1) para provar a ordenação.
+        { ...partidaEncerrada(caio, duda, 3, 0), grupo: 2, rodada: 1 },
+        { ...partidaEncerrada(ana, beto, 2, 1), grupo: 1, rodada: 1 },
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    // Dois grupos, ordenados pelo número do grupo (1 antes de 2).
+    expect(r?.grupos.map((g) => g.grupo)).toEqual([1, 2])
+    // Subconjunto: o grupo 1 só conhece Ana/Beto; o 2 só Caio/Duda — sem
+    // contaminação cruzada entre grupos distintos.
+    expect(r?.grupos[0].linhas.map((l) => l.nome)).toEqual(["Ana", "Beto"])
+    expect(r?.grupos[1].linhas.map((l) => l.nome)).toEqual(["Caio", "Duda"])
+    // E o vencedor de cada grupo fica em 1º (motor rodou só o subconjunto).
+    expect(r?.grupos[0].linhas[0]).toMatchObject({ nome: "Ana", posicao: 1 })
+    expect(r?.grupos[1].linhas[0]).toMatchObject({ nome: "Caio", posicao: 1 })
+  })
+
+  it("torneio sem partidas de grupo (ex.: mata-mata) projeta grupos vazios", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "mata_mata" },
+      partidas: [
+        // Sem coluna grupo → nenhuma classificação por grupo.
+        { ...partidaEncerrada(ana, beto, 1, 0), rodada: 1, posicao: 1, perna: 1, grupo: null },
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.grupos).toEqual([])
+  })
 })

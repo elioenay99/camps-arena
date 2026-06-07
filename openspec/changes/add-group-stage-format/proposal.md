@@ -36,8 +36,9 @@ SORTEIO automático com aviso.
 - Restrições: total de classificados G·K ∈ {2, 4, 8, 16, 32} (implica G ∈
   {1, 2, 4, 8}); `fase_liga` fixa G = 1; potes exigem 1 cabeça por grupo.
 - Novas actions: `iniciarTorneioGrupos(prev, formData)` (G/K/modo no painel;
-  INSERT em lote; promove e grava `classificados_por_grupo`; idempotente;
-  23505) e `gerarMataMataDosGrupos(tournamentId)` (grupos completos →
+  PROMOVE atomicamente ANTES do INSERT — serialização da corrida, ver D6b —
+  gravando `classificados_por_grupo`; recuperação de crash por rebaixamento
+  atômico) e `gerarMataMataDosGrupos(tournamentId)` (grupos completos →
   classifica → cruza → INSERT da chave em rodadas contínuas; pré-checagem de
   semeados; 23505; avisa quando houve sorteio de desempate).
 - `avancarFase` GENERALIZADA para os três formatos com chave (mata-mata,

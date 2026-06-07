@@ -2,7 +2,12 @@
 // Fonte de verdade do schema é o SQL; estes tipos dão type-safety ao client.
 
 export type TournamentStatus = "rascunho" | "ativo" | "encerrado"
-export type TournamentFormat = "avulso" | "liga" | "mata_mata"
+export type TournamentFormat =
+  | "avulso"
+  | "liga"
+  | "mata_mata"
+  | "grupos_mata_mata"
+  | "fase_liga"
 export type MatchStatus = "agendada" | "em_andamento" | "encerrada"
 
 export interface Database {
@@ -40,6 +45,7 @@ export interface Database {
           formato: TournamentFormat
           ida_e_volta: boolean
           terceiro_lugar: boolean
+          classificados_por_grupo: number | null
           created_by: string | null
           is_public: boolean
           pontos_vitoria: number
@@ -54,6 +60,7 @@ export interface Database {
           formato?: TournamentFormat
           ida_e_volta?: boolean
           terceiro_lugar?: boolean
+          classificados_por_grupo?: number | null
           created_by?: string | null
           is_public?: boolean
           pontos_vitoria?: number
@@ -68,6 +75,7 @@ export interface Database {
           formato?: TournamentFormat
           ida_e_volta?: boolean
           terceiro_lugar?: boolean
+          classificados_por_grupo?: number | null
           created_by?: string | null
           is_public?: boolean
           pontos_vitoria?: number
@@ -125,6 +133,7 @@ export interface Database {
           rodada: number | null
           posicao: number | null
           perna: number | null
+          grupo: number | null
           created_at: string
           updated_at: string
         }
@@ -141,6 +150,7 @@ export interface Database {
           rodada?: number | null
           posicao?: number | null
           perna?: number | null
+          grupo?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -157,6 +167,7 @@ export interface Database {
           rodada?: number | null
           posicao?: number | null
           perna?: number | null
+          grupo?: number | null
           created_at?: string
           updated_at?: string
         }

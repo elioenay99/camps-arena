@@ -9,6 +9,7 @@ import {
   LIGA_MAX_PARTICIPANTES,
 } from "@/features/league/gerarTabelaLiga"
 import {
+  FORMATOS_COM_CHAVE,
   gerarFaseInicial,
   gerarProximaFase,
   MATA_MATA_MAX_PARTICIPANTES,
@@ -18,11 +19,22 @@ import {
   type ConfrontoChave,
   type PartidaChave,
 } from "@/features/knockout/gerarChaveMataMata"
+import {
+  classificarGrupos,
+  cruzarClassificados,
+  gerarPartidasGrupos,
+  montarGruposManual,
+  montarGruposPotes,
+  montarGruposSorteio,
+  validarGeometria,
+  type PartidaGrupoJogada,
+} from "@/features/groups/gerarFaseDeGrupos"
 import { gerarCodigoConvite } from "@/lib/invite-code"
 import { randIntCrypto } from "@/lib/rand"
 import { createClient } from "@/lib/supabase/server"
 import {
   createTournamentSchema,
+  iniciarGruposSchema,
   iniciarMataMataSchema,
 } from "@/schema/tournamentSchema"
 
@@ -95,12 +107,15 @@ export async function createTournament(
         is_public: parsed.data.isPublic,
         created_by: user.id,
         formato: parsed.data.formato,
-        // Opções normalizadas no SERVIDOR: ida_e_volta vale em liga e
-        // mata-mata; terceiro_lugar só em mata-mata — fora do formato, false
-        // (não confia no form para coerência de opções).
+        // Opções normalizadas no SERVIDOR: ida_e_volta vale nos formatos
+        // gerados; terceiro_lugar só nos formatos COM CHAVE — fora do
+        // formato, false (não confia no form para coerência de opções).
         ida_e_volta: ehGerado ? parsed.data.idaEVolta : false,
-        terceiro_lugar:
-          parsed.data.formato === "mata_mata" ? parsed.data.terceiroLugar : false,
+        terceiro_lugar: (FORMATOS_COM_CHAVE as readonly string[]).includes(
+          parsed.data.formato
+        )
+          ? parsed.data.terceiroLugar
+          : false,
         ...(ehGerado ? { status: "rascunho" as const } : {}),
         // Sempre enviados (defaults do Zod): o default do DDL é só para
         // torneios legados/escritas administrativas.
@@ -661,12 +676,15 @@ export async function avancarFase(
   const erroPropriedade =
     "Torneio não encontrado, não iniciado ou você não é o dono dele."
 
+  // Formatos COM CHAVE: o avanço opera nas partidas com `posicao` — nos
+  // formatos de grupos a chave começa após as rodadas de grupos (rodada-base
+  // derivada pelo motor).
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
-    .select("id, ida_e_volta, terceiro_lugar")
+    .select("id, formato, ida_e_volta, terceiro_lugar")
     .eq("id", parsed.data)
     .eq("created_by", user.id)
-    .eq("formato", "mata_mata")
+    .in("formato", [...FORMATOS_COM_CHAVE])
     .eq("status", "ativo")
     .maybeSingle()
   if (torneioError) {
@@ -686,8 +704,14 @@ export async function avancarFase(
   if (partidasError) {
     return { ok: false, error: erroGenerico }
   }
-  if (!partidas || partidas.length === 0) {
-    return { ok: false, error: "A chave deste torneio ainda não foi gerada." }
+  if (!partidas || !partidas.some((p) => p.posicao !== null)) {
+    return {
+      ok: false,
+      error:
+        torneio.formato === "mata_mata"
+          ? "A chave deste torneio ainda não foi gerada."
+          : "Gere o mata-mata dos grupos antes de avançar fases.",
+    }
   }
 
   let novas: PartidaChave[]
@@ -765,4 +789,408 @@ export async function avancarFase(
   revalidatePath("/dashboard/torneios")
   revalidatePath(`/dashboard/torneios/${parsed.data}`)
   return { ok: true }
+}
+
+/**
+ * Inicia um torneio de GRUPOS (grupos_mata_mata / fase_liga): monta os grupos
+ * conforme o modo (sorteio | potes | manual — não persiste), gera o
+ * round-robin de cada grupo (motor da liga, composto) e insere tudo em lote.
+ *
+ * ORDEM INVERTIDA em relação à liga/mata-mata (achado da validação
+ * adversarial): aqui a PROMOÇÃO atômica vem ANTES do INSERT. O índice de par
+ * único NÃO barra dupla geração de grupos — duas submissões concorrentes
+ * sorteiam PARTIÇÕES diferentes, logo PARES diferentes, que não colidem
+ * (≈43% das ordenações em N=8/G=2 escapam; provado numericamente). A única
+ * serialização possível é o UPDATE filtrado por `status = 'rascunho'`: só o
+ * vencedor da corrida (1 linha afetada) prossegue para o INSERT; o perdedor
+ * aborta SEM inserir. `classificados_por_grupo` (K) é gravado na mesma
+ * escrita — atômico com a geometria validada neste run.
+ *
+ * Recuperação de crash entre a promoção e o INSERT (torneio 'ativo' sem
+ * partidas): o re-run REBAIXA atomicamente para 'rascunho' (UPDATE filtrado
+ * por 'ativo' — dois recuperadores concorrentes também serializam aqui) e
+ * refaz o fluxo normal. A página reexibe o painel de início nesse estado.
+ */
+export async function iniciarTorneioGrupos(
+  _prevState: TournamentFormState,
+  formData: FormData
+): Promise<TournamentFormState> {
+  const numeroOuNaN = (campo: string) => {
+    const valor = formData.get(campo)
+    return typeof valor === "string" && valor !== "" ? Number(valor) : Number.NaN
+  }
+  // Modo manual: um select por participante (name = grupo_de_<uuid>).
+  const atribuicao: [string, number][] = []
+  for (const [name, valor] of formData.entries()) {
+    if (name.startsWith("grupo_de_") && typeof valor === "string" && valor !== "") {
+      atribuicao.push([name.slice("grupo_de_".length), Number(valor)])
+    }
+  }
+
+  const parsed = iniciarGruposSchema.safeParse({
+    tournamentId: formData.get("tournamentId"),
+    modo: formData.get("modo"),
+    qtdGrupos: numeroOuNaN("qtdGrupos"),
+    classificadosPorGrupo: numeroOuNaN("classificadosPorGrupo"),
+    cabecas: formData.getAll("cabecas"),
+    atribuicao,
+  })
+  if (!parsed.success) {
+    return { error: "Dados da fase de grupos inválidos. Recarregue e tente novamente." }
+  }
+  const { tournamentId, modo, classificadosPorGrupo } = parsed.data
+  // fase_liga é o caso G=1 do MESMO motor; o form dela fixa qtdGrupos em 1 e
+  // a action confere contra o formato real abaixo.
+  const qtdGrupos = parsed.data.qtdGrupos
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { error: "Você precisa estar autenticado." }
+  }
+
+  const erroGenerico = "Não foi possível iniciar o torneio agora. Tente novamente."
+  const erroPropriedade =
+    "Torneio não encontrado, já iniciado ou você não é o dono dele."
+
+  // `ativo` também entra no filtro: é o estado de RECUPERAÇÃO (crash entre a
+  // promoção e o INSERT) — ver o comentário da função.
+  const { data: torneio, error: torneioError } = await supabase
+    .from("tournaments")
+    .select("id, formato, ida_e_volta, status")
+    .eq("id", tournamentId)
+    .eq("created_by", user.id)
+    .in("formato", ["grupos_mata_mata", "fase_liga"])
+    .in("status", ["rascunho", "ativo"])
+    .maybeSingle()
+  if (torneioError) {
+    return { error: erroGenerico }
+  }
+  if (!torneio) {
+    return { error: erroPropriedade }
+  }
+  if (torneio.formato === "fase_liga" && qtdGrupos !== 1) {
+    return { error: "A fase de liga usa um grupo único." }
+  }
+  if (torneio.formato === "grupos_mata_mata" && qtdGrupos < 2) {
+    return {
+      error:
+        "Grupos + mata-mata usa pelo menos 2 grupos — para grupo único, use o formato Fase de liga.",
+    }
+  }
+  if (torneio.formato === "fase_liga" && modo !== "sorteio") {
+    // O painel só oferece sorteio na fase de liga (potes/manual não fazem
+    // sentido com grupo único); fechar o caminho de POST direto por coerência.
+    return { error: "A fase de liga usa sorteio para a ordem dos confrontos." }
+  }
+
+  const { data: jaGeradas, error: geradasError } = await supabase
+    .from("matches")
+    .select("id")
+    .eq("tournament_id", tournamentId)
+    .not("rodada", "is", null)
+    .limit(1)
+  if (geradasError) {
+    return { error: erroGenerico }
+  }
+  if (jaGeradas && jaGeradas.length > 0) {
+    // Partidas existem: o fluxo promote-first garante que K/status já foram
+    // gravados ANTES delas — nada a fazer além de orientar.
+    return { error: "O torneio já foi iniciado. Recarregue a página." }
+  }
+
+  // Recuperação de crash (ativo sem partidas): REBAIXA atomicamente — o
+  // UPDATE filtrado por 'ativo' serializa dois recuperadores concorrentes
+  // (só um afeta a linha) e devolve o fluxo ao caminho normal.
+  if (torneio.status === "ativo") {
+    const { data: rebaixado, error: rebaixaError } = await supabase
+      .from("tournaments")
+      .update({ status: "rascunho" })
+      .eq("id", tournamentId)
+      .eq("created_by", user.id)
+      .eq("status", "ativo")
+      .select("id")
+    if (rebaixaError) {
+      return { error: erroGenerico }
+    }
+    if (!rebaixado || rebaixado.length === 0) {
+      return {
+        error: "O torneio pode ter sido alterado. Recarregue e tente novamente.",
+      }
+    }
+  }
+
+  const { data: confirmados, error: participantesError } = await supabase
+    .from("participants")
+    .select("user_id")
+    .eq("tournament_id", tournamentId)
+  if (participantesError) {
+    return { error: erroGenerico }
+  }
+
+  const participantes = (confirmados ?? []).map((p) => p.user_id)
+  if (participantes.length < 2) {
+    return {
+      error:
+        "O torneio precisa de pelo menos 2 participantes confirmados. Compartilhe o link de convite.",
+    }
+  }
+  if (participantes.length > MATA_MATA_MAX_PARTICIPANTES) {
+    return {
+      error: `O torneio aceita no máximo ${MATA_MATA_MAX_PARTICIPANTES} participantes.`,
+    }
+  }
+
+  // Base canônica determinística (aleatoriedade SÓ pelo randInt injetado).
+  participantes.sort()
+
+  let grupos: string[][]
+  try {
+    validarGeometria(participantes.length, qtdGrupos, classificadosPorGrupo)
+    if (modo === "sorteio") {
+      grupos = montarGruposSorteio(participantes, qtdGrupos, randIntCrypto)
+    } else if (modo === "potes") {
+      const confirmadosSet = new Set(participantes)
+      const cabecas = [...parsed.data.cabecas].sort()
+      if (!cabecas.every((c) => confirmadosSet.has(c))) {
+        return { error: "Cabeça de chave fora da lista de participantes." }
+      }
+      if (new Set(cabecas).size !== cabecas.length) {
+        return { error: "Cabeça de chave repetida." }
+      }
+      const cabecasSet = new Set(cabecas)
+      const demais = participantes.filter((p) => !cabecasSet.has(p))
+      grupos = montarGruposPotes(cabecas, demais, qtdGrupos, randIntCrypto)
+    } else {
+      const porGrupo: string[][] = Array.from({ length: qtdGrupos }, () => [])
+      for (const [participante, g] of parsed.data.atribuicao) {
+        if (g < 1 || g > qtdGrupos) {
+          return { error: `Grupo ${g} não existe nesta configuração.` }
+        }
+        porGrupo[g - 1].push(participante)
+      }
+      grupos = montarGruposManual(porGrupo, participantes)
+    }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : erroGenerico }
+  }
+
+  // PROMOÇÃO ATÔMICA ANTES do INSERT — a serialização da corrida (ver o
+  // comentário da função: o índice de par único NÃO cobre partições
+  // divergentes de sorteio). 0 linhas = perdedor: aborta SEM inserir.
+  const { data: promovido, error: updateError } = await supabase
+    .from("tournaments")
+    .update({ status: "ativo", classificados_por_grupo: classificadosPorGrupo })
+    .eq("id", tournamentId)
+    .eq("created_by", user.id)
+    .eq("status", "rascunho")
+    .select("id")
+  if (updateError) {
+    return { error: erroGenerico }
+  }
+  if (!promovido || promovido.length === 0) {
+    return {
+      error: "O torneio já foi iniciado (talvez em outra aba). Recarregue a página.",
+    }
+  }
+
+  // Um único INSERT em lote: atômico (todos os grupos ou nada). Falha aqui
+  // deixa o torneio 'ativo' sem partidas — o re-run recupera (rebaixa e refaz).
+  const partidas = gerarPartidasGrupos(grupos, torneio.ida_e_volta).map((p) => ({
+    tournament_id: tournamentId,
+    participante_1: p.participante_1,
+    participante_2: p.participante_2,
+    grupo: p.grupo,
+    rodada: p.rodada,
+  }))
+  const { error: insertError } = await supabase.from("matches").insert(partidas)
+  if (insertError) {
+    console.error(
+      "iniciarTorneioGrupos: geração falhou",
+      insertError.code ?? insertError.message
+    )
+    return {
+      error:
+        "Não foi possível gerar as partidas. Tente novamente — o início será retomado.",
+    }
+  }
+
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/torneios")
+  revalidatePath(`/dashboard/torneios/${tournamentId}`)
+  return {}
+}
+
+export type GerarMataMataResult =
+  | { ok: true; sorteioUsado: boolean }
+  | { ok: false; error: string }
+
+/**
+ * Gera a CHAVE a partir dos grupos completos: classifica cada grupo
+ * (computeStandings por subconjunto; empate na linha de corte → SORTEIO,
+ * sinalizado para a UI avisar), cruza os classificados (G=1 bracket seeding;
+ * G>=2 padrão Copa) e insere a chave em LOTE ÚNICO com rodadas CONTÍNUAS
+ * (rodada-base = última rodada de grupos + 1 — evita colisão de par no
+ * índice único quando G=1). Depois disso o fluxo é o do mata-mata
+ * (avancarFase generalizada).
+ */
+export async function gerarMataMataDosGrupos(
+  tournamentId: unknown
+): Promise<GerarMataMataResult> {
+  const parsed = z.uuid().safeParse(tournamentId)
+  if (!parsed.success) {
+    return { ok: false, error: "Torneio inválido." }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const erroGenerico = "Não foi possível gerar o mata-mata agora. Tente novamente."
+  const erroPropriedade =
+    "Torneio não encontrado, não iniciado ou você não é o dono dele."
+
+  const { data: torneio, error: torneioError } = await supabase
+    .from("tournaments")
+    .select(
+      "id, ida_e_volta, terceiro_lugar, classificados_por_grupo, pontos_vitoria, pontos_empate, pontos_derrota"
+    )
+    .eq("id", parsed.data)
+    .eq("created_by", user.id)
+    .in("formato", ["grupos_mata_mata", "fase_liga"])
+    .eq("status", "ativo")
+    .maybeSingle()
+  if (torneioError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (!torneio) {
+    return { ok: false, error: erroPropriedade }
+  }
+  if (torneio.classificados_por_grupo === null) {
+    return { ok: false, error: erroGenerico }
+  }
+
+  const { data: partidas, error: partidasError } = await supabase
+    .from("matches")
+    .select(
+      "grupo, rodada, posicao, participante_1, participante_2, placar_1, placar_2, status"
+    )
+    .eq("tournament_id", parsed.data)
+    .not("rodada", "is", null)
+  if (partidasError) {
+    return { ok: false, error: erroGenerico }
+  }
+
+  const deGrupos = (partidas ?? []).filter(
+    (p): p is typeof p & { grupo: number; rodada: number } => p.grupo !== null
+  )
+  if (deGrupos.length === 0) {
+    return { ok: false, error: "A fase de grupos ainda não foi gerada." }
+  }
+  if ((partidas ?? []).some((p) => p.posicao !== null)) {
+    return {
+      ok: false,
+      error: "O mata-mata já foi gerado. Recarregue a página.",
+    }
+  }
+  const pendentes = deGrupos.filter((p) => p.status !== "encerrada").length
+  if (pendentes > 0) {
+    return {
+      ok: false,
+      error: `Ainda ${pendentes === 1 ? "falta 1 jogo" : `faltam ${pendentes} jogos`} da fase de grupos para encerrar.`,
+    }
+  }
+
+  const qtdGrupos = Math.max(...deGrupos.map((p) => p.grupo))
+  let confrontos: ConfrontoChave[]
+  let sorteioUsado: boolean
+  try {
+    const resultado = classificarGrupos(
+      deGrupos as PartidaGrupoJogada[],
+      {
+        vitoria: torneio.pontos_vitoria,
+        empate: torneio.pontos_empate,
+        derrota: torneio.pontos_derrota,
+      },
+      qtdGrupos,
+      torneio.classificados_por_grupo,
+      randIntCrypto
+    )
+    sorteioUsado = resultado.sorteioUsado
+    confrontos = cruzarClassificados(resultado.classificados)
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : erroGenerico }
+  }
+
+  // Pré-checagem ACIONÁVEL (mesma do avancarFase): a RLS de INSERT exige
+  // cada semeado em participants; o congelamento cobre o fluxo normal, mas
+  // uma linha removida por via administrativa viraria erro genérico
+  // permanente sem isto.
+  const semeados = [
+    ...new Set(
+      confrontos.flatMap((c) =>
+        [c.participante_1, c.participante_2].filter(
+          (id): id is string => id !== null
+        )
+      )
+    ),
+  ]
+  const { data: confirmados, error: confirmadosError } = await supabase
+    .from("participants")
+    .select("user_id")
+    .eq("tournament_id", parsed.data)
+    .in("user_id", semeados)
+  if (confirmadosError) {
+    return { ok: false, error: erroGenerico }
+  }
+  const confirmadosSet = new Set((confirmados ?? []).map((p) => p.user_id))
+  if (!semeados.every((id) => confirmadosSet.has(id))) {
+    return {
+      ok: false,
+      error:
+        "Um participante classificado não está mais no torneio — o mata-mata não pode ser gerado.",
+    }
+  }
+
+  // Rodadas CONTÍNUAS: a chave começa após a última rodada de grupos.
+  const rodadaBase = Math.max(...deGrupos.map((p) => p.rodada)) + 1
+  const novas = gerarFaseInicial(confrontos, torneio.ida_e_volta, rodadaBase)
+  const { error: insertError } = await supabase.from("matches").insert(
+    novas.map((p) => ({
+      tournament_id: parsed.data,
+      participante_1: p.participante_1,
+      participante_2: p.participante_2,
+      rodada: p.rodada,
+      posicao: p.posicao,
+      perna: p.perna,
+    }))
+  )
+  if (insertError) {
+    console.error(
+      "gerarMataMataDosGrupos: geração falhou",
+      insertError.code ?? insertError.message
+    )
+    if (insertError.code === "23505") {
+      return {
+        ok: false,
+        error: "O mata-mata já foi gerado (talvez em outra aba). Recarregue a página.",
+      }
+    }
+    return { ok: false, error: erroGenerico }
+  }
+
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/torneios")
+  revalidatePath(`/dashboard/torneios/${parsed.data}`)
+  return { ok: true, sorteioUsado }
 }

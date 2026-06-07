@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { z } from "zod"
 
+import { FORMATOS_COM_CHAVE } from "@/features/knockout/gerarChaveMataMata"
 import { createClient } from "@/lib/supabase/server"
 import {
   createMatchSchema,
@@ -396,9 +397,12 @@ async function mudarStatusComoDono(
     return { ok: false, error: opts.erroTransicao }
   }
 
-  // Regras de eliminatória (mensagem precisa; o trigger
-  // valida_resultado_mata_mata é a barreira final contra POST direto).
-  if (torneio.formato === "mata_mata" && match.rodada !== null) {
+  // Regras de eliminatória nos formatos COM CHAVE (mensagem precisa; o
+  // trigger valida_resultado_mata_mata é a barreira final contra POST direto).
+  if (
+    (FORMATOS_COM_CHAVE as readonly string[]).includes(torneio.formato) &&
+    match.rodada !== null
+  ) {
     const erro = await validarLifecycleMataMata(supabase, match, opts.novoStatus)
     if (erro) {
       return { ok: false, error: erro }
@@ -428,14 +432,17 @@ async function mudarStatusComoDono(
 }
 
 /**
- * Regras de lifecycle específicas do mata-mata (partida com rodada em torneio
- * `mata_mata`). Devolve a mensagem de erro ou null quando a transição é
- * válida. Espelha o trigger `valida_resultado_mata_mata` (banco = backstop):
- *   - encerrar jogo único exige vencedor (eliminatória não empata);
- *   - encerrar a volta exige a ida encerrada e agregado desempatado
- *     (a volta tem lados invertidos: agregado A = ida.placar_1 + volta.placar_2);
- *   - bye nunca reabre (não há placar a corrigir);
- *   - fase posterior gerada congela as anteriores (o vencedor já foi semeado).
+ * Regras de lifecycle dos formatos COM CHAVE (partida com rodada em torneio
+ * mata_mata/grupos_mata_mata/fase_liga). Devolve a mensagem de erro ou null
+ * quando a transição é válida. Espelha o trigger `valida_resultado_mata_mata`
+ * (banco = backstop):
+ *   - partida de CHAVE (posicao não nula): encerrar jogo único exige vencedor;
+ *     encerrar a volta exige ida encerrada e agregado desempatado (a volta tem
+ *     lados invertidos: agregado A = ida.placar_1 + volta.placar_2); bye nunca
+ *     reabre; fase de chave posterior congela as anteriores;
+ *   - partida de GRUPO (posicao nula): empata e reabre livre ATÉ o mata-mata
+ *     ser gerado — depois disso a classificação foi CONSUMIDA pelo cruzamento
+ *     e reabrir tornaria a chave incoerente.
  */
 async function validarLifecycleMataMata(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -452,6 +459,27 @@ async function validarLifecycleMataMata(
   novoStatus: "encerrada" | "em_andamento"
 ): Promise<string | null> {
   const erroGenerico = "Não foi possível validar o confronto. Tente novamente."
+
+  // Partida de GRUPO: resultado livre (empate pontua); só a REABERTURA é
+  // condicionada — bloqueada quando o mata-mata já foi gerado.
+  if (match.posicao === null) {
+    if (novoStatus === "encerrada") {
+      return null
+    }
+    const { data: daChave, error } = await supabase
+      .from("matches")
+      .select("id")
+      .eq("tournament_id", match.tournament_id)
+      .not("posicao", "is", null)
+      .limit(1)
+    if (error) {
+      return erroGenerico
+    }
+    if (daChave && daChave.length > 0) {
+      return "O mata-mata já foi gerado — a classificação dos grupos está congelada."
+    }
+    return null
+  }
 
   if (novoStatus === "encerrada") {
     // Bye (lado nulo) nasce encerrado — não há placar a validar.
@@ -510,14 +538,17 @@ async function validarLifecycleMataMata(
     return null
   }
 
-  // Reabertura.
+  // Reabertura de partida de CHAVE.
   if (match.participante_1 === null || match.participante_2 === null) {
     return "Partida de avanço direto (bye) não pode ser reaberta."
   }
+  // Só fases de CHAVE posteriores congelam (espelha o trigger) — nos formatos
+  // de grupos as rodadas de grupo vêm antes e não contam aqui.
   const { data: posteriores, error } = await supabase
     .from("matches")
     .select("id")
     .eq("tournament_id", match.tournament_id)
+    .not("posicao", "is", null)
     .gt("rodada", match.rodada as number)
     .limit(1)
   if (error) {

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
+import { FORMATOS_COM_CHAVE } from "@/features/knockout/gerarChaveMataMata"
 import { gerarCodigoConvite } from "@/lib/invite-code"
 import { createClient } from "@/lib/supabase/server"
 import {
@@ -88,15 +89,16 @@ export async function aceitarConvite(
 }
 
 /**
- * Mata-mata com chave GERADA congela a lista de participantes: a chave avança
- * fase a fase e o INSERT da fase seguinte exige cada vencedor em
- * `participants` (cláusula da RLS de INSERT de matches) — uma saída no meio
- * travaria o "Avançar fase" PARA SEMPRE (RLS rejeita, retry nunca resolve, e
- * o convite não readmite fora de rascunho). O congelamento vale em ATIVO e
- * também em ENCERRADO com chave (achado da validação do add-tournament-
- * closing: encerrar → sair → reabrir recriaria exatamente o travamento) —
- * participar de uma chave disputada é histórico do torneio. Liga não sofre
- * (todas as partidas nascem no Iniciar); rascunho segue livre. A policy
+ * Formato COM CHAVE (mata-mata, grupos, fase de liga) em andamento congela a
+ * lista de participantes: o INSERT da chave — da fase seguinte, ou da chave
+ * FUTURA no caso dos grupos — exige cada semeado em `participants` (cláusula
+ * da RLS de INSERT de matches); uma saída no meio travaria o avanço/geração
+ * PARA SEMPRE (RLS rejeita, retry nunca resolve, e o convite não readmite
+ * fora de rascunho). O congelamento vale em ATIVO e também em ENCERRADO com
+ * partidas geradas (achado da validação do add-tournament-closing: encerrar →
+ * sair → reabrir recriaria exatamente o travamento) — participar de uma
+ * disputa gerada é histórico do torneio. Liga não sofre (todas as partidas
+ * nascem no Iniciar e não há chave futura); rascunho segue livre. A policy
  * `participants_delete_self_or_owner` é o backstop no banco.
  */
 async function chaveEmAndamento(
@@ -107,7 +109,7 @@ async function chaveEmAndamento(
     .from("tournaments")
     .select("id, status")
     .eq("id", tournamentId)
-    .eq("formato", "mata_mata")
+    .in("formato", [...FORMATOS_COM_CHAVE])
     .maybeSingle()
   if (error) {
     return { erro: true }
@@ -121,8 +123,8 @@ async function chaveEmAndamento(
   if (torneio.status === "rascunho") {
     return { travado: false }
   }
-  // Encerrado: travado se a chave chegou a ser gerada (reabrir devolve
-  // 'ativo' e o avanço voltaria a depender de todos os semeados).
+  // Encerrado: travado se a disputa chegou a ser gerada (reabrir devolve
+  // 'ativo' e o avanço/geração voltaria a depender de todos os semeados).
   const { data: geradas, error: geradasError } = await supabase
     .from("matches")
     .select("id")
@@ -136,7 +138,7 @@ async function chaveEmAndamento(
 }
 
 const ERRO_CHAVE_EM_ANDAMENTO =
-  "A chave deste mata-mata já foi gerada — os participantes fazem parte dela. Saídas e remoções só antes de iniciar."
+  "A disputa deste torneio já foi gerada — os participantes fazem parte dela. Saídas e remoções só antes de iniciar."
 
 /**
  * Sai do torneio por conta própria. O DELETE filtra pelo PRÓPRIO user.id —
