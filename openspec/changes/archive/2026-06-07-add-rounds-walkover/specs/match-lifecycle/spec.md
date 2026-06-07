@@ -1,6 +1,6 @@
 # match-lifecycle — Delta Spec
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Reabrir partida limpa o W.O.
 Ao reabrir uma partida (encerrada → aberta), o sistema SHALL limpar

@@ -20,7 +20,6 @@ SHALL ser permitido apenas ao dono do torneio. DELETE SHALL ser negado a todos
 - **WHEN** quem não é dono tenta atualizar o status de uma solicitação
 - **THEN** a RLS nega
 
-## MODIFIED Requirements
 
 ### Requirement: UPDATE de partida pelo dono cobre o W.O.
 A policy `matches_update_tournament_owner` SHALL permitir ao dono gravar

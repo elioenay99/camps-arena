@@ -1,6 +1,6 @@
 # knockout-format — Delta Spec
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Decisão de confronto na chave
 `decidirConfronto` SHALL aceitar `woVencedor` por partida e, quando presente,

@@ -1,6 +1,6 @@
 # standings-engine — Delta Spec
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Motor de classificação por pontos
 O `computeStandings` SHALL continuar puro e agnóstico a id e SHALL aceitar, por

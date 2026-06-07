@@ -1,6 +1,6 @@
 # dashboard — Delta Spec
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Partidas em aberto agrupadas por rodada
 Na página do torneio, as partidas em aberto de formatos competitivos SHALL ser
