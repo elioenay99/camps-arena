@@ -1213,7 +1213,7 @@ Aplicar no **SQL Editor** em **DOIS Runs separados** — o Postgres proíbe usar
 valores novos de enum na mesma transação que os criou, e a policy do bloco B
 os referencia em DDL:
 
-- [ ] **12.1 — Bloco A (rode SOZINHO e primeiro):**
+- [x] **12.1 — Bloco A (rode SOZINHO e primeiro):**
 
 ```sql
 -- Novos valores do enum de formato (aditivo; idempotente).
@@ -1221,7 +1221,7 @@ alter type public.tournament_format add value if not exists 'grupos_mata_mata';
 alter type public.tournament_format add value if not exists 'fase_liga';
 ```
 
-- [ ] **12.2 — Bloco B (colunas + CHECKs + lock + trigger + policy):**
+- [x] **12.2 — Bloco B (colunas + CHECKs + lock + trigger + policy):**
 
 ```sql
 -- Classificados por grupo (K): gravado ao INICIAR um formato de grupos —
