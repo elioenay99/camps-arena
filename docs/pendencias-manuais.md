@@ -2323,6 +2323,10 @@ create policy match_wo_requests_update_owner on public.match_wo_requests
       select 1
       from public.matches m
       join public.tournaments t on t.id = m.tournament_id
+      where m.id = match_id
+        and t.created_by = auth.uid()
+    )
+  );
 ```
 
 - [ ] **14.2 — (recomendado) Conferir o W.O. na liga**: num torneio de liga
