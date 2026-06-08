@@ -2004,7 +2004,7 @@ seção 13 (modelo clube-cêntrico) já aplicada.**
 > `coalesce(participante, vaga)` em AMBOS os ramos (encerrar E reabrir) fecha
 > isso. Re-aplicar os DOIS triggers (CREATE OR REPLACE, idempotente).
 
-- [ ] **14.1 — Run único (colunas W.O., tabela de solicitações, triggers,
+- [x] **14.1 — Run único (colunas W.O., tabela de solicitações, triggers,
       policies):**
 
 ```sql
