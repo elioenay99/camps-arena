@@ -13,6 +13,7 @@ const LINKS: NavLink[] = [
   // índice (dois itens do nav ativos ao mesmo tempo confundem).
   { href: "/dashboard/torneios", rotulo: "Torneios" },
   { href: "/dashboard/partidas/nova", rotulo: "Nova partida" },
+  { href: "/dashboard/conta", rotulo: "Conta" },
 ];
 
 /**

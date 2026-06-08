@@ -8,6 +8,7 @@ import { env } from "@/lib/env"
 import { safeRedirectPath } from "@/lib/safe-redirect"
 import { createClient } from "@/lib/supabase/server"
 import {
+  changePasswordSchema,
   forgotPasswordSchema,
   loginSchema,
   signupSchema,
@@ -210,6 +211,73 @@ export async function updatePassword(
 
   revalidatePath("/", "layout")
   redirect("/dashboard")
+}
+
+/**
+ * Altera a senha do usuário AUTENTICADO a partir do app (não é a recuperação
+ * por e-mail). Re-autentica com a senha ATUAL antes de gravar a nova — defesa
+ * contra sessão sequestrada e norma de segurança. Sucesso é terminal SEM
+ * redirect (o usuário continua na página, com confirmação inline).
+ */
+export async function alterarSenha(
+  _prevState: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const parsed = changePasswordSchema.safeParse({
+    senhaAtual: formData.get("senhaAtual"),
+    novaSenha: formData.get("novaSenha"),
+    confirmar: formData.get("confirmar"),
+  })
+
+  if (!parsed.success) {
+    return {
+      error: "Verifique os campos destacados.",
+      fieldErrors: z.flattenError(parsed.error).fieldErrors,
+    }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user?.email) {
+    return { error: "Sessão expirada. Entre novamente." }
+  }
+
+  // Confirma a senha ATUAL re-autenticando. Falha aqui NÃO derruba a sessão
+  // vigente (sign-in malsucedido não troca os cookies).
+  let atualInvalida = false
+  try {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password: parsed.data.senhaAtual,
+    })
+    atualInvalida = Boolean(error)
+  } catch {
+    return { error: "Não foi possível alterar a senha agora. Tente novamente." }
+  }
+  if (atualInvalida) {
+    return {
+      error: "Verifique os campos destacados.",
+      fieldErrors: { senhaAtual: ["Senha atual incorreta."] },
+    }
+  }
+
+  try {
+    const { error } = await supabase.auth.updateUser({
+      password: parsed.data.novaSenha,
+    })
+    if (error) {
+      console.error("alterarSenha updateUser falhou", error.code ?? error.message)
+      return { error: "Não foi possível alterar a senha agora. Tente novamente." }
+    }
+  } catch {
+    return { error: "Não foi possível alterar a senha agora. Tente novamente." }
+  }
+
+  revalidatePath("/", "layout")
+  return { success: "Senha alterada com sucesso." }
 }
 
 export async function logout() {

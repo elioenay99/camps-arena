@@ -10,7 +10,13 @@ vi.mock("next/navigation", () => ({
   }),
 }))
 
-import { forgotPassword, login, signup, updatePassword } from "@/actions/auth"
+import {
+  alterarSenha,
+  forgotPassword,
+  login,
+  signup,
+  updatePassword,
+} from "@/actions/auth"
 import { createClient } from "@/lib/supabase/server"
 
 const mockCreateClient = vi.mocked(createClient)
@@ -22,7 +28,7 @@ function formData(campos: Record<string, string>) {
 }
 
 interface AuthCenario {
-  user?: { id: string } | null
+  user?: { id: string; email?: string } | null
   signUp?: { session: object | null } | { error: true }
   signInError?: boolean
   resetError?: boolean
@@ -299,5 +305,69 @@ describe("updatePassword", () => {
     expect(r).toEqual({
       error: "Não foi possível atualizar a senha. Tente novamente.",
     })
+  })
+})
+
+// ----------------------------- alterarSenha -----------------------------
+
+describe("alterarSenha (usuário autenticado)", () => {
+  const ALTERAR_OK = {
+    senhaAtual: "atual123",
+    novaSenha: "novaSegura",
+    confirmar: "novaSegura",
+  }
+  const USER = { id: "u1", email: "maria@exemplo.com" }
+
+  it("campos inválidos (confirmação divergente) não tocam o Supabase", async () => {
+    const { signInSpy, updateSpy } = montarAuthClient({ user: USER })
+    const r = await alterarSenha(
+      {},
+      formData({ ...ALTERAR_OK, confirmar: "outra" })
+    )
+    expect(r.error).toMatch(/campos destacados/i)
+    expect(r.fieldErrors?.confirmar?.[0]).toMatch(/não coincidem/i)
+    expect(signInSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("sem sessão (ou sem e-mail) rejeita sem alterar", async () => {
+    const { signInSpy, updateSpy } = montarAuthClient({ user: null })
+    const r = await alterarSenha({}, formData(ALTERAR_OK))
+    expect(r.error).toMatch(/sess[aã]o expirada/i)
+    expect(signInSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("senha atual incorreta vira fieldError, sem gravar a nova", async () => {
+    const { signInSpy, updateSpy } = montarAuthClient({
+      user: USER,
+      signInError: true,
+    })
+    const r = await alterarSenha({}, formData(ALTERAR_OK))
+    expect(r.fieldErrors?.senhaAtual?.[0]).toMatch(/atual incorreta/i)
+    // Re-autenticou com a senha ATUAL informada.
+    expect(signInSpy).toHaveBeenCalledWith({
+      email: USER.email,
+      password: "atual123",
+    })
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("sucesso: re-autentica, grava a nova senha e confirma sem redirect", async () => {
+    const { signInSpy, updateSpy } = montarAuthClient({ user: USER })
+    const r = await alterarSenha({}, formData(ALTERAR_OK))
+    expect(r).toEqual({ success: "Senha alterada com sucesso." })
+    expect(signInSpy).toHaveBeenCalledWith({
+      email: USER.email,
+      password: "atual123",
+    })
+    expect(updateSpy).toHaveBeenCalledWith({ password: "novaSegura" })
+  })
+
+  it("falha do updateUser vira mensagem genérica", async () => {
+    const { updateSpy } = montarAuthClient({ user: USER, updateError: true })
+    const r = await alterarSenha({}, formData(ALTERAR_OK))
+    expect(r.error).toMatch(/não foi possível alterar/i)
+    expect(updateSpy).toHaveBeenCalled()
   })
 })

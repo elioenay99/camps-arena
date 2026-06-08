@@ -41,7 +41,28 @@ export const updatePasswordSchema = z
     path: ["confirm"],
   })
 
+/**
+ * Alteração de senha pelo usuário AUTENTICADO (difere da recuperação por
+ * e-mail): exige a senha ATUAL para re-autenticar, a nova (mín. 6) e a
+ * confirmação. A nova precisa ser diferente da atual.
+ */
+export const changePasswordSchema = z
+  .object({
+    senhaAtual: z.string().min(1, "Informe sua senha atual."),
+    novaSenha: z.string().min(6, "A senha deve ter ao menos 6 caracteres."),
+    confirmar: z.string(),
+  })
+  .refine((dados) => dados.novaSenha === dados.confirmar, {
+    error: "As senhas não coincidem.",
+    path: ["confirmar"],
+  })
+  .refine((dados) => dados.novaSenha !== dados.senhaAtual, {
+    error: "A nova senha deve ser diferente da atual.",
+    path: ["novaSenha"],
+  })
+
 export type LoginInput = z.infer<typeof loginSchema>
 export type SignupInput = z.infer<typeof signupSchema>
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>
 export type UpdatePasswordInput = z.infer<typeof updatePasswordSchema>
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>
