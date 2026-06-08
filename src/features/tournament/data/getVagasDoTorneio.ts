@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server"
 export interface TecnicoDaVaga {
   id: string
   nome: string | null
+  avatar: string | null
 }
 
 /** Uma VAGA do torneio competitivo: o clube É a vaga; o técnico é metadado. */
@@ -35,7 +36,7 @@ export async function getVagasDoTorneio(
     .select(
       `id,
        clube:teams!tournament_slots_team_id_fkey ( nome, escudo_url ),
-       tecnico:users!tournament_slots_user_id_fkey ( id, nome )`
+       tecnico:users!tournament_slots_user_id_fkey ( id, nome, avatar )`
     )
     .eq("tournament_id", tournamentId)
     .order("created_at", { ascending: true })
@@ -49,14 +50,16 @@ export async function getVagasDoTorneio(
   const linhas = (data ?? []) as unknown as Array<{
     id: string
     clube: { nome: string | null; escudo_url: string | null } | null
-    tecnico: { id: string; nome: string | null } | null
+    tecnico: { id: string; nome: string | null; avatar: string | null } | null
   }>
 
   return linhas.map((linha) => ({
     id: linha.id,
     clube: linha.clube?.nome?.trim() || "Clube",
     escudoUrl: linha.clube?.escudo_url ?? null,
-    tecnico: linha.tecnico ? { id: linha.tecnico.id, nome: linha.tecnico.nome } : null,
+    tecnico: linha.tecnico
+      ? { id: linha.tecnico.id, nome: linha.tecnico.nome, avatar: linha.tecnico.avatar }
+      : null,
   }))
 }
 

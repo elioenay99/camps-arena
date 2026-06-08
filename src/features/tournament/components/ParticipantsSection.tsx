@@ -4,6 +4,7 @@ import {
   LeaveTournamentButton,
   RemoveParticipantButton,
 } from "@/features/tournament/components/ParticipantButtons"
+import { UserAvatar } from "@/features/profile/components/UserAvatar"
 
 /**
  * Lista de participantes confirmados (RSC) — EXCLUSIVA do formato AVULSO
@@ -54,11 +55,14 @@ export function ParticipantsSection({
               key={p.id}
               className="flex items-center justify-between gap-3 rounded-lg border px-4 py-2"
             >
-              <span className="min-w-0 truncate text-sm">
-                {p.nome?.trim() || "Sem nome"}
-                {p.id === userId ? (
-                  <span className="text-muted-foreground"> (você)</span>
-                ) : null}
+              <span className="flex min-w-0 items-center gap-2 text-sm">
+                <UserAvatar nome={p.nome} avatarUrl={p.avatar} size={28} />
+                <span className="min-w-0 truncate">
+                  {p.nome?.trim() || "Sem nome"}
+                  {p.id === userId ? (
+                    <span className="text-muted-foreground"> (você)</span>
+                  ) : null}
+                </span>
               </span>
               {p.id === userId ? (
                 <LeaveTournamentButton tournamentId={tournamentId} />

@@ -35,6 +35,8 @@ export interface LinhaComNome extends LinhaClassificacao {
   nome: string
   /** Escudo do clube (competitivo); null no avulso ou clube sem escudo. */
   escudoUrl?: string | null
+  /** Foto do participante (avulso); null no competitivo (usa escudo). */
+  avatarUrl?: string | null
 }
 
 /** Técnico de um lado competitivo — detalhe da UI ("téc. Fulano"). */
@@ -161,6 +163,7 @@ interface ParticipanteEmbed {
   /** PII (RLS: só authenticated lê users): consumido APENAS pela projeção
    * de partidas abertas — insumo do atalho de convocação. */
   celular: string | null
+  avatar: string | null
 }
 
 interface ClubeEmbed {
@@ -312,8 +315,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     .from("matches")
     .select(
       `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, wo, wo_vencedor, created_at, updated_at,
-       p1:users!matches_participante_1_fkey ( id, nome, celular ),
-       p2:users!matches_participante_2_fkey ( id, nome, celular ),
+       p1:users!matches_participante_1_fkey ( id, nome, celular, avatar ),
+       p2:users!matches_participante_2_fkey ( id, nome, celular, avatar ),
        t1:teams!matches_time_1_fkey ( id, nome ),
        t2:teams!matches_time_2_fkey ( id, nome ),
        v1:tournament_slots!matches_vaga_1_fkey ( id, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome, celular ) ),
@@ -364,6 +367,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const nomes = new Map<string, string>()
   const escudos = new Map<string, string | null>()
   const nomesClubes = new Map<string, string>()
+  // Foto do participante (só avulso): chaveada pelo id do participante.
+  const avatares = new Map<string, string | null>()
   for (const p of linhasPartidas) {
     if (competitivo) {
       if (p.v1) {
@@ -375,8 +380,14 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
         escudos.set(p.v2.id, p.v2.team?.escudo_url ?? null)
       }
     } else {
-      if (p.p1) nomes.set(p.p1.id, nomeOuFallback(p.p1.nome))
-      if (p.p2) nomes.set(p.p2.id, nomeOuFallback(p.p2.nome))
+      if (p.p1) {
+        nomes.set(p.p1.id, nomeOuFallback(p.p1.nome))
+        avatares.set(p.p1.id, p.p1.avatar ?? null)
+      }
+      if (p.p2) {
+        nomes.set(p.p2.id, nomeOuFallback(p.p2.nome))
+        avatares.set(p.p2.id, p.p2.avatar ?? null)
+      }
       if (p.t1) nomesClubes.set(p.t1.id, nomeOuFallback(p.t1.nome))
       if (p.t2) nomesClubes.set(p.t2.id, nomeOuFallback(p.t2.nome))
     }
@@ -392,6 +403,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     ...linha,
     nome: nomes.get(linha.participanteId) ?? "Sem nome",
     escudoUrl: escudos.get(linha.participanteId) ?? null,
+    avatarUrl: competitivo ? null : (avatares.get(linha.participanteId) ?? null),
   }))
 
   // Projeção `clubes`: recurso do AVULSO (re-chavear partidas avulsas por

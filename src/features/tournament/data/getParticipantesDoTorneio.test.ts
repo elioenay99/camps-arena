@@ -52,8 +52,8 @@ describe("getParticipantesDoTorneio", () => {
   it("resolve id/nome a partir do embed, filtrando pelo torneio", async () => {
     const client = montarClient({
       data: [
-        { user_id: "u1", usuario: { id: "u1", nome: "Ana" } },
-        { user_id: "u2", usuario: { id: "u2", nome: null } },
+        { user_id: "u1", usuario: { id: "u1", nome: "Ana", avatar: "a1.png" } },
+        { user_id: "u2", usuario: { id: "u2", nome: null, avatar: null } },
         { user_id: "u3", usuario: null },
       ],
     })
@@ -61,9 +61,9 @@ describe("getParticipantesDoTorneio", () => {
     const r = await getParticipantesDoTorneio(TORNEIO)
 
     expect(r).toEqual([
-      { id: "u1", nome: "Ana" },
-      { id: "u2", nome: null },
-      { id: "u3", nome: null },
+      { id: "u1", nome: "Ana", avatar: "a1.png" },
+      { id: "u2", nome: null, avatar: null },
+      { id: "u3", nome: null, avatar: null },
     ])
     expect(client.from).toHaveBeenCalledWith("participants")
     expect(client.filtroSpy).toHaveBeenCalledWith("eq", "tournament_id", TORNEIO)

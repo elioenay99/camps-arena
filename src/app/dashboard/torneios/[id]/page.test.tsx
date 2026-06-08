@@ -214,7 +214,7 @@ describe("TorneioPage — lados por formato (integração das seções)", () => 
 
   it("AVULSO: renderiza Participantes + convite genérico; vagas NUNCA buscadas", async () => {
     montarCenario({ torneio: { formato: "avulso", status: "ativo" } })
-    mockParticipantes.mockResolvedValue([{ id: DONO, nome: "Ana" }])
+    mockParticipantes.mockResolvedValue([{ id: DONO, nome: "Ana", avatar: null }])
     await renderPage()
     expect(
       screen.getByRole("heading", { name: "Participantes" })

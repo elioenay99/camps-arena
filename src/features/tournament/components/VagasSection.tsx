@@ -1,5 +1,6 @@
 import { env } from "@/lib/env"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
+import { UserAvatar } from "@/features/profile/components/UserAvatar"
 import type { VagaDoTorneio } from "@/features/tournament/data/getVagasDoTorneio"
 import {
   AssumirVagaButton,
@@ -66,9 +67,16 @@ export function VagasSection({
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate text-sm font-medium">{vaga.clube}</span>
                       {vaga.tecnico ? (
-                        <span className="text-muted-foreground truncate text-xs">
-                          {`téc. ${vaga.tecnico.nome?.trim() || "Sem nome"}`}
-                          {souTecnico ? " (você)" : ""}
+                        <span className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs">
+                          <UserAvatar
+                            nome={vaga.tecnico.nome}
+                            avatarUrl={vaga.tecnico.avatar}
+                            size={16}
+                          />
+                          <span className="truncate">
+                            {`téc. ${vaga.tecnico.nome?.trim() || "Sem nome"}`}
+                            {souTecnico ? " (você)" : ""}
+                          </span>
                         </span>
                       ) : (
                         <span className="text-muted-foreground truncate text-xs">

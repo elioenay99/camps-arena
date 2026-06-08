@@ -1,5 +1,7 @@
 import { Trophy } from "lucide-react"
 
+import { TeamCrest } from "@/features/team/components/TeamCrest"
+import { UserAvatar } from "@/features/profile/components/UserAvatar"
 import type { LinhaComNome } from "@/features/standings/data/getTournamentClassificacao"
 
 const COLUNAS = [
@@ -77,7 +79,24 @@ export function StandingsTable({
                     {linha.posicao}º
                   </span>
                 </td>
-                <td className="px-3 py-2 text-left whitespace-nowrap">{linha.nome}</td>
+                <td className="px-3 py-2 text-left">
+                  <span className="flex items-center gap-2 whitespace-nowrap">
+                    {linha.escudoUrl ? (
+                      <TeamCrest
+                        nome={linha.nome}
+                        escudoUrl={linha.escudoUrl}
+                        size={24}
+                      />
+                    ) : (
+                      <UserAvatar
+                        nome={linha.nome}
+                        avatarUrl={linha.avatarUrl}
+                        size={24}
+                      />
+                    )}
+                    {linha.nome}
+                  </span>
+                </td>
                 <td className="px-2 py-2 text-center font-semibold tabular-nums">
                   {linha.pontos}
                 </td>

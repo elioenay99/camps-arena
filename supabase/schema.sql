@@ -1471,3 +1471,47 @@ create policy match_wo_requests_update_owner on public.match_wo_requests
 -- Segurança/PII: a tabela `users` (com `celular`) é legível só por authenticated.
 -- Anônimos leem apenas `users_public` (id, nome, avatar) — sem telefone.
 -- O atalho de WhatsApp usa `celular`, disponível somente na área autenticada.
+
+-- ============================================================
+-- Storage: bucket `avatars` (fotos de perfil)
+-- ============================================================
+-- Bucket PÚBLICO (leitura por URL pública; a URL vai em public.users.avatar).
+-- Escrita restrita por RLS de storage.objects: cada usuário só mexe na PRÓPRIA
+-- pasta `<auth.uid()>/…` (o app sobe em `<uid>/<uuid>.<ext>`). Aplicar
+-- MANUALMENTE no Supabase (mesma política de DDL do projeto).
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists "avatars leitura publica" on storage.objects;
+create policy "avatars leitura publica" on storage.objects
+  for select to anon, authenticated
+  using (bucket_id = 'avatars');
+
+drop policy if exists "avatars insert do dono" on storage.objects;
+create policy "avatars insert do dono" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "avatars update do dono" on storage.objects;
+create policy "avatars update do dono" on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  )
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "avatars delete do dono" on storage.objects;
+create policy "avatars delete do dono" on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );

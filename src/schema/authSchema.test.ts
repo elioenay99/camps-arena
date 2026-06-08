@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { changePasswordSchema } from "@/schema/authSchema"
+import { changePasswordSchema, profileSchema } from "@/schema/authSchema"
 
 /** Erros achatados por campo (mesma forma usada pelas actions). */
 function fieldErrors(input: unknown) {
@@ -54,5 +54,35 @@ describe("changePasswordSchema", () => {
     expect(
       fieldErrors({ senhaAtual: "", novaSenha: "novaSegura", confirmar: "novaSegura" })
     ).toMatchObject({ senhaAtual: [expect.stringMatching(/senha atual/i)] })
+  })
+})
+
+describe("profileSchema", () => {
+  it("aceita nome (≥2) e celular brasileiro (normaliza para dígitos)", () => {
+    const r = profileSchema.safeParse({
+      nome: "  Ana Souza ",
+      celular: "(11) 91234-5678",
+    })
+    expect(r.success).toBe(true)
+    if (r.success) {
+      expect(r.data.nome).toBe("Ana Souza")
+      expect(r.data.celular).toBe("11912345678")
+    }
+  })
+
+  it("rejeita nome curto (< 2) no campo nome", () => {
+    const r = profileSchema.safeParse({ nome: "A", celular: "11912345678" })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues[0]?.path[0]).toBe("nome")
+    }
+  })
+
+  it("rejeita celular fora do formato no campo celular", () => {
+    const r = profileSchema.safeParse({ nome: "Ana", celular: "123" })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues[0]?.path[0]).toBe("celular")
+    }
   })
 })

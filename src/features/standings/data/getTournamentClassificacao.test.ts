@@ -233,8 +233,8 @@ describe("getTournamentClassificacao", () => {
     // Normaliza whitespace: o postgrest-js remove espaços não-citados antes
     // de enviar — assertar a forma normalizada evita acoplar à formatação.
     const cols = String(client.partidasSelectSpy.mock.calls[0][0]).replace(/\s+/g, "")
-    expect(cols).toContain("p1:users!matches_participante_1_fkey(id,nome,celular)")
-    expect(cols).toContain("p2:users!matches_participante_2_fkey(id,nome,celular)")
+    expect(cols).toContain("p1:users!matches_participante_1_fkey(id,nome,celular,avatar)")
+    expect(cols).toContain("p2:users!matches_participante_2_fkey(id,nome,celular,avatar)")
     // Colunas cruas: insumos do motor — removê-las quebraria a classificação.
     expect(cols).toContain("participante_1")
     expect(cols).toContain("participante_2")

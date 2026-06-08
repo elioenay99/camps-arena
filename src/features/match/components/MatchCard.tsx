@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card"
 import { MatchScoreModalConnected } from "@/features/match/components/MatchScoreModalConnected"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
+import { UserAvatar } from "@/features/profile/components/UserAvatar"
 import type {
   ClubeResumo,
   ParticipanteResumo,
@@ -265,15 +266,16 @@ export function MatchCard({
   )
 }
 
-/** Coluna de um lado: escudo (clube ou pessoa), detalhe opcional e placar. */
+/** Coluna de um lado: escudo do CLUBE (competitivo) ou foto da PESSOA (avulso
+ * sem clube), detalhe opcional e placar. Mesma regra da StandingsTable. */
 function LadoPlacar({ lado, placar }: { lado: ParticipantePartida; placar: number }) {
   return (
     <div className="flex flex-col items-center gap-2">
-      <TeamCrest
-        nome={lado.clube?.nome ?? lado.nome}
-        escudoUrl={lado.clube?.escudoUrl}
-        size={36}
-      />
+      {lado.clube?.escudoUrl ? (
+        <TeamCrest nome={lado.clube.nome} escudoUrl={lado.clube.escudoUrl} size={36} />
+      ) : (
+        <UserAvatar nome={lado.nome} avatarUrl={lado.avatarUrl} size={36} />
+      )}
       <span
         className="font-display text-4xl font-bold tabular-nums sm:text-5xl"
         aria-hidden="true"

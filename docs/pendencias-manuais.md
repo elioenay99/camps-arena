@@ -2354,3 +2354,58 @@ create policy match_wo_requests_update_owner on public.match_wo_requests
 `matches_wo_vencedor_idx` de matches + restaurar as versões anteriores dos
 triggers `lock_match_lifecycle` e `valida_resultado_mata_mata` (git do
 schema.sql anterior a este change).
+
+## 15) Avatares — bucket de storage (add-user-profile-avatar)
+
+Fotos de perfil do usuário. A coluna `public.users.avatar` já existe (guarda a
+URL pública); falta o BUCKET e suas policies. Bucket público (leitura por URL);
+escrita restrita por RLS: cada usuário só mexe na pasta `<auth.uid()>/` (o app
+sobe em `<uid>/<uuid>.<ext>`). Nenhuma mudança de tabela.
+
+- [ ] **15.1 — Run único (bucket + policies de storage.objects):**
+
+```sql
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists "avatars leitura publica" on storage.objects;
+create policy "avatars leitura publica" on storage.objects
+  for select to anon, authenticated
+  using (bucket_id = 'avatars');
+
+drop policy if exists "avatars insert do dono" on storage.objects;
+create policy "avatars insert do dono" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "avatars update do dono" on storage.objects;
+create policy "avatars update do dono" on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  )
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "avatars delete do dono" on storage.objects;
+create policy "avatars delete do dono" on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+```
+
+- [ ] **15.2 — Checagens**: logado, enviar uma foto em /dashboard/conta (vai pra
+      `avatars/<seu-id>/…` e aparece no header); tentar `upload` numa pasta de
+      outro id pela API deve falhar (RLS); a foto antiga é apagada ao trocar.
+
+**Rollback**: remover as 4 policies de `storage.objects` e
+`delete from storage.buckets where id = 'avatars';` (apaga os objetos junto).

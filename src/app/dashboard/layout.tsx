@@ -4,6 +4,8 @@ import { logout } from "@/actions/auth";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
 import { NavLinks, type NavLink } from "@/features/nav/components/NavLinks";
+import { UserAvatar } from "@/features/profile/components/UserAvatar";
+import { getPerfil } from "@/features/profile/data/getPerfil";
 
 const LINKS: NavLink[] = [
   // "/dashboard" com igualdade exata — por prefixo ativaria em todo o segmento.
@@ -13,7 +15,6 @@ const LINKS: NavLink[] = [
   // índice (dois itens do nav ativos ao mesmo tempo confundem).
   { href: "/dashboard/torneios", rotulo: "Torneios" },
   { href: "/dashboard/partidas/nova", rotulo: "Nova partida" },
-  { href: "/dashboard/conta", rotulo: "Conta" },
 ];
 
 /**
@@ -21,11 +22,13 @@ const LINKS: NavLink[] = [
  * As páginas (e os boundaries de loading/erro/404) não renderizam marca nem
  * logout próprios — fariam a marca duplicar, já que renderizam DENTRO daqui.
  */
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const perfil = await getPerfil();
+
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
@@ -41,6 +44,17 @@ export default function DashboardLayout({
 
           <div className="ml-auto flex items-center gap-2">
             <ModeToggle />
+            <Link
+              href="/dashboard/conta"
+              aria-label="Sua conta"
+              className="rounded-full ring-offset-background transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+            >
+              <UserAvatar
+                nome={perfil?.nome ?? null}
+                avatarUrl={perfil?.avatar ?? null}
+                size={32}
+              />
+            </Link>
             <form action={logout}>
               <Button variant="outline" size="sm" type="submit">
                 Sair

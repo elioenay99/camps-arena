@@ -61,8 +61,15 @@ export const changePasswordSchema = z
     path: ["novaSenha"],
   })
 
+/** Edição do próprio perfil (nome + celular). Avatar é tratado à parte (arquivo). */
+export const profileSchema = z.object({
+  nome: z.string().trim().min(2, "Informe seu nome."),
+  celular: celularBR,
+})
+
 export type LoginInput = z.infer<typeof loginSchema>
 export type SignupInput = z.infer<typeof signupSchema>
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>
 export type UpdatePasswordInput = z.infer<typeof updatePasswordSchema>
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>
+export type ProfileInput = z.infer<typeof profileSchema>

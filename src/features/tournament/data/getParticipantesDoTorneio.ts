@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server"
 export interface ParticipanteDoTorneio {
   id: string
   nome: string | null
+  avatar: string | null
 }
 
 /**
@@ -22,7 +23,7 @@ export async function getParticipantesDoTorneio(
 
   const { data, error } = await supabase
     .from("participants")
-    .select("user_id, usuario:users!participants_user_id_fkey ( id, nome )")
+    .select("user_id, usuario:users!participants_user_id_fkey ( id, nome, avatar )")
     .eq("tournament_id", tournamentId)
     .order("created_at", { ascending: true })
 
@@ -34,11 +35,12 @@ export async function getParticipantesDoTorneio(
   // confiança (mesma decisão de getTournamentClassificacao).
   const linhas = (data ?? []) as unknown as Array<{
     user_id: string
-    usuario: { id: string; nome: string | null } | null
+    usuario: { id: string; nome: string | null; avatar: string | null } | null
   }>
 
   return linhas.map((linha) => ({
     id: linha.user_id,
     nome: linha.usuario?.nome ?? null,
+    avatar: linha.usuario?.avatar ?? null,
   }))
 }

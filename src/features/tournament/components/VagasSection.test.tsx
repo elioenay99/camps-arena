@@ -25,7 +25,12 @@ const DONO = "dono-1"
 const TECNICO = "u1"
 
 const VAGAS: VagaDoTorneio[] = [
-  { id: "s1", clube: "Grêmio", escudoUrl: null, tecnico: { id: TECNICO, nome: "Ana" } },
+  {
+    id: "s1",
+    clube: "Grêmio",
+    escudoUrl: null,
+    tecnico: { id: TECNICO, nome: "Ana", avatar: null },
+  },
   { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null },
 ]
 
