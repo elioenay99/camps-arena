@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 // Fail-fast: valida as variáveis de ambiente no início do build/dev (o Next
 // carrega os .env* ANTES de avaliar esta config), em vez de falhar no meio
@@ -56,4 +57,20 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Envelopa com o Sentry: instrumentação + túnel same-origin (mantém a CSP) +
+// upload de source maps. org/project/authToken vêm de ENV (não hardcoded — sem
+// eles o upload é PULADO e o build passa; com placeholder falso, o upload
+// quebraria). `import "./src/lib/env"` acima segue valendo (fail-fast).
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  // String FIXA (nunca `true`, que geraria path aleatório por deploy): o
+  // browser POSTa same-origin → coberto por connect-src 'self' (CSP inalterada)
+  // e dribla ad-blockers. O matcher do proxy exclui este path.
+  tunnelRoute: "/sentry-tunnel",
+  // Amplia o upload de source maps para cobrir os bundles client.
+  widenClientFileUpload: true,
+  // Silencioso fora do CI (logs de upload só quando relevante).
+  silent: !process.env.CI,
+});

@@ -31,9 +31,11 @@ export const config = {
   matcher: [
     /*
      * Aplica a todas as rotas, exceto:
+     * - sentry-tunnel (o túnel do Sentry NÃO pode passar pelo updateSession do
+     *   Supabase — sob Turbopack falharia em silêncio; 1º termo do lookahead)
      * - _next/static, _next/image
      * - favicon.ico e arquivos estáticos comuns
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!sentry-tunnel|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }

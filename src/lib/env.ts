@@ -20,6 +20,9 @@ const envSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   // URL canônica do site (metadados/OG). Default preserva o dev local.
   NEXT_PUBLIC_SITE_URL: z.url(urlHttp).default("http://localhost:3000"),
+  // DSN do Sentry (público por design — vai no bundle client). OPCIONAL: sem
+  // ele a instrumentação é no-op (Sentry.init(undefined) não envia nada).
+  NEXT_PUBLIC_SENTRY_DSN: z.url(urlHttp).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -57,6 +60,7 @@ export const env = parseEnv({
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
+  NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
 })
 
 /**
@@ -67,5 +71,16 @@ export const env = parseEnv({
  */
 export function apiFootballKey(): string | undefined {
   const valor = process.env.API_FOOTBALL_KEY
+  return valor ? valor : undefined
+}
+
+/**
+ * `SENTRY_AUTH_TOKEN` é segredo de BUILD (upload de source maps) — server-only,
+ * NUNCA `NEXT_PUBLIC_`, fora do parse eager. Lido só no build do Vercel; ausente
+ * => o `withSentryConfig` pula o upload (build não falha). Espelha
+ * `apiFootballKey`: `""` conta como ausente.
+ */
+export function sentryAuthToken(): string | undefined {
+  const valor = process.env.SENTRY_AUTH_TOKEN
   return valor ? valor : undefined
 }
