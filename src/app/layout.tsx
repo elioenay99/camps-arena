@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import { headers } from "next/headers";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
 import { ThemeProvider } from "@/components/theme-provider";
@@ -63,6 +65,11 @@ export default async function RootLayout({
           {children}
           <Toaster richColors position="top-center" />
         </ThemeProvider>
+        {/* Vercel Analytics + Web Vitals: injetam o script via createElement no
+            bundle confiável (autorizado por strict-dynamic) e batem em endpoints
+            same-origin; no-op fora do Vercel. */}
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
