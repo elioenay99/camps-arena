@@ -14,5 +14,5 @@
 
 - [x] 2.1 Gates locais: typecheck/lint/test verdes (840 testes ✅). Mensagens ao
       usuário e retornos inalterados.
-- [ ] 2.2 Commit + push + CI verde + archive. Sem pendência manual. Captura real
-      só em deploy com DSN (no-op local).
+- [x] 2.2 Commit + push + CI verde + archive. Sem pendência manual. Captura real
+      só em deploy com DSN (no-op local). Run `27243273327` verde.
