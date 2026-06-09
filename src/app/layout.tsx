@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { env } from "@/lib/env";
+
+// O nonce da CSP é per-request → o app renderiza dinamicamente (página estática
+// nasceria sem nonce e teria os scripts do framework bloqueados pelo CSP).
+export const dynamic = "force-dynamic";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,11 +37,15 @@ export const metadata: Metadata = {
   description: "Gestão de torneios e partidas — placar ao vivo entre participantes.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // next-themes injeta um <script> inline anti-flash que o nonce automático do
+  // Next não cobre — repassamos o nonce do request para ele emitir com o nonce.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html
       lang="pt-BR"
@@ -49,6 +58,7 @@ export default function RootLayout({
           defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
+          nonce={nonce}
         >
           {children}
           <Toaster richColors position="top-center" />

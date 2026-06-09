@@ -16,9 +16,28 @@ function isProtected(pathname: string) {
 /**
  * Renova a sessão do Supabase a cada requisição e protege rotas administrativas.
  * IMPORTANTE: sempre retornar o `supabaseResponse` para preservar os cookies.
+ *
+ * `extraRequestHeaders` (ex.: `x-nonce` + CSP gerados no proxy) entram nos
+ * request headers do `NextResponse.next` para que o RSC leia o nonce e o Next o
+ * aplique aos scripts. Reconstruímos os headers DEPOIS da mutação de cookie
+ * (clone de `request.headers`, que já reflete `request.cookies.set`) — o nonce
+ * entra sem perder o refresh de sessão (evita o "logout aleatório").
  */
-export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+export async function updateSession(
+  request: NextRequest,
+  extraRequestHeaders?: Record<string, string>
+) {
+  function nextWithHeaders() {
+    const headers = new Headers(request.headers)
+    if (extraRequestHeaders) {
+      for (const [key, value] of Object.entries(extraRequestHeaders)) {
+        headers.set(key, value)
+      }
+    }
+    return NextResponse.next({ request: { headers } })
+  }
+
+  let supabaseResponse = nextWithHeaders()
 
   const supabase = createServerClient<Database>(
     env.NEXT_PUBLIC_SUPABASE_URL,
@@ -32,7 +51,7 @@ export async function updateSession(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           )
-          supabaseResponse = NextResponse.next({ request })
+          supabaseResponse = nextWithHeaders()
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           )
