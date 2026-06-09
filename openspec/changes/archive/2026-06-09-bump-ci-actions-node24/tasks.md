@@ -10,5 +10,6 @@
 
 - [x] 2.1 Gates locais: typecheck/lint/test continuam verdes (sanidade — o bump
       não toca código, mas confirma o ambiente). 840 testes ✅.
-- [ ] 2.2 Commit + push + CI verde (a execução real prova as actions node24 e a
+- [x] 2.2 Commit + push + CI verde (a execução real prova as actions node24 e a
       ausência do aviso de deprecação) + archive. Sem pendência manual.
+      Run `27242863971` verde em 1m30s, sem anotações de deprecação.
