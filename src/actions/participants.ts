@@ -1,5 +1,6 @@
 "use server"
 
+import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
@@ -77,7 +78,10 @@ export async function aceitarConvite(
       return { error: "Não foi possível aceitar o convite agora. Tente novamente." }
     }
     tournamentId = data
-  } catch {
+  } catch (error) {
+    // Falha INESPERADA da RPC (o erro esperado já virou mensagem acima). Reporta
+    // ao Sentry — o redirect (NEXT_REDIRECT) está fora do try.
+    Sentry.captureException(error, { tags: { action: "aceitarConvite" } })
     return { error: "Não foi possível aceitar o convite agora. Tente novamente." }
   }
 

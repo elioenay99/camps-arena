@@ -1,5 +1,6 @@
 "use server"
 
+import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { z } from "zod"
@@ -265,7 +266,10 @@ export async function createMatch(
       console.error("createMatch falhou", error.code ?? error.message)
       return { error: "Não foi possível criar a partida agora. Tente novamente." }
     }
-  } catch {
+  } catch (error) {
+    // Falha INESPERADA do INSERT (o erro esperado já virou console.error +
+    // mensagem acima). Reporta ao Sentry — o redirect está fora do try.
+    Sentry.captureException(error, { tags: { action: "createMatch" } })
     return { error: "Não foi possível criar a partida agora. Tente novamente." }
   }
 

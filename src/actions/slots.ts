@@ -1,5 +1,6 @@
 "use server"
 
+import * as Sentry from "@sentry/nextjs"
 import { z } from "zod"
 
 import { revalidatePath } from "next/cache"
@@ -80,7 +81,10 @@ export async function aceitarConviteVaga(
       return { error: "Não foi possível assumir a vaga agora. Tente novamente." }
     }
     tournamentId = data
-  } catch {
+  } catch (error) {
+    // Falha INESPERADA da RPC (o erro esperado já virou mensagem acima). Reporta
+    // ao Sentry — o redirect (NEXT_REDIRECT) está fora do try.
+    Sentry.captureException(error, { tags: { action: "aceitarConviteVaga" } })
     return { error: "Não foi possível assumir a vaga agora. Tente novamente." }
   }
 
@@ -303,7 +307,10 @@ export async function assumirVagaComoDono(
       return { ok: false, error: "Não foi possível assumir a vaga agora. Tente novamente." }
     }
     tournamentId = data
-  } catch {
+  } catch (error) {
+    // Falha INESPERADA da RPC (o erro esperado já virou mensagem acima). Reporta
+    // ao Sentry — o redirect (NEXT_REDIRECT) está fora do try.
+    Sentry.captureException(error, { tags: { action: "assumirVagaComoDono" } })
     return { ok: false, error: "Não foi possível assumir a vaga agora. Tente novamente." }
   }
 

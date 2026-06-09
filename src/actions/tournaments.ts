@@ -1,5 +1,6 @@
 "use server"
 
+import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { z } from "zod"
@@ -223,7 +224,13 @@ export async function createTournament(
         if (inviteError.code !== "23505") break
       }
     }
-  } catch {
+  } catch (error) {
+    // Falha INESPERADA das escritas no Supabase (rede, PostgREST que lança): o
+    // catch some com ela atrás de mensagem genérica. Reporta ao Sentry para não
+    // ficar cega — o redirect/revalidate (NEXT_REDIRECT) estão fora do try, então
+    // aqui nunca chega exceção de controle de fluxo, só erro real. O scrub do
+    // server config redige PII de `error.message`.
+    Sentry.captureException(error, { tags: { action: "createTournament" } })
     return { error: "Não foi possível criar o torneio agora. Tente novamente." }
   }
 
