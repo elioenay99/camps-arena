@@ -10,6 +10,9 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { MatchScoreModalConnected } from "@/features/match/components/MatchScoreModalConnected"
+import { LiveScore, LiveScoreSr } from "@/features/match/live/LiveScore"
+import { LiveStatusBadge } from "@/features/match/live/LiveStatusBadge"
+import { LABEL_STATUS } from "@/features/match/live/labels"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { UserAvatar } from "@/features/profile/components/UserAvatar"
 import type {
@@ -20,17 +23,8 @@ import type {
 } from "@/features/match/data/getActiveMatches"
 import { MessageCircle } from "lucide-react"
 
-import { cn } from "@/lib/utils"
-
-import type { MatchStatus } from "@/lib/supabase/database.types"
 import type { ParticipantePartida } from "@/features/match/components/MatchScoreModal"
 import { linkWhatsApp, mensagemConvocacao } from "@/lib/whatsapp"
-
-const LABEL_STATUS: Record<MatchStatus, string> = {
-  agendada: "agendada",
-  em_andamento: "em andamento",
-  encerrada: "encerrada",
-}
 
 /**
  * Lado normalizado da partida — abstrai os dois modelos:
@@ -178,8 +172,6 @@ export function MatchCard({
     : null
   const rotuloChamar = adversario?.nomeConvocacao ?? "adversário"
 
-  const emAndamento = partida.status === "em_andamento"
-
   return (
     <li>
       <Card className="motion-safe:transition-colors hover:border-primary/40">
@@ -195,37 +187,37 @@ export function MatchCard({
             >
               {torneio}
             </Link>
-            {/* Cápsula de status visual — o texto acessível permanece logo abaixo. */}
-            <span
-              aria-hidden="true"
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium",
-                emAndamento
-                  ? "border-primary/30 bg-primary/10 text-primary"
-                  : "border-border bg-muted/40 text-muted-foreground"
-              )}
-            >
-              {emAndamento ? (
-                <span className="size-1.5 rounded-full bg-primary motion-safe:animate-pulse" />
-              ) : null}
-              {LABEL_STATUS[partida.status]}
-            </span>
-            <span className="sr-only">{` • ${LABEL_STATUS[partida.status]}`}</span>
+            {/* Cápsula de status — viva (Realtime); o texto acessível acompanha. */}
+            <LiveStatusBadge matchId={partida.id} initial={partida.status} />
           </CardDescription>
         </CardHeader>
 
         <CardContent className="flex items-center justify-center gap-4 py-2 sm:gap-6">
-          <LadoPlacar lado={p1} placar={partida.placar_1} />
+          <LadoPlacar
+            lado={p1}
+            matchId={partida.id}
+            field="placar_1"
+            placar={partida.placar_1}
+          />
           <span
             className="font-display text-2xl font-medium text-muted-foreground/60 sm:text-3xl"
             aria-hidden="true"
           >
             ×
           </span>
-          <LadoPlacar lado={p2} placar={partida.placar_2} />
-          <span className="sr-only">
-            {`Placar atual: ${p1.nome} ${partida.placar_1}, ${p2.nome} ${partida.placar_2}`}
-          </span>
+          <LadoPlacar
+            lado={p2}
+            matchId={partida.id}
+            field="placar_2"
+            placar={partida.placar_2}
+          />
+          <LiveScoreSr
+            matchId={partida.id}
+            nome1={p1.nome}
+            nome2={p2.nome}
+            initial1={partida.placar_1}
+            initial2={partida.placar_2}
+          />
         </CardContent>
 
         <CardFooter className="flex-col gap-2">
@@ -267,8 +259,19 @@ export function MatchCard({
 }
 
 /** Coluna de um lado: escudo do CLUBE (competitivo) ou foto da PESSOA (avulso
- * sem clube), detalhe opcional e placar. Mesma regra da StandingsTable. */
-function LadoPlacar({ lado, placar }: { lado: ParticipantePartida; placar: number }) {
+ * sem clube), detalhe opcional e placar. Mesma regra da StandingsTable. O
+ * número é vivo (Realtime), com `placar` como valor inicial da RSC. */
+function LadoPlacar({
+  lado,
+  matchId,
+  field,
+  placar,
+}: {
+  lado: ParticipantePartida
+  matchId: string
+  field: "placar_1" | "placar_2"
+  placar: number
+}) {
   return (
     <div className="flex flex-col items-center gap-2">
       {lado.clube?.escudoUrl ? (
@@ -276,12 +279,7 @@ function LadoPlacar({ lado, placar }: { lado: ParticipantePartida; placar: numbe
       ) : (
         <UserAvatar nome={lado.nome} avatarUrl={lado.avatarUrl} size={36} />
       )}
-      <span
-        className="font-display text-4xl font-bold tabular-nums sm:text-5xl"
-        aria-hidden="true"
-      >
-        {placar}
-      </span>
+      <LiveScore matchId={matchId} field={field} initial={placar} />
       {lado.detalhe ? (
         <span className="text-xs text-muted-foreground" aria-hidden="true">
           {lado.detalhe}

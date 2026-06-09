@@ -2409,3 +2409,37 @@ create policy "avatars delete do dono" on storage.objects
 
 **Rollback**: remover as 4 policies de `storage.objects` e
 `delete from storage.buckets where id = 'avatars';` (apaga os objetos junto).
+
+## 16) Realtime — placar/status ao vivo no painel (add-realtime-scoreboard)
+
+O painel (`/dashboard`) assina `UPDATE` de `matches` via Supabase Realtime para
+atualizar placar e status sem refresh. Falta PUBLICAR a tabela na publication
+`supabase_realtime` (config de banco). A RLS de SELECT de `matches` é reusada —
+o canal é autenticado e só entrega eventos de partidas que o usuário já pode
+ver. **Nenhuma mudança de tabela/coluna/policy.** Sem este passo o painel
+funciona igual a hoje (valores do carregamento; sem atualização ao vivo).
+
+- [ ] **16.1 — Run único (publicar matches no Realtime):**
+
+```sql
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'matches'
+  ) then
+    alter publication supabase_realtime add table public.matches;
+  end if;
+end $$;
+```
+
+- [ ] **16.2 — Checagens (dois navegadores)**: logar A e B numa partida que
+      ambos veem; A altera o placar pelo Menu da Partida; o número E a cápsula
+      de status mudam SOZINHOS no painel de B (sem refresh). Conferir no Supabase
+      (Database → Replication / publication `supabase_realtime`) que `matches`
+      está listada.
+
+**Rollback**: `alter publication supabase_realtime drop table public.matches;`
+(o painel volta ao comportamento estático; nada mais é afetado).

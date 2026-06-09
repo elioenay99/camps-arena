@@ -1515,3 +1515,21 @@ create policy "avatars delete do dono" on storage.objects
     bucket_id = 'avatars'
     and (storage.foldername(name))[1] = auth.uid()::text
   );
+
+-- ---------- Realtime ----------
+-- O painel (/dashboard) assina UPDATE de `matches` via Supabase Realtime para
+-- atualizar placar e status ao vivo (sem refresh). A emissão respeita a RLS de
+-- SELECT de `matches` (o canal é autenticado; nenhuma policy nova). Publicar a
+-- tabela na publication do Realtime é config de banco — aplicar manualmente
+-- (idempotente: ignora se já publicada). Ver docs/pendencias-manuais.md seção 16.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'matches'
+  ) then
+    alter publication supabase_realtime add table public.matches;
+  end if;
+end $$;

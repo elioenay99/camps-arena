@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveMatches } from "@/features/match/data/getActiveMatches";
 import { MatchCard } from "@/features/match/components/MatchCard";
+import { LiveMatchesProvider } from "@/features/match/live/LiveMatchesProvider";
 import { EmptyActiveMatches } from "@/features/match/components/EmptyActiveMatches";
 
 export const metadata: Metadata = {
@@ -47,11 +48,20 @@ export default async function DashboardPage() {
         {partidas.length === 0 ? (
           <EmptyActiveMatches />
         ) : (
-          <ul className="flex list-none flex-col gap-4 p-0">
-            {partidas.map((partida) => (
-              <MatchCard key={partida.id} partida={partida} userId={user.id} />
-            ))}
-          </ul>
+          <LiveMatchesProvider
+            initial={partidas.map((p) => ({
+              id: p.id,
+              placar_1: p.placar_1,
+              placar_2: p.placar_2,
+              status: p.status,
+            }))}
+          >
+            <ul className="flex list-none flex-col gap-4 p-0">
+              {partidas.map((partida) => (
+                <MatchCard key={partida.id} partida={partida} userId={user.id} />
+              ))}
+            </ul>
+          </LiveMatchesProvider>
         )}
       </section>
 
