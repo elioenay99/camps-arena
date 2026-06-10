@@ -19,4 +19,5 @@
 ## 3. Validação
 
 - [x] 3.1 Gates locais: typecheck/lint/test (843 ✅) + build de produção.
-- [ ] 3.2 Commit + push + CI verde + archive. Sem pendência manual.
+- [x] 3.2 Commit + push + CI verde + archive. Sem pendência manual. Run
+      `27244220581` verde.
