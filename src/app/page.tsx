@@ -125,14 +125,14 @@ export default async function Home() {
                     <span
                       className={
                         campeao
-                          ? "font-display w-6 text-sm font-bold tabular-nums text-gold"
+                          ? "font-display w-6 text-sm font-bold tabular-nums text-gold-ink"
                           : "font-display w-6 text-sm font-bold tabular-nums text-muted-foreground"
                       }
                     >
                       {linha.pos}
                     </span>
                     {campeao ? (
-                      <Trophy className="size-4 shrink-0 text-gold" />
+                      <Trophy className="size-4 shrink-0 text-gold-ink" />
                     ) : (
                       <span className="size-4 shrink-0" />
                     )}
@@ -192,7 +192,7 @@ export default async function Home() {
           })}
         </section>
 
-        <footer className="mt-auto border-t pt-8 text-center text-xs text-muted-foreground/70">
+        <footer className="mt-auto border-t pt-8 text-center text-xs text-muted-foreground">
           Dados e escudos de clubes via API-Football.
         </footer>
       </main>

@@ -41,9 +41,12 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  /* Dourado-troféu: EXCLUSIVO de conquista (campeão, 1º lugar, 3º lugar). */
+  /* Dourado-troféu: EXCLUSIVO de conquista (campeão, 1º lugar, 3º lugar).
+     `gold` = preenchimento/borda/glow (canarinho vivo); `gold-ink` = TEXTO/ícone
+     dourado legível (âmbar escuro no claro, amarelo no escuro). */
   --color-gold: var(--gold);
   --color-gold-foreground: var(--gold-foreground);
+  --color-gold-ink: var(--gold-ink);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -54,83 +57,98 @@
 }
 
 /*
- * Identidade "Estádio à noite" — hue de campo (~160) em toda a escala de
- * cinzas e verde-gramado elétrico como marca. O tema CLARO ("dia de jogo")
- * usa o MESMO hue com primário escurecido para contraste AA sobre branco.
+ * Identidade de cor:
+ *  - DARK (padrão): paleta DRACULA — slate #282a36 com roxo #bd93f9 de marca,
+ *    e os acentos neon (verde, rosa, ciano, amarelo) nos gráficos/conquista.
+ *  - LIGHT: SELEÇÃO BRASILEIRA — verde #009c3b de marca sobre branco quente,
+ *    dourado/amarelo (escurecido p/ contraste) na conquista, azul no apoio.
+ * Os glows/atmosfera usam var(--primary), então recolorem sozinhos por tema.
  */
 :root {
   color-scheme: light;
-  --background: oklch(0.985 0.005 150);
-  --foreground: oklch(0.18 0.02 165);
-  --card: oklch(1 0.002 150);
-  --card-foreground: oklch(0.18 0.02 165);
-  --popover: oklch(1 0.002 150);
-  --popover-foreground: oklch(0.18 0.02 165);
-  --primary: oklch(0.52 0.15 158);
-  --primary-foreground: oklch(0.985 0.01 150);
-  --secondary: oklch(0.96 0.012 155);
-  --secondary-foreground: oklch(0.25 0.04 160);
-  --muted: oklch(0.96 0.01 155);
-  --muted-foreground: oklch(0.5 0.025 162);
-  --accent: oklch(0.94 0.025 158);
-  --accent-foreground: oklch(0.25 0.05 160);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.91 0.012 158);
-  --input: oklch(0.91 0.012 158);
-  --ring: oklch(0.52 0.15 158);
-  --gold: oklch(0.55 0.12 80);
-  --gold-foreground: oklch(0.99 0.01 90);
-  --chart-1: oklch(0.52 0.15 158);
-  --chart-2: oklch(0.65 0.13 140);
-  --chart-3: oklch(0.7 0.12 110);
-  --chart-4: oklch(0.66 0.13 90);
-  --chart-5: oklch(0.55 0.12 80);
+  /* SELEÇÃO/CANARINHO: branco quente + verde da bandeira (escurecido p/ AA em
+     texto/botão) + AMARELO canarinho nos acentos, glow e conquista. */
+  --background: #fffdf2;
+  --foreground: #11271a;
+  --card: #ffffff;
+  --card-foreground: #11271a;
+  --popover: #ffffff;
+  --popover-foreground: #11271a;
+  --primary: #008035;
+  --primary-foreground: #ffffff;
+  /* secondary/accent carregam o AMARELO canarinho (botões secundários, hover,
+     badges) com texto verde-escuro p/ contraste. */
+  --secondary: #ffe9a3;
+  --secondary-foreground: #143d1d;
+  --muted: #f1f1e2;
+  --muted-foreground: #51664f;
+  --accent: #ffdf6b;
+  --accent-foreground: #143d1d;
+  --destructive: #c81a2a;
+  --border: #e8e3c6;
+  --input: #e8e3c6;
+  --ring: #008035;
+  /* gold = canarinho vivo (preenchimento/borda/glow); gold-ink = âmbar escuro
+     legível p/ texto/ícone de conquista (passa AA sobre o tint). */
+  --gold: #f5b800;
+  --gold-foreground: #2a2000;
+  --gold-ink: #6f4e00;
+  /* Glow de atmosfera secundário: amarelo da bandeira no claro (estádio
+     ensolarado); roxo (= primary) no escuro. Veja .stadium-spotlight. */
+  --glow-accent: #ffcb2e;
+  --chart-1: #008035;
+  --chart-2: #f5b800;
+  --chart-3: #1f4ca8;
+  --chart-4: #00a86b;
+  --chart-5: #e8b800;
   --radius: 0.625rem;
-  --sidebar: oklch(0.975 0.008 152);
-  --sidebar-foreground: oklch(0.18 0.02 165);
-  --sidebar-primary: oklch(0.52 0.15 158);
-  --sidebar-primary-foreground: oklch(0.985 0.01 150);
-  --sidebar-accent: oklch(0.94 0.025 158);
-  --sidebar-accent-foreground: oklch(0.25 0.05 160);
-  --sidebar-border: oklch(0.91 0.012 158);
-  --sidebar-ring: oklch(0.52 0.15 158);
+  --sidebar: #f7f6e6;
+  --sidebar-foreground: #11271a;
+  --sidebar-primary: #008035;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffdf6b;
+  --sidebar-accent-foreground: #143d1d;
+  --sidebar-border: #e8e3c6;
+  --sidebar-ring: #008035;
 }
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.15 0.012 165);
-  --foreground: oklch(0.96 0.008 150);
-  --card: oklch(0.19 0.016 165);
-  --card-foreground: oklch(0.96 0.008 150);
-  --popover: oklch(0.19 0.016 165);
-  --popover-foreground: oklch(0.96 0.008 150);
-  --primary: oklch(0.83 0.21 158);
-  --primary-foreground: oklch(0.17 0.05 160);
-  --secondary: oklch(0.25 0.02 163);
-  --secondary-foreground: oklch(0.96 0.008 150);
-  --muted: oklch(0.25 0.02 163);
-  --muted-foreground: oklch(0.68 0.02 160);
-  --accent: oklch(0.27 0.035 161);
-  --accent-foreground: oklch(0.96 0.012 155);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.92 0.03 158 / 12%);
-  --input: oklch(0.92 0.03 158 / 16%);
-  --ring: oklch(0.83 0.21 158);
-  --gold: oklch(0.85 0.15 85);
-  --gold-foreground: oklch(0.25 0.06 80);
-  --chart-1: oklch(0.83 0.21 158);
-  --chart-2: oklch(0.78 0.17 140);
-  --chart-3: oklch(0.8 0.15 110);
-  --chart-4: oklch(0.84 0.14 95);
-  --chart-5: oklch(0.85 0.15 85);
-  --sidebar: oklch(0.19 0.016 165);
-  --sidebar-foreground: oklch(0.96 0.008 150);
-  --sidebar-primary: oklch(0.83 0.21 158);
-  --sidebar-primary-foreground: oklch(0.17 0.05 160);
-  --sidebar-accent: oklch(0.27 0.035 161);
-  --sidebar-accent-foreground: oklch(0.96 0.012 155);
-  --sidebar-border: oklch(0.92 0.03 158 / 12%);
-  --sidebar-ring: oklch(0.83 0.21 158);
+  --background: #282a36;
+  --foreground: #f8f8f2;
+  --card: #2f3142;
+  --card-foreground: #f8f8f2;
+  --popover: #2f3142;
+  --popover-foreground: #f8f8f2;
+  --primary: #bd93f9;
+  --primary-foreground: #21222c;
+  --secondary: #44475a;
+  --secondary-foreground: #f8f8f2;
+  --muted: #3a3d4f;
+  --muted-foreground: #abafd0;
+  --accent: #44475a;
+  --accent-foreground: #f8f8f2;
+  --destructive: #ff5555;
+  --border: #f8f8f21a;
+  --input: #f8f8f226;
+  --ring: #bd93f9;
+  --gold: #f1fa8c;
+  --gold-foreground: #282a36;
+  --gold-ink: #f1fa8c;
+  --glow-accent: #bd93f9;
+  --chart-1: #bd93f9;
+  --chart-2: #ff79c6;
+  --chart-3: #8be9fd;
+  --chart-4: #50fa7b;
+  --chart-5: #f1fa8c;
+  --sidebar: #21222c;
+  --sidebar-foreground: #f8f8f2;
+  --sidebar-primary: #bd93f9;
+  --sidebar-primary-foreground: #21222c;
+  --sidebar-accent: #44475a;
+  --sidebar-accent-foreground: #f8f8f2;
+  --sidebar-border: #f8f8f21a;
+  --sidebar-ring: #bd93f9;
 }
 
 @layer base {
@@ -161,7 +179,8 @@
       transparent 70%
     );
   }
-  /* Gradiente de texto da marca (verde-gramado → quase-branco). */
+  /* Gradiente de texto da marca (primário → quase-foreground): roxo no dark,
+     verde no light. */
   .text-gradient-brand {
     background-image: linear-gradient(
       100deg,
@@ -179,5 +198,181 @@
       background-image: none;
       color: var(--primary);
     }
+  }
+
+  /* ===================================================================
+     Atmosfera "estádio à noite" — backdrop do shell autenticado e do auth.
+     Camadas decorativas (aria-hidden), atrás do conteúdo. Sutil de propósito:
+     o placar e a tabela são os protagonistas; a atmosfera só dá profundidade.
+     =================================================================== */
+
+  /* Holofote do estádio: glow do primário vindo de cima (roxo no dark, verde no
+     light) + um foco do glow-accent (amarelo canarinho no light, roxo no dark) —
+     quebra o fundo chapado e ancora o olhar no topo. */
+  .stadium-spotlight {
+    background:
+      radial-gradient(
+        ellipse 90% 60% at 50% -10%,
+        color-mix(in oklch, var(--primary) 15%, transparent),
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 55% 48% at 85% 2%,
+        color-mix(in oklch, var(--glow-accent) 14%, transparent),
+        transparent 58%
+      );
+  }
+
+  /* Gramado em perspectiva: grade faint sugerindo as linhas do campo. A máscara
+     radial dissolve nas bordas (sem parede dura). Bem discreto (4%). */
+  .pitch-grid {
+    background-image:
+      linear-gradient(
+        to right,
+        color-mix(in oklch, var(--primary) 100%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in oklch, var(--primary) 100%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 56px 56px;
+    opacity: 0.045;
+    -webkit-mask-image: radial-gradient(
+      ellipse 80% 75% at 50% 24%,
+      #000 28%,
+      transparent 82%
+    );
+    mask-image: radial-gradient(
+      ellipse 80% 75% at 50% 24%,
+      #000 28%,
+      transparent 82%
+    );
+  }
+
+  /* Grão de textura: ruído faintíssimo que tira o aspecto "digital chapado". */
+  .grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.02;
+  }
+
+  /* Elevação dos cards do INTERIOR do app: sombra em camadas + anel sutil do
+     primário. Dá o "flutuando" que faltava (cards eram chapados). */
+  .elevate {
+    box-shadow:
+      0 1px 2px oklch(0 0 0 / 0.28),
+      0 10px 28px -12px oklch(0 0 0 / 0.45),
+      0 0 0 1px color-mix(in oklch, var(--primary) 7%, transparent);
+  }
+  .elevate-hover {
+    transition:
+      box-shadow 0.22s ease,
+      transform 0.22s ease,
+      border-color 0.22s ease;
+  }
+  .elevate-hover:hover {
+    box-shadow:
+      0 2px 4px oklch(0 0 0 / 0.3),
+      0 18px 44px -14px oklch(0 0 0 / 0.55),
+      0 0 0 1px color-mix(in oklch, var(--primary) 16%, transparent),
+      0 0 36px -10px color-mix(in oklch, var(--primary) 20%, transparent);
+  }
+
+  /* Entrada em cena: fade + sobe. Combinar com --stagger inline nas listas. */
+  .animate-rise {
+    animation: arena-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--stagger, 0ms);
+  }
+
+  /* Placar cinético: o número "pula" e pisca no primário quando muda (gol!). */
+  .animate-score {
+    animation: arena-score 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* Respiração lenta do holofote — vida quase imperceptível no backdrop. */
+  .animate-breathe {
+    animation: arena-breathe 7s ease-in-out infinite;
+  }
+
+  /* Brilho de conquista: sweep dourado atravessa o elemento do campeão. */
+  .trophy-sheen {
+    position: relative;
+    overflow: hidden;
+  }
+  .trophy-sheen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      transparent 30%,
+      color-mix(in oklch, var(--gold) 45%, transparent) 50%,
+      transparent 70%
+    );
+    background-size: 250% 100%;
+    animation: arena-sheen 4.5s ease-in-out infinite;
+    pointer-events: none;
+  }
+}
+
+@keyframes arena-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes arena-score {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.22);
+    color: var(--primary);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes arena-breathe {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes arena-sheen {
+  0% {
+    background-position: 200% 0;
+  }
+  55%,
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+/* Acessibilidade: zera as animações da identidade sob prefers-reduced-motion
+   (consistente com o uso de motion-safe: no resto do app). */
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-score,
+  .animate-breathe {
+    animation: none;
+  }
+  .trophy-sheen::after {
+    animation: none;
+    opacity: 0;
+  }
+  .elevate-hover {
+    transition: none;
   }
 }

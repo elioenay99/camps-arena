@@ -69,12 +69,16 @@ export function StandingsTable({
             return (
               <tr
                 key={linha.participanteId}
-                className={`border-b last:border-b-0 even:bg-muted/30 motion-safe:transition-colors hover:bg-accent/50 ${ehLider ? "bg-gold/8 hover:bg-gold/12" : ""}`}
+                className={`border-b last:border-b-0 even:bg-muted/30 motion-safe:transition-colors hover:bg-accent/50 ${ehLider ? "bg-gold/12 hover:bg-gold/16" : ""}`}
               >
                 <td className="px-2 py-2 text-center font-display font-bold tabular-nums">
-                  <span className="inline-flex items-center justify-center gap-1">
+                  <span
+                    className={`inline-flex items-center justify-center gap-1 ${
+                      ehLider ? "rounded-md px-1 text-gold-ink" : ""
+                    }`}
+                  >
                     {ehLider ? (
-                      <Trophy className="size-3.5 text-gold" aria-hidden="true" />
+                      <Trophy className="size-3.5 text-gold-ink" aria-hidden="true" />
                     ) : null}
                     {linha.posicao}º
                   </span>

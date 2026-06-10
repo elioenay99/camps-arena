@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { AuthBrand } from "@/features/auth/components/AuthBrand";
+import { AuthShell } from "@/features/auth/components/AuthShell";
 import { ForgotPasswordForm } from "@/features/auth/components/ForgotPasswordForm";
 import {
   Card,
@@ -18,9 +18,8 @@ export const metadata: Metadata = {
 
 export default function RecuperarSenhaPage() {
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-16">
-      <AuthBrand />
-      <Card className="w-full max-w-sm border-primary/10 shadow-lg">
+    <AuthShell tagline="Vamos recuperar seu acesso">
+      <Card className="elevate w-full border-primary/15">
         <CardHeader>
           <CardTitle className="font-display text-2xl">Recuperar senha</CardTitle>
           <CardDescription>
@@ -39,6 +38,6 @@ export default function RecuperarSenhaPage() {
           </p>
         </CardFooter>
       </Card>
-    </main>
+    </AuthShell>
   );
 }

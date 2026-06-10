@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { logout } from "@/actions/auth";
 import { ModeToggle } from "@/components/mode-toggle";
+import { StadiumBackdrop } from "@/components/stadium-backdrop";
 import { Button } from "@/components/ui/button";
 import { NavLinks, type NavLink } from "@/features/nav/components/NavLinks";
 import { UserAvatar } from "@/features/profile/components/UserAvatar";
@@ -31,6 +32,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
+      <StadiumBackdrop />
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex w-full max-w-2xl flex-wrap items-center gap-x-4 gap-y-2 px-6 py-3">
           <Link

@@ -65,7 +65,7 @@ function ConfrontoCard({ confronto }: { confronto: Confronto }) {
   return (
     <div className="flex w-56 flex-col gap-1 rounded-lg border px-3 py-2 text-sm motion-safe:transition-colors hover:border-primary/30">
       {confronto.terceiroLugar ? (
-        <span className="mb-0.5 w-fit rounded-full border border-gold/30 px-2 py-0.5 text-xs font-medium text-gold">
+        <span className="mb-0.5 w-fit rounded-full border border-gold/30 px-2 py-0.5 text-xs font-medium text-gold-ink">
           Disputa de 3º lugar
         </span>
       ) : null}
@@ -166,9 +166,9 @@ export function BracketView({
   return (
     <div className="flex flex-col gap-4">
       {campeao !== null ? (
-        <p className="flex items-center gap-2.5 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-sm">
-          <Trophy className="size-5 shrink-0 text-gold" aria-hidden="true" />
-          <span className="font-display font-bold tracking-wide">{`Campeão: ${campeao}`}</span>
+        <p className="trophy-sheen animate-rise flex items-center gap-2.5 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-sm shadow-[0_0_28px_-8px_color-mix(in_oklch,var(--gold)_45%,transparent)]">
+          <Trophy className="size-5 shrink-0 text-gold-ink" aria-hidden="true" />
+          <span className="font-display font-bold tracking-wide text-gold-ink">{`Campeão: ${campeao}`}</span>
         </p>
       ) : null}
 

@@ -57,15 +57,20 @@ export default async function DashboardPage() {
             }))}
           >
             <ul className="flex list-none flex-col gap-4 p-0">
-              {partidas.map((partida) => (
-                <MatchCard key={partida.id} partida={partida} userId={user.id} />
+              {partidas.map((partida, i) => (
+                <MatchCard
+                  key={partida.id}
+                  partida={partida}
+                  userId={user.id}
+                  index={i}
+                />
               ))}
             </ul>
           </LiveMatchesProvider>
         )}
       </section>
 
-      <footer className="text-center text-xs text-muted-foreground/70">
+      <footer className="text-center text-xs text-muted-foreground">
         Dados e escudos de clubes via API-Football.
       </footer>
     </main>

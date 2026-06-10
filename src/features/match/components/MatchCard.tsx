@@ -103,10 +103,13 @@ function ladoVaga(vaga: VagaResumo | null, mensagemWhatsApp: string): Lado {
 export function MatchCard({
   partida,
   userId,
+  index = 0,
 }: {
   partida: PartidaAtiva
   /** Usuário logado — habilita o atalho de convocação quando ele joga a partida. */
   userId?: string
+  /** Posição na lista — escalona a entrada (stagger) das partidas. */
+  index?: number
 }) {
   const torneio = partida.tournament.titulo.trim() || "Torneio"
   // Mensagem por LADO (sauda o destinatário: pessoa no avulso, técnico no
@@ -180,8 +183,11 @@ export function MatchCard({
   p2.convocavel = adversario === l2
 
   return (
-    <li>
-      <Card className="motion-safe:transition-colors hover:border-primary/40">
+    <li
+      className="animate-rise"
+      style={{ "--stagger": `${index * 70}ms` } as React.CSSProperties}
+    >
+      <Card className="elevate elevate-hover">
         <CardHeader>
           <CardTitle asChild>
             <h2>{tituloPartida}</h2>

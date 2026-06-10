@@ -1,12 +1,16 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
-import type { TournamentStatus } from "@/lib/supabase/database.types"
+import type {
+  TournamentFormat,
+  TournamentStatus,
+} from "@/lib/supabase/database.types"
 
 export interface TorneioResumo {
   id: string
   titulo: string
   status: TournamentStatus
+  formato: TournamentFormat
 }
 
 export interface MeusTorneios {
@@ -28,13 +32,13 @@ export async function getMeusTorneios(userId: string): Promise<MeusTorneios> {
   const [organizoRes, participoRes] = await Promise.all([
     supabase
       .from("tournaments")
-      .select("id, titulo, status")
+      .select("id, titulo, status, formato")
       .eq("created_by", userId)
       .order("created_at", { ascending: false }),
     supabase
       .from("participants")
       .select(
-        "tournament:tournaments!participants_tournament_id_fkey ( id, titulo, status, created_by )"
+        "tournament:tournaments!participants_tournament_id_fkey ( id, titulo, status, formato, created_by )"
       )
       .eq("user_id", userId)
       .order("created_at", { ascending: false }),
@@ -54,6 +58,7 @@ export async function getMeusTorneios(userId: string): Promise<MeusTorneios> {
       id: string
       titulo: string
       status: TournamentStatus
+      formato: TournamentFormat
       created_by: string | null
     } | null
   }>
@@ -67,6 +72,11 @@ export async function getMeusTorneios(userId: string): Promise<MeusTorneios> {
       .filter(
         (t): t is NonNullable<typeof t> => t !== null && t.created_by !== userId
       )
-      .map(({ id, titulo, status }) => ({ id, titulo, status })),
+      .map(({ id, titulo, status, formato }) => ({
+        id,
+        titulo,
+        status,
+        formato,
+      })),
   }
 }

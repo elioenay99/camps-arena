@@ -1,9 +1,12 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
+
 import { useLiveMatch } from "@/features/match/live/LiveMatchesProvider"
 
 /** Um número de placar que reage ao Realtime. Fora de um provider (ou antes do
- * primeiro evento) mostra o valor inicial vindo da RSC. */
+ * primeiro evento) mostra o valor inicial vindo da RSC. Quando o número MUDA
+ * (gol!), pula e pisca no primário — sem animar no load. */
 export function LiveScore({
   matchId,
   field,
@@ -15,10 +18,26 @@ export function LiveScore({
 }) {
   const live = useLiveMatch(matchId)
   const value = live ? live[field] : initial
+
+  const [pop, setPop] = useState(false)
+  const anterior = useRef(value)
+  useEffect(() => {
+    if (anterior.current === value) return
+    anterior.current = value
+    setPop(true)
+    // Fallback: sob prefers-reduced-motion a animação é `none` e o
+    // `animationend` nunca dispara — o timeout garante o reset do estado.
+    const t = setTimeout(() => setPop(false), 600)
+    return () => clearTimeout(t)
+  }, [value])
+
   return (
     <span
-      className="font-display text-4xl font-bold tabular-nums sm:text-5xl"
+      className={`inline-block font-display text-4xl font-bold tabular-nums sm:text-5xl ${
+        pop ? "animate-score" : ""
+      }`}
       aria-hidden="true"
+      onAnimationEnd={() => setPop(false)}
     >
       {value}
     </span>

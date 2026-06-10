@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ChevronRight, Plus, Trophy } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FORMATO_META } from "@/features/tournament/formatoMeta";
 import { getMeusTorneios, type TorneioResumo } from "@/features/tournament/data/getMeusTorneios";
 import type { TournamentStatus } from "@/lib/supabase/database.types";
 
@@ -17,25 +20,92 @@ const LABEL_STATUS: Record<TournamentStatus, string> = {
   encerrado: "Encerrado",
 };
 
+/** Pílula de status — "ativo" ganha o ponto vivo (em jogo); os demais, neutros. */
+function StatusPill({ status }: { status: TournamentStatus }) {
+  const ativo = status === "ativo";
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+        ativo
+          ? "border-primary/30 bg-primary/10 text-primary"
+          : "border-border bg-muted/40 text-muted-foreground"
+      }`}
+    >
+      {ativo ? (
+        <span
+          className="size-1.5 rounded-full bg-primary motion-safe:animate-pulse"
+          aria-hidden="true"
+        />
+      ) : null}
+      {LABEL_STATUS[status]}
+    </span>
+  );
+}
+
 function ListaTorneios({ torneios }: { torneios: TorneioResumo[] }) {
   return (
-    <ul className="grid list-none gap-2 p-0">
-      {torneios.map((t) => (
-        <li key={t.id}>
-          <Link
-            href={`/dashboard/torneios/${t.id}`}
-            className="hover:bg-accent flex items-center justify-between gap-3 rounded-lg border px-4 py-3 transition-colors"
+    <ul className="grid list-none gap-2.5 p-0">
+      {torneios.map((t, i) => {
+        const { label, Icon } = FORMATO_META[t.formato];
+        return (
+          <li
+            key={t.id}
+            className="animate-rise"
+            style={{ "--stagger": `${i * 45}ms` } as React.CSSProperties}
           >
-            <span className="min-w-0 truncate text-sm font-medium">
-              {t.titulo.trim() || "Torneio"}
-            </span>
-            <span className="text-muted-foreground shrink-0 text-xs">
-              {LABEL_STATUS[t.status]}
-            </span>
-          </Link>
-        </li>
-      ))}
+            <Link
+              href={`/dashboard/torneios/${t.id}`}
+              className="elevate-hover group flex items-center gap-3.5 rounded-xl border bg-card/80 px-4 py-3.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
+            >
+              <span
+                aria-hidden="true"
+                className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15"
+              >
+                <Icon className="size-5" />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate font-medium">
+                  {t.titulo.trim() || "Torneio"}
+                </span>
+                <span className="text-muted-foreground text-xs">{label}</span>
+              </span>
+              <StatusPill status={t.status} />
+              <ChevronRight
+                aria-hidden="true"
+                className="text-muted-foreground/40 size-4 shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
+              />
+            </Link>
+          </li>
+        );
+      })}
     </ul>
+  );
+}
+
+/** Estado vazio convidativo do índice de torneios. */
+function SemTorneios() {
+  return (
+    <Card className="elevate animate-rise flex flex-col items-center gap-5 px-6 py-14 text-center">
+      <span
+        aria-hidden="true"
+        className="glow-primary flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary"
+      >
+        <Trophy className="size-7" />
+      </span>
+      <div className="flex max-w-sm flex-col gap-1.5">
+        <h2 className="font-display text-xl font-bold">Seu primeiro torneio</h2>
+        <p className="text-muted-foreground text-sm">
+          Crie uma liga, mata-mata ou fase de grupos — ou peça um link de convite
+          a quem organiza e entre em campo.
+        </p>
+      </div>
+      <Button asChild className="rounded-full">
+        <Link href="/dashboard/torneios/novo">
+          <Plus aria-hidden="true" />
+          Criar torneio
+        </Link>
+      </Button>
+    </Card>
   );
 }
 
@@ -66,21 +136,24 @@ export default async function TorneiosPage() {
             Os torneios que você organiza e os que você disputa.
           </p>
         </div>
-        <Button asChild size="sm">
-          <Link href="/dashboard/torneios/novo">Criar torneio</Link>
+        <Button asChild size="sm" className="rounded-full">
+          <Link href="/dashboard/torneios/novo">
+            <Plus aria-hidden="true" />
+            Criar torneio
+          </Link>
         </Button>
       </header>
 
       {semTorneios ? (
-        <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-8 text-center text-sm">
-          Você ainda não tem torneios. Crie o primeiro ou peça um link de
-          convite a quem organiza.
-        </p>
+        <SemTorneios />
       ) : (
         <>
           {organizo.length > 0 ? (
             <section aria-labelledby="organizo-titulo" className="flex flex-col gap-4">
-              <h2 id="organizo-titulo" className="text-lg font-semibold">
+              <h2
+                id="organizo-titulo"
+                className="text-muted-foreground text-xs font-semibold tracking-wide uppercase"
+              >
                 Organizo
               </h2>
               <ListaTorneios torneios={organizo} />
@@ -89,7 +162,10 @@ export default async function TorneiosPage() {
 
           {participo.length > 0 ? (
             <section aria-labelledby="participo-titulo" className="flex flex-col gap-4">
-              <h2 id="participo-titulo" className="text-lg font-semibold">
+              <h2
+                id="participo-titulo"
+                className="text-muted-foreground text-xs font-semibold tracking-wide uppercase"
+              >
                 Participo
               </h2>
               <ListaTorneios torneios={participo} />

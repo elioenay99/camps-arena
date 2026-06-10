@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { AuthBrand } from "@/features/auth/components/AuthBrand";
+import { AuthShell } from "@/features/auth/components/AuthShell";
 import { SignupForm } from "@/features/auth/components/SignupForm";
 import {
   Card,
@@ -24,9 +24,8 @@ export default async function CadastroPage({
   const { redirectTo } = await searchParams;
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-16">
-      <AuthBrand />
-      <Card className="w-full max-w-sm border-primary/10 shadow-lg">
+    <AuthShell tagline="Crie sua conta e entre em campo">
+      <Card className="elevate w-full border-primary/15">
         <CardHeader>
           <CardTitle className="font-display text-2xl">Criar conta</CardTitle>
           <CardDescription>
@@ -52,6 +51,6 @@ export default async function CadastroPage({
           </p>
         </CardFooter>
       </Card>
-    </main>
+    </AuthShell>
   );
 }

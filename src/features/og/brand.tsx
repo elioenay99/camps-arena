@@ -22,11 +22,11 @@ export const OG_SIZE = { width: 1200, height: 630 } as const
 export const OG_ALT = "Arena — torneios de clubes com placar ao vivo"
 export const OG_CONTENT_TYPE = "image/png"
 
-// Identidade "estádio à noite": verde-gramado sobre fundo quase-preto.
-const VERDE = "#34e58b"
-const FUNDO = "#0a120e"
-const TEXTO = "#e8f0ec"
-const TEXTO_SUAVE = "#9fb3aa"
+// Identidade Dracula (tema padrão): roxo de marca sobre o slate #282a36.
+const ROXO = "#bd93f9"
+const FUNDO = "#282a36"
+const TEXTO = "#f8f8f2"
+const TEXTO_SUAVE = "#abafd0"
 
 const FONTS_DIR = join(process.cwd(), "src/features/og/fonts")
 const LOGO_PATH = join(process.cwd(), "src/app/icon.svg")
@@ -57,7 +57,7 @@ function BrandCard({ logoSrc }: { logoSrc: string }) {
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: FUNDO,
-        backgroundImage: `radial-gradient(circle at 50% 34%, #16241d 0%, ${FUNDO} 62%)`,
+        backgroundImage: `radial-gradient(circle at 50% 34%, #3a3250 0%, ${FUNDO} 62%)`,
         fontFamily: "Space Grotesk",
         color: TEXTO,
         padding: "80px",
@@ -71,7 +71,7 @@ function BrandCard({ logoSrc }: { logoSrc: string }) {
           fontSize: 108,
           fontWeight: 700,
           letterSpacing: "0.04em",
-          color: VERDE,
+          color: ROXO,
           lineHeight: 1,
         }}
       >
@@ -82,7 +82,7 @@ function BrandCard({ logoSrc }: { logoSrc: string }) {
           display: "flex",
           width: 132,
           height: 6,
-          backgroundColor: VERDE,
+          backgroundColor: ROXO,
           borderRadius: 9999,
           margin: "38px 0",
         }}

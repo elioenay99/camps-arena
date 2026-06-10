@@ -30,8 +30,8 @@ export default function GlobalError({
           alignItems: "center",
           justifyContent: "center",
           gap: "1rem",
-          background: "#0a0f0d",
-          color: "#e8f0ec",
+          background: "#282a36",
+          color: "#f8f8f2",
           fontFamily: "system-ui, sans-serif",
           textAlign: "center",
           padding: "1.5rem",
@@ -40,7 +40,7 @@ export default function GlobalError({
         <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>
           Algo deu errado.
         </h1>
-        <p style={{ color: "#9fb3aa", maxWidth: "28rem" }}>
+        <p style={{ color: "#abafd0", maxWidth: "28rem" }}>
           Tivemos um problema inesperado. Já fomos avisados — tente novamente.
         </p>
         <button
@@ -50,8 +50,8 @@ export default function GlobalError({
             borderRadius: "9999px",
             border: "none",
             padding: "0.6rem 1.4rem",
-            background: "#16a34a",
-            color: "#fff",
+            background: "#bd93f9",
+            color: "#21222c",
             fontWeight: 600,
             cursor: "pointer",
           }}
