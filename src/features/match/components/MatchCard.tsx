@@ -30,9 +30,10 @@ import { linkWhatsApp, mensagemConvocacao } from "@/lib/whatsapp"
  * Lado normalizado da partida — abstrai os dois modelos:
  *  - AVULSO: o lado é uma PESSOA (participante); clube é cosmético por partida.
  *  - COMPETITIVO: o lado é um CLUBE (vaga); o técnico é metadado (anulável).
- * `convocavel` carrega o celular de quem recebe a chamada (a pessoa no avulso,
- * o técnico no competitivo) e o nome para saudar; `id` decide quem é o
- * adversário do usuário logado.
+ * `celularConvocacao` carrega o celular de quem recebe a chamada (a pessoa no
+ * avulso, o técnico no competitivo) e `nomeConvocacao` o nome para saudar;
+ * `ownerId` decide quem é o adversário do usuário logado. (Não confundir com a
+ * flag booleana `convocavel` de `ParticipantePartida`, que é outra coisa.)
  */
 interface Lado {
   /** Id de quem "é" o lado para fins de propriedade (user no avulso; vaga no competitivo). */
