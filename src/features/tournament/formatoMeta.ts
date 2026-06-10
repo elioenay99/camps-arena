@@ -3,14 +3,35 @@ import type { LucideIcon } from "lucide-react"
 
 import type { TournamentFormat } from "@/lib/supabase/database.types"
 
-/** Rótulo + ícone por formato — fonte única para cards/cabeçalhos de torneio. */
+/** Rótulo + ícone + descrição curta por formato — fonte única para cards/
+ * cabeçalhos de torneio e para o seletor de formato na criação. */
 export const FORMATO_META: Record<
   TournamentFormat,
-  { label: string; Icon: LucideIcon }
+  { label: string; desc: string; Icon: LucideIcon }
 > = {
-  avulso: { label: "Avulso", Icon: Swords },
-  liga: { label: "Liga", Icon: ListOrdered },
-  mata_mata: { label: "Mata-mata", Icon: Network },
-  grupos_mata_mata: { label: "Grupos + mata-mata", Icon: Boxes },
-  fase_liga: { label: "Fase de liga", Icon: LayoutGrid },
+  avulso: {
+    label: "Avulso",
+    desc: "Crie cada partida quando quiser",
+    Icon: Swords,
+  },
+  liga: {
+    label: "Liga",
+    desc: "Todos contra todos, com tabela",
+    Icon: ListOrdered,
+  },
+  mata_mata: {
+    label: "Mata-mata",
+    desc: "Eliminatórias — quem perde sai",
+    Icon: Network,
+  },
+  grupos_mata_mata: {
+    label: "Grupos + mata-mata",
+    desc: "Grupos e depois eliminatórias",
+    Icon: Boxes,
+  },
+  fase_liga: {
+    label: "Fase de liga",
+    desc: "Liga única + eliminatórias",
+    Icon: LayoutGrid,
+  },
 }

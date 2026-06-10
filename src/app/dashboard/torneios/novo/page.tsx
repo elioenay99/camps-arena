@@ -27,12 +27,14 @@ export default async function NovoTorneioPage() {
   }
 
   return (
-    <main className="flex flex-1 items-center justify-center px-6 py-10">
-      <Card className="w-full max-w-sm">
+    <main className="flex flex-1 items-start justify-center px-6 py-10 sm:items-center">
+      <Card className="elevate animate-rise w-full max-w-xl">
         <CardHeader>
-          <CardTitle className="text-2xl">Novo torneio</CardTitle>
+          <CardTitle className="font-display text-2xl font-bold">
+            Novo torneio
+          </CardTitle>
           <CardDescription>
-            Crie um torneio para organizar as suas partidas.
+            Escolha o formato e a Arena cuida do resto.
           </CardDescription>
         </CardHeader>
         <CardContent>

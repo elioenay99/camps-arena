@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { TeamSearchInput } from "@/features/team/components/TeamSearchInput"
+import { FORMATO_META } from "@/features/tournament/formatoMeta"
 import type { TeamResult } from "@/schema/teamSchema"
 import {
   PONTOS_MAX,
@@ -20,8 +21,60 @@ import {
   TORNEIO_MAX_CLUBES,
   TORNEIO_MIN_CLUBES,
 } from "@/schema/tournamentSchema"
+import type { TournamentFormat } from "@/lib/supabase/database.types"
 
 const initialState: TournamentFormState = {}
+
+/** Ordem dos cards — avulso primeiro (o mais simples). */
+const FORMATOS: TournamentFormat[] = [
+  "avulso",
+  "liga",
+  "mata_mata",
+  "grupos_mata_mata",
+  "fase_liga",
+]
+
+function FormatoCard({
+  value,
+  selecionado,
+  onSelect,
+}: {
+  value: TournamentFormat
+  selecionado: boolean
+  onSelect: () => void
+}) {
+  const { label, desc, Icon } = FORMATO_META[value]
+  return (
+    <label
+      className={`relative flex cursor-pointer flex-col gap-2.5 rounded-xl border p-3.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-background ${
+        selecionado
+          ? "border-primary bg-primary/8 ring-1 ring-primary/40"
+          : "border-border hover:border-primary/40 hover:bg-accent/40"
+      }`}
+    >
+      <input
+        type="radio"
+        name="formato"
+        value={value}
+        checked={selecionado}
+        onChange={onSelect}
+        className="sr-only"
+      />
+      <span
+        aria-hidden="true"
+        className={`flex size-9 items-center justify-center rounded-lg transition-colors ${
+          selecionado ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+        }`}
+      >
+        <Icon className="size-5" />
+      </span>
+      <span className="flex flex-col gap-0.5">
+        <span className="text-sm leading-none font-medium">{label}</span>
+        <span className="text-muted-foreground text-xs">{desc}</span>
+      </span>
+    </label>
+  )
+}
 
 function PontosInput({
   campo,
@@ -57,9 +110,41 @@ function SubmitButton() {
   const { pending } = useFormStatus()
 
   return (
-    <Button type="submit" className="w-full" disabled={pending}>
+    <Button
+      type="submit"
+      size="lg"
+      className="w-full rounded-full"
+      disabled={pending}
+    >
       {pending ? "Criando…" : "Criar torneio"}
     </Button>
+  )
+}
+
+/** Linha de opção (checkbox) — usada para ida-e-volta, 3º lugar e visibilidade. */
+function OpcaoCheckbox({
+  id,
+  rotulo,
+  defaultChecked,
+}: {
+  id: string
+  rotulo: string
+  defaultChecked?: boolean
+}) {
+  return (
+    <label
+      htmlFor={id}
+      className="flex cursor-pointer items-center gap-2.5 rounded-lg border bg-card/40 px-3 py-2.5 transition-colors hover:border-primary/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
+    >
+      <input
+        id={id}
+        name={id}
+        type="checkbox"
+        defaultChecked={defaultChecked}
+        className="size-4 rounded border-input accent-primary"
+      />
+      <span className="text-sm">{rotulo}</span>
+    </label>
   )
 }
 
@@ -133,8 +218,11 @@ function ClubesStep({
 
   return (
     <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
-      <legend className="pb-2 text-sm font-medium">
-        {`Clubes (mínimo ${TORNEIO_MIN_CLUBES})`}
+      <legend className="flex items-baseline gap-2 pb-1 text-sm font-medium">
+        Clubes
+        <span className="text-muted-foreground text-xs font-normal">
+          {`mínimo ${TORNEIO_MIN_CLUBES} · ${clubes.length} adicionado${clubes.length === 1 ? "" : "s"}`}
+        </span>
       </legend>
       <p className="text-muted-foreground -mt-1 pb-1 text-xs">
         Cada clube é uma vaga: você gera um convite por clube e quem aceita vira
@@ -157,7 +245,7 @@ function ClubesStep({
           {clubes.map((c) => (
             <li
               key={c.id}
-              className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
+              className="bg-card flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
             >
               <span className="flex min-w-0 items-center gap-2">
                 <TeamCrest nome={c.nome} escudoUrl={c.escudoUrl} size={22} />
@@ -188,22 +276,33 @@ function ClubesStep({
 
 export function TournamentForm() {
   const [state, formAction] = useActionState(createTournament, initialState)
-  // Estado local SÓ para progressive disclosure (ida-e-volta em liga e
-  // mata-mata; 3º lugar só em mata-mata); o valor submetido é o do radio
-  // nativo — sem ele o form continua funcional.
-  const [formato, setFormato] = useState<
-    "avulso" | "liga" | "mata_mata" | "grupos_mata_mata" | "fase_liga"
-  >("avulso")
-  // Clubes (vagas) dos formatos competitivos — submetidos como hidden
-  // `clubes` pelo ClubesStep; preservados ao alternar o formato (trocar de
-  // liga para mata-mata não descarta a seleção; avulso não os SUBMETE porque
-  // o passo — e os hidden — não renderizam).
+  // Estado local SÓ para progressive disclosure; o valor submetido é o do radio
+  // nativo (name="formato") — sem ele o form continua funcional.
+  const [formato, setFormato] = useState<TournamentFormat>("avulso")
+  // Clubes (vagas) dos formatos competitivos — submetidos como hidden `clubes`
+  // pelo ClubesStep; preservados ao alternar o formato (a state vive aqui).
   const [clubes, setClubes] = useState<ClubeSelecionado[]>([])
+
+  const ehCompetitivo = formato !== "avulso"
   const temChave =
-    formato === "mata_mata" || formato === "grupos_mata_mata" || formato === "fase_liga"
+    formato === "mata_mata" ||
+    formato === "grupos_mata_mata" ||
+    formato === "fase_liga"
+  // Pontos só importam onde há TABELA (liga e os formatos com fase de pontos).
+  const usaPontos =
+    formato === "liga" ||
+    formato === "grupos_mata_mata" ||
+    formato === "fase_liga"
+
+  const labelIdaEVolta =
+    formato === "liga"
+      ? "Ida e volta (dois turnos)"
+      : formato === "mata_mata"
+        ? "Ida e volta (confrontos em dois jogos; final e 3º em jogo único)"
+        : "Ida e volta (turnos nos grupos e duas pernas na chave)"
 
   return (
-    <form action={formAction} className="grid gap-4" noValidate>
+    <form action={formAction} className="grid gap-6" noValidate>
       <div className="grid gap-2">
         <Label htmlFor="titulo">Título</Label>
         <Input
@@ -220,181 +319,79 @@ export function TournamentForm() {
       </div>
 
       {/* border-0/p-0/m-0/min-w-0: o preflight do Tailwind v4 NÃO reseta
-          fieldset/legend (mesma decisão da pontuação abaixo). */}
-      <fieldset className="grid gap-2 border-0 p-0 m-0 min-w-0">
-        <legend className="text-sm font-medium pb-2">Formato</legend>
-        <div className="flex items-start gap-2">
-          <input
-            id="formatoAvulso"
-            name="formato"
-            type="radio"
-            value="avulso"
-            checked={formato === "avulso"}
-            onChange={() => setFormato("avulso")}
-            className="mt-1 size-4 accent-primary"
-          />
-          <Label htmlFor="formatoAvulso" className="font-normal flex-col items-start gap-0.5">
-            Avulso
-            <span className="text-muted-foreground text-xs font-normal">
-              Você cria cada partida manualmente, quando quiser.
-            </span>
-          </Label>
-        </div>
-        <div className="flex items-start gap-2">
-          <input
-            id="formatoLiga"
-            name="formato"
-            type="radio"
-            value="liga"
-            checked={formato === "liga"}
-            onChange={() => setFormato("liga")}
-            className="mt-1 size-4 accent-primary"
-          />
-          <Label htmlFor="formatoLiga" className="font-normal flex-col items-start gap-0.5">
-            Liga (pontos corridos)
-            <span className="text-muted-foreground text-xs font-normal">
-              Todos jogam contra todos. O torneio nasce em rascunho: convide os
-              participantes e a tabela é gerada quando você iniciar.
-            </span>
-          </Label>
-        </div>
-        <div className="flex items-start gap-2">
-          <input
-            id="formatoMataMata"
-            name="formato"
-            type="radio"
-            value="mata_mata"
-            checked={formato === "mata_mata"}
-            onChange={() => setFormato("mata_mata")}
-            className="mt-1 size-4 accent-primary"
-          />
-          <Label htmlFor="formatoMataMata" className="font-normal flex-col items-start gap-0.5">
-            Mata-mata (eliminatórias)
-            <span className="text-muted-foreground text-xs font-normal">
-              Quem perde está fora. O torneio nasce em rascunho: convide os
-              participantes e a chave é gerada quando você iniciar (sorteio,
-              potes ou montagem manual).
-            </span>
-          </Label>
-        </div>
-        <div className="flex items-start gap-2">
-          <input
-            id="formatoGrupos"
-            name="formato"
-            type="radio"
-            value="grupos_mata_mata"
-            checked={formato === "grupos_mata_mata"}
-            onChange={() => setFormato("grupos_mata_mata")}
-            className="mt-1 size-4 accent-primary"
-          />
-          <Label htmlFor="formatoGrupos" className="font-normal flex-col items-start gap-0.5">
-            Grupos + mata-mata
-            <span className="text-muted-foreground text-xs font-normal">
-              Estilo Copa: fase de grupos classificando para as eliminatórias.
-              Você define grupos e classificados ao iniciar.
-            </span>
-          </Label>
-        </div>
-        <div className="flex items-start gap-2">
-          <input
-            id="formatoFaseLiga"
-            name="formato"
-            type="radio"
-            value="fase_liga"
-            checked={formato === "fase_liga"}
-            onChange={() => setFormato("fase_liga")}
-            className="mt-1 size-4 accent-primary"
-          />
-          <Label htmlFor="formatoFaseLiga" className="font-normal flex-col items-start gap-0.5">
-            Fase de liga + mata-mata
-            <span className="text-muted-foreground text-xs font-normal">
-              Estilo Champions: todos jogam uma liga única e os melhores avançam
-              para as eliminatórias.
-            </span>
-          </Label>
-        </div>
-        {formato !== "avulso" ? (
-          <div className="ml-6 flex items-center gap-2">
-            <input
-              id="idaEVolta"
-              name="idaEVolta"
-              type="checkbox"
-              className="size-4 rounded border-input accent-primary"
+          fieldset/legend (mesma decisão da pontuação). */}
+      <fieldset className="m-0 grid min-w-0 gap-3 border-0 p-0">
+        <legend className="pb-2 text-sm font-medium">Formato</legend>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          {FORMATOS.map((f) => (
+            <FormatoCard
+              key={f}
+              value={f}
+              selecionado={formato === f}
+              onSelect={() => setFormato(f)}
             />
-            <Label htmlFor="idaEVolta" className="font-normal">
-              {formato === "liga"
-                ? "Ida e volta (dois turnos)"
-                : formato === "mata_mata"
-                  ? "Ida e volta (confrontos em dois jogos; final e 3º lugar em jogo único)"
-                  : "Ida e volta (dois turnos nos grupos e duas pernas na chave; final e 3º lugar em jogo único)"}
-            </Label>
-          </div>
-        ) : null}
-        {temChave ? (
-          <div className="ml-6 flex items-center gap-2">
-            <input
-              id="terceiroLugar"
-              name="terceiroLugar"
-              type="checkbox"
-              className="size-4 rounded border-input accent-primary"
-            />
-            <Label htmlFor="terceiroLugar" className="font-normal">
-              Disputa de 3º lugar (perdedores das semifinais)
-            </Label>
-          </div>
-        ) : null}
+          ))}
+        </div>
         {state.fieldErrors?.formato ? (
           <p className="text-destructive text-sm">{state.fieldErrors.formato[0]}</p>
         ) : null}
       </fieldset>
 
-      {/* Passo de CLUBES (vagas) — só nos formatos competitivos. */}
-      {formato !== "avulso" ? (
-        <ClubesStep
-          clubes={clubes}
-          setClubes={setClubes}
-          erro={state.fieldErrors?.clubes?.[0]}
-        />
+      {/* Configuração do formato — só aparece (e anima) fora do avulso. */}
+      {ehCompetitivo ? (
+        <div
+          key={formato}
+          className="animate-rise grid gap-4 rounded-xl border bg-muted/20 p-4"
+        >
+          <ClubesStep
+            clubes={clubes}
+            setClubes={setClubes}
+            erro={state.fieldErrors?.clubes?.[0]}
+          />
+
+          <div className="grid gap-2.5">
+            <OpcaoCheckbox id="idaEVolta" rotulo={labelIdaEVolta} />
+            {temChave ? (
+              <OpcaoCheckbox
+                id="terceiroLugar"
+                rotulo="Disputa de 3º lugar (perdedores das semifinais)"
+              />
+            ) : null}
+          </div>
+
+          {usaPontos ? (
+            <fieldset className="m-0 grid min-w-0 grid-cols-3 gap-3 border-0 p-0">
+              <legend className="pb-2 text-sm font-medium">
+                Pontos por resultado
+              </legend>
+              <PontosInput
+                campo="pontosVitoria"
+                rotulo="Vitória"
+                padrao={PONTUACAO_PADRAO.vitoria}
+                erro={state.fieldErrors?.pontosVitoria?.[0]}
+              />
+              <PontosInput
+                campo="pontosEmpate"
+                rotulo="Empate"
+                padrao={PONTUACAO_PADRAO.empate}
+                erro={state.fieldErrors?.pontosEmpate?.[0]}
+              />
+              <PontosInput
+                campo="pontosDerrota"
+                rotulo="Derrota"
+                padrao={PONTUACAO_PADRAO.derrota}
+                erro={state.fieldErrors?.pontosDerrota?.[0]}
+              />
+            </fieldset>
+          ) : null}
+        </div>
       ) : null}
 
-      {/* border-0/p-0/m-0/min-w-0: o preflight do Tailwind v4 NÃO reseta
-          fieldset/legend — sem isso herda borda groove e padding do UA. */}
-      <fieldset className="grid grid-cols-3 gap-3 border-0 p-0 m-0 min-w-0">
-        <legend className="text-sm font-medium pb-2">
-          Pontos por resultado
-        </legend>
-        <PontosInput
-          campo="pontosVitoria"
-          rotulo="Vitória"
-          padrao={PONTUACAO_PADRAO.vitoria}
-          erro={state.fieldErrors?.pontosVitoria?.[0]}
-        />
-        <PontosInput
-          campo="pontosEmpate"
-          rotulo="Empate"
-          padrao={PONTUACAO_PADRAO.empate}
-          erro={state.fieldErrors?.pontosEmpate?.[0]}
-        />
-        <PontosInput
-          campo="pontosDerrota"
-          rotulo="Derrota"
-          padrao={PONTUACAO_PADRAO.derrota}
-          erro={state.fieldErrors?.pontosDerrota?.[0]}
-        />
-      </fieldset>
-
-      <div className="flex items-center gap-2">
-        <input
-          id="isPublic"
-          name="isPublic"
-          type="checkbox"
-          defaultChecked
-          className="size-4 rounded border-input accent-primary"
-        />
-        <Label htmlFor="isPublic" className="font-normal">
-          Torneio público (qualquer pessoa pode ver)
-        </Label>
-      </div>
+      <OpcaoCheckbox
+        id="isPublic"
+        rotulo="Torneio público (qualquer pessoa pode ver)"
+        defaultChecked
+      />
 
       {state.error ? (
         <p className="text-destructive text-sm" role="alert">
