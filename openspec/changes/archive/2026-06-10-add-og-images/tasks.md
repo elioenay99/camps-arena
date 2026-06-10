@@ -30,5 +30,6 @@
       (boundary do matcher + `proxy.test.ts`; comentário do `next.config`). Os
       achados cross-cutting (Sentry em `varrerOrfaos`; docblock `Lado`) vão em
       commits próprios.
-- [ ] 3.5 Commit + push + CI verde + archive. Pendência só de config
-      (`NEXT_PUBLIC_SITE_URL` no Vercel; sem ele, default localhost).
+- [x] 3.5 Commit + push + CI verde + archive. Run `27245560298` verde.
+      Pendência só de config (`NEXT_PUBLIC_SITE_URL` no Vercel; sem ele, default
+      localhost — og:image absoluto).
