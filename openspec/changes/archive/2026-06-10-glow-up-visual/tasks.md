@@ -42,4 +42,4 @@
       `.elevate-hover` sob reduced-motion, fallback do `pop` no LiveScore,
       comentários atualizados. Contrastes finais reconferidos (todos AA; pílula
       4.4 c/ ponto redundante).
-- [ ] 4.4 Commit + push + CI verde + archive.
+- [x] 4.4 Commit + push + CI verde + archive. Run `27248099838` verde.

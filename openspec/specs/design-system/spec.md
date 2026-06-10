@@ -11,23 +11,28 @@ A aplicação SHALL ser um projeto Next.js 16 com App Router, diretório `src/` 
 - **THEN** o build compila sem erros de tipo e gera as rotas estáticas
 
 ### Requirement: Design system com temas claro e escuro
-A aplicação SHALL usar shadcn/ui (base Radix) com CSS variables e SHALL oferecer alternância entre tema claro e escuro, com escuro como padrão. A paleta SHALL carregar a identidade "Estádio à noite": no tema escuro, fundo verde-preto profundo com superfícies elevadas de mesmo matiz e `primary` verde-gramado elétrico; no claro ("dia de jogo"), a MESMA identidade com primário escurecido para contraste AA. Um token semântico `gold` (com foreground próprio e contraste adequado em cada tema) SHALL existir e ser usado EXCLUSIVAMENTE para conquistas (campeão, 1º lugar, disputa de 3º). A tipografia SHALL combinar uma família display (Space Grotesk, via `next/font`, exposta como `font-display`) para marca/títulos/placares com a família de corpo existente. A aplicação SHALL ter favicon/ícone próprios (`app/icon.svg`). Animações decorativas novas SHALL respeitar `prefers-reduced-motion`.
 
-#### Scenario: Tema escuro por padrão
+A aplicação SHALL usar shadcn/ui (base Radix) com CSS variables e SHALL oferecer alternância entre tema claro e escuro, com escuro como padrão. A paleta SHALL carregar duas identidades por tema: no tema ESCURO (padrão), a paleta **Dracula** — fundo slate (`#282a36`), `primary` roxo (`#bd93f9`) de marca e acentos neon nos charts; no CLARO, a paleta **Seleção Brasileira/Canarinho** — `primary` verde da bandeira sobre branco quente, com AMARELO canarinho nos acentos (secondary/accent) e no glow de atmosfera, e azul de apoio. As cores de TEXTO/superfícies SHALL atender contraste WCAG AA (4.5:1 texto normal) em AMBOS os temas. A conquista (campeão, 1º lugar, disputa de 3º) SHALL usar dois tokens: `gold` para preenchimento/borda/glow (canarinho vivo no claro) e `gold-ink` para o TEXTO/ícone dourado (âmbar escuro legível no claro, amarelo no escuro), de modo que o dourado-texto atenda AA — usados EXCLUSIVAMENTE para conquistas. A tipografia SHALL combinar uma família display (Space Grotesk, via `next/font`, exposta como `font-display`) para marca/títulos/placares com a família de corpo existente. A aplicação SHALL ter favicon/ícone próprios (`app/icon.svg`), cuja marca fixa (favicon + card de OG) SHALL refletir a identidade do tema padrão (roxo Dracula). Animações decorativas novas SHALL respeitar `prefers-reduced-motion`.
+
+#### Scenario: Tema escuro Dracula por padrão
+
 - **WHEN** um visitante acessa a aplicação pela primeira vez
-- **THEN** o tema escuro "estádio à noite" é aplicado por padrão
+- **THEN** o tema escuro Dracula (slate + roxo de marca) é aplicado por padrão
 
-#### Scenario: Alternância de tema
+#### Scenario: Alternância para o claro Seleção
+
 - **WHEN** o usuário aciona o controle de tema
-- **THEN** a interface alterna entre claro e escuro sem recarregar a página, mantendo a identidade e o contraste AA
+- **THEN** a interface alterna para o claro "seleção brasileira" (verde de marca sobre branco) sem recarregar, mantendo contraste AA
 
 #### Scenario: Dourado é exclusivo de conquista
+
 - **WHEN** qualquer superfície usa o token gold
 - **THEN** o uso corresponde a campeão, 1º lugar ou disputa de 3º — nunca a elementos neutros
 
 #### Scenario: Movimento reduzido respeitado
+
 - **WHEN** o sistema do usuário declara prefers-reduced-motion
-- **THEN** animações decorativas (pulse, lift) não são aplicadas
+- **THEN** animações decorativas (backdrop, entrada, placar cinético, brilho de troféu) não são aplicadas
 
 ### Requirement: Ambiente de desenvolvimento em Docker
 O projeto SHALL fornecer um ambiente Docker local que sobe o servidor de desenvolvimento com hot reload.
@@ -54,4 +59,37 @@ texto onde for usado.
 
 - **WHEN** o usuário não tem `avatar` (ou a imagem falha)
 - **THEN** o `UserAvatar` mostra as iniciais sobre a cor estável do nome
+
+### Requirement: Atmosfera, profundidade e movimento da marca
+
+O app SHALL oferecer uma atmosfera de "estádio" reutilizável (`StadiumBackdrop`: holofote + gramado em perspectiva + grão), decorativa (`aria-hidden`, `pointer-events: none`), presente no shell autenticado e nas telas de autenticação, recolorida pelo `--primary` de cada tema. Os cards do interior do app SHALL ter profundidade consistente (sombra em camadas + anel da marca) via utilitário compartilhado. O sistema SHALL prover primitivos de movimento — entrada escalonada de listas, placar cinético que anima apenas quando o número muda, e brilho de conquista no 1º lugar/campeão — todos zerados sob `prefers-reduced-motion`.
+
+#### Scenario: Interior do app com atmosfera (não preto chapado)
+
+- **WHEN** uma página autenticada (painel, torneios) ou de auth é renderizada
+- **THEN** o fundo exibe a atmosfera de estádio sutil e os cards têm elevação visível
+
+#### Scenario: Placar cinético só na mudança
+
+- **WHEN** o placar ao vivo muda via Realtime (gol)
+- **THEN** o número anima (pulo + destaque) uma vez; no carregamento inicial NÃO anima
+
+#### Scenario: Brilho de conquista no campeão
+
+- **WHEN** a classificação tem um 1º lugar ou a chave decide o campeão
+- **THEN** a linha/badge do campeão recebe o brilho dourado de troféu (estático sob prefers-reduced-motion)
+
+### Requirement: Índice de torneios com hierarquia visual
+
+O índice de torneios SHALL apresentar cada torneio como um card com ícone do formato (liga, mata-mata, grupos, fase de liga, avulso), título, rótulo do formato e uma pílula de status (com indicador vivo quando "ativo"). O estado vazio SHALL ser convidativo, com chamada para criar o primeiro torneio.
+
+#### Scenario: Torneio listado como card com formato
+
+- **WHEN** o usuário tem torneios no índice
+- **THEN** cada um aparece como card com o ícone do seu formato e a pílula de status
+
+#### Scenario: Estado vazio convida à criação
+
+- **WHEN** o usuário não tem torneios
+- **THEN** o índice mostra um estado vazio com CTA para criar o primeiro torneio
 
