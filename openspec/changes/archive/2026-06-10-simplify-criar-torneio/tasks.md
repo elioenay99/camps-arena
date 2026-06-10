@@ -17,4 +17,4 @@
 - [x] 3.1 Gates: typecheck/lint/test (848 ✅) + build.
 - [x] 3.2 Ao vivo (Playwright): avulso, liga, mata-mata — disclosure correto por
       formato (pontos só onde há tabela). Contrato do form preservado.
-- [ ] 3.3 Commit + push + CI verde + archive.
+- [x] 3.3 Commit + push + CI verde + archive. Run `27248697262` verde.
