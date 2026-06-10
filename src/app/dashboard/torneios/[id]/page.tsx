@@ -1,4 +1,14 @@
-import { ListOrdered, Network, Swords, Users } from "lucide-react";
+import {
+  Flag,
+  History,
+  ListOrdered,
+  Network,
+  Plus,
+  Settings2,
+  Shield,
+  Swords,
+  Users,
+} from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -23,6 +33,8 @@ import { ResponderWoButtons } from "@/features/match/components/WoButtons";
 import { getSolicitacoesWO } from "@/features/match/data/getSolicitacoesWO";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
 import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao";
+import { FORMATO_META } from "@/features/tournament/formatoMeta";
+import { StatusPill } from "@/features/tournament/components/StatusPill";
 import { IniciarTorneioPanel } from "@/features/tournament/components/IniciarTorneioPanel";
 import { InviteSection } from "@/features/tournament/components/InviteSection";
 import { ParticipantsSection } from "@/features/tournament/components/ParticipantsSection";
@@ -34,7 +46,6 @@ import {
   getCodigosDasVagas,
   getVagasDoTorneio,
 } from "@/features/tournament/data/getVagasDoTorneio";
-import type { TournamentStatus } from "@/lib/supabase/database.types";
 
 // Título por torneio (padrão do app: toda rota tem título específico). O
 // fetcher usa React cache() — esta query e a da page são UMA viagem ao banco.
@@ -53,11 +64,6 @@ export async function generateMetadata({
   return titulo ? { title: `${titulo} · Arena` } : fallback;
 }
 
-const LABEL_STATUS: Record<TournamentStatus, string> = {
-  rascunho: "em rascunho",
-  ativo: "ativo",
-  encerrado: "encerrado",
-};
 
 export default async function TorneioPage({
   params,
@@ -155,23 +161,10 @@ export default async function TorneioPage({
     grupos.length > 0 &&
     chave.length === 0;
 
-  // Rótulo do formato no subtítulo; pontuação só onde há classificação por
-  // pontos (mata-mata puro é eliminatória — exibir 3/1/0 ali seria ruído).
-  const sufixoOpcoes = `${torneio.ida_e_volta ? " (ida e volta)" : ""}${torneio.terceiro_lugar ? " com 3º lugar" : ""}`;
-  const rotuloFormato = ehLiga
-    ? `Liga${torneio.ida_e_volta ? " (ida e volta)" : ""}`
-    : ehMataMata
-      ? `Mata-mata${sufixoOpcoes}`
-      : ehFaseLiga
-        ? `Fase de liga + mata-mata${sufixoOpcoes}`
-        : ehGrupos
-          ? `Grupos + mata-mata${sufixoOpcoes}`
-          : "Torneio";
-  const subtitulo = `${rotuloFormato} ${LABEL_STATUS[torneio.status]}${
-    ehMataMata
-      ? ""
-      : ` • vitória ${torneio.pontos_vitoria} · empate ${torneio.pontos_empate} · derrota ${torneio.pontos_derrota}`
-  }`;
+  // Cabeçalho: ícone+rótulo do formato + chips de opções; pontuação só onde há
+  // classificação por pontos (mata-mata puro é eliminatória — 3/1/0 ali é ruído).
+  const formatoMeta = FORMATO_META[torneio.formato];
+  const temTabela = ehLiga || ehGrupos;
 
   // Modelo clube-cêntrico: AVULSO lista participantes + convite genérico;
   // COMPETITIVO lista VAGAS (clubes) + códigos POR VAGA. Os códigos são
@@ -198,16 +191,35 @@ export default async function TorneioPage({
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-display text-2xl font-bold tracking-tight">{titulo}</h1>
-          <p className="text-muted-foreground text-sm">{subtitulo}</p>
+      <header className="elevate flex flex-col gap-4 rounded-2xl border bg-card/60 p-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3.5">
+          <span
+            aria-hidden="true"
+            className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20"
+          >
+            <formatoMeta.Icon className="size-6" />
+          </span>
+          <div className="flex min-w-0 flex-col gap-2">
+            <h1 className="font-display text-2xl font-bold tracking-tight break-words sm:text-3xl">
+              {titulo}
+            </h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill status={torneio.status} />
+              <Chip>{formatoMeta.label}</Chip>
+              {torneio.ida_e_volta ? <Chip>ida e volta</Chip> : null}
+              {torneio.terceiro_lugar ? <Chip>3º lugar</Chip> : null}
+              {temTabela ? (
+                <Chip>{`V ${torneio.pontos_vitoria} · E ${torneio.pontos_empate} · D ${torneio.pontos_derrota}`}</Chip>
+              ) : null}
+            </div>
+          </div>
         </div>
         {/* Formato gerado não aceita partida manual: as partidas nascem da
             tabela/chave. */}
         {podeGerirPartidas && !ehGerado ? (
-          <Button asChild size="sm">
+          <Button asChild size="sm" className="shrink-0 rounded-full">
             <Link href={`/dashboard/torneios/${id}/partidas/nova`}>
+              <Plus aria-hidden="true" />
               Nova partida
             </Link>
           </Button>
@@ -244,40 +256,35 @@ export default async function TorneioPage({
       {/* Mata-mata puro: a CHAVE substitui a classificação por pontos (e a
           de clubes) — pontos corridos não significam nada em eliminatória. */}
       {ehMataMata ? (
-        <section aria-labelledby="chave-titulo" className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="chave-titulo" className="font-display text-lg font-bold tracking-tight">
-              Chave
-            </h2>
-            {mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : null}
-          </div>
+        <SecaoTorneio
+          id="chave-titulo"
+          titulo="Chave"
+          Icon={Network}
+          acao={mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : undefined}
+        >
           {chave.length === 0 ? (
-            <p className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center text-sm">
-              <Network className="size-6 opacity-60" aria-hidden="true" />
+            <EstadoVazioSecao Icon={Network}>
               A chave aparece quando o torneio for iniciado.
-            </p>
+            </EstadoVazioSecao>
           ) : (
             <BracketView partidas={chave} terceiroLugar={torneio.terceiro_lugar} />
           )}
-        </section>
+        </SecaoTorneio>
       ) : null}
 
       {/* Formatos de grupos: classificação POR GRUPO (única na fase de
           liga) + a chave quando gerada. */}
       {ehGrupos ? (
         <>
-          <section
-            aria-labelledby="grupos-titulo"
-            className="flex flex-col gap-4"
+          <SecaoTorneio
+            id="grupos-titulo"
+            titulo={ehFaseLiga ? "Classificação" : "Fase de grupos"}
+            Icon={Users}
           >
-            <h2 id="grupos-titulo" className="font-display text-lg font-bold tracking-tight">
-              {ehFaseLiga ? "Classificação" : "Fase de grupos"}
-            </h2>
             {grupos.length === 0 ? (
-              <p className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center text-sm">
-                <Users className="size-6 opacity-60" aria-hidden="true" />
+              <EstadoVazioSecao Icon={Users}>
                 Os grupos aparecem quando o torneio for iniciado.
-              </p>
+              </EstadoVazioSecao>
             ) : (
               grupos.map((g) => (
                 <div key={g.grupo} className="flex flex-col gap-2">
@@ -285,30 +292,25 @@ export default async function TorneioPage({
                     <h3 className="text-sm font-medium">{rotuloGrupo(g.grupo)}</h3>
                   ) : null}
                   {g.linhas.length === 0 ? (
-                    <p className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center text-sm">
-                      <ListOrdered className="size-5 opacity-60" aria-hidden="true" />
+                    <EstadoVazioSecao Icon={ListOrdered}>
                       A classificação aparece depois da primeira partida
                       encerrada.
-                    </p>
+                    </EstadoVazioSecao>
                   ) : (
                     <StandingsTable linhas={g.linhas} />
                   )}
                 </div>
               ))
             )}
-          </section>
+          </SecaoTorneio>
 
           {grupos.length > 0 ? (
-            <section
-              aria-labelledby="chave-grupos-titulo"
-              className="flex flex-col gap-4"
+            <SecaoTorneio
+              id="chave-grupos-titulo"
+              titulo="Mata-mata"
+              Icon={Swords}
+              acao={mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : undefined}
             >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 id="chave-grupos-titulo" className="font-display text-lg font-bold tracking-tight">
-                  Mata-mata
-                </h2>
-                {mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : null}
-              </div>
               {chave.length === 0 ? (
                 mostrarGerarMataMata ? (
                   <GerarMataMataButton
@@ -316,10 +318,9 @@ export default async function TorneioPage({
                     pendentes={jogosDeGrupoPendentes}
                   />
                 ) : (
-                  <p className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center text-sm">
-                    <Swords className="size-6 opacity-60" aria-hidden="true" />
+                  <EstadoVazioSecao Icon={Swords}>
                     O mata-mata aparece quando a fase de grupos terminar.
-                  </p>
+                  </EstadoVazioSecao>
                 )
               ) : (
                 <BracketView
@@ -327,33 +328,26 @@ export default async function TorneioPage({
                   terceiroLugar={torneio.terceiro_lugar}
                 />
               )}
-            </section>
+            </SecaoTorneio>
           ) : null}
         </>
       ) : null}
 
       {!ehMataMata && !ehGrupos ? (
-        <section aria-labelledby="classificacao-titulo" className="flex flex-col gap-4">
-          <h2 id="classificacao-titulo" className="font-display text-lg font-bold tracking-tight">
-            Classificação
-          </h2>
+        <SecaoTorneio id="classificacao-titulo" titulo="Classificação" Icon={ListOrdered}>
           {linhas.length === 0 ? (
-            <p className="text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center text-sm">
-              <ListOrdered className="size-6 opacity-60" aria-hidden="true" />
+            <EstadoVazioSecao Icon={ListOrdered}>
               A classificação aparece depois da primeira partida encerrada.
-            </p>
+            </EstadoVazioSecao>
           ) : (
             <StandingsTable linhas={linhas} />
           )}
-        </section>
+        </SecaoTorneio>
       ) : null}
 
       {/* Em aberto: contexto para todos; botão Encerrar só para o dono. */}
       {partidasAbertas.length > 0 ? (
-        <section aria-labelledby="abertas-titulo" className="flex flex-col gap-4">
-          <h2 id="abertas-titulo" className="font-display text-lg font-bold tracking-tight">
-            Partidas em aberto
-          </h2>
+        <SecaoTorneio id="abertas-titulo" titulo="Partidas em aberto" Icon={Swords}>
           <OpenMatchesList
             partidas={partidasAbertas}
             mostrarEncerrar={podeGerirPartidas}
@@ -361,17 +355,14 @@ export default async function TorneioPage({
             rodadaAtiva={rodadaAtiva}
             tournamentId={id}
           />
-        </section>
+        </SecaoTorneio>
       ) : null}
 
       {/* Solicitações de W.O. pendentes: console do DONO (aceitar/recusar). A
           RLS devolve só ao dono as do torneio; o gate aqui evita exibir o
           console a quem não gere as partidas. */}
       {podeGerirPartidas && solicitacoesWO.length > 0 ? (
-        <section aria-labelledby="wo-titulo" className="flex flex-col gap-3">
-          <h2 id="wo-titulo" className="font-display text-lg font-bold tracking-tight">
-            Solicitações de W.O.
-          </h2>
+        <SecaoTorneio id="wo-titulo" titulo="Solicitações de W.O." Icon={Flag}>
           <ul className="flex list-none flex-col gap-2 p-0">
             {solicitacoesWO.map((s) => (
               <li
@@ -390,32 +381,26 @@ export default async function TorneioPage({
               </li>
             ))}
           </ul>
-        </section>
+        </SecaoTorneio>
       ) : null}
 
       {/* Seção omitida quando vazia: o estado vazio da classificação já
           comunica "nenhuma encerrada" — duas mensagens seriam ruído. */}
       {partidasEncerradas.length > 0 ? (
-        <section aria-labelledby="historico-titulo" className="flex flex-col gap-4">
-          <h2 id="historico-titulo" className="font-display text-lg font-bold tracking-tight">
-            Partidas encerradas
-          </h2>
+        <SecaoTorneio id="historico-titulo" titulo="Partidas encerradas" Icon={History}>
           <MatchHistoryList
             partidas={partidasEncerradas}
             mostrarReabrir={podeGerirPartidas}
           />
-        </section>
+        </SecaoTorneio>
       ) : null}
 
       {/* Clube é opcional por partida — seção só com clube pontuado (e fora
           do mata-mata: classificação por pontos não se aplica à chave). */}
       {!ehMataMata && clubes.length > 0 ? (
-        <section aria-labelledby="clubes-titulo" className="flex flex-col gap-4">
-          <h2 id="clubes-titulo" className="font-display text-lg font-bold tracking-tight">
-            Clubes
-          </h2>
+        <SecaoTorneio id="clubes-titulo" titulo="Clubes" Icon={Shield}>
           <StandingsTable linhas={clubes} rotuloLado="Clube" />
-        </section>
+        </SecaoTorneio>
       ) : null}
 
       {/* Lados do torneio: VAGAS (clubes) no competitivo — convite POR VAGA,
@@ -459,9 +444,13 @@ export default async function TorneioPage({
       {ehDono ? (
         <section
           aria-labelledby="lifecycle-titulo"
-          className="flex flex-col gap-3 border-t pt-6"
+          className="mt-2 flex flex-col gap-3 border-t pt-6"
         >
-          <h2 id="lifecycle-titulo" className="font-display text-sm font-bold tracking-tight">
+          <h2
+            id="lifecycle-titulo"
+            className="text-muted-foreground flex items-center gap-2 text-xs font-semibold tracking-wide uppercase"
+          >
+            <Settings2 className="size-3.5" aria-hidden="true" />
             Administração do torneio
           </h2>
           <div>
@@ -474,5 +463,66 @@ export default async function TorneioPage({
         </section>
       ) : null}
     </main>
+  );
+}
+
+/** Chip de metadado do cabeçalho (formato, opções, pontuação). */
+function Chip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="border-border bg-muted/40 text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium">
+      {children}
+    </span>
+  );
+}
+
+/** Seção da página do torneio: heading com ícone (+ ação opcional) e conteúdo. */
+function SecaoTorneio({
+  id,
+  titulo,
+  Icon,
+  acao,
+  children,
+}: {
+  id: string;
+  titulo: string;
+  Icon: typeof ListOrdered;
+  acao?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2
+          id={id}
+          className="font-display flex items-center gap-2 text-lg font-bold tracking-tight"
+        >
+          <Icon className="text-primary size-4.5" aria-hidden="true" />
+          {titulo}
+        </h2>
+        {acao}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Estado vazio padrão de uma seção: ícone com glow sutil + texto. */
+function EstadoVazioSecao({
+  Icon,
+  children,
+}: {
+  Icon: typeof ListOrdered;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bg-muted/10 flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-10 text-center">
+      <span
+        aria-hidden="true"
+        className="bg-primary/8 text-primary/70 flex size-11 items-center justify-center rounded-full"
+      >
+        <Icon className="size-5" />
+      </span>
+      <p className="text-muted-foreground max-w-xs text-sm">{children}</p>
+    </div>
   );
 }

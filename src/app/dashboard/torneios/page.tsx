@@ -7,40 +7,12 @@ import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FORMATO_META } from "@/features/tournament/formatoMeta";
+import { StatusPill } from "@/features/tournament/components/StatusPill";
 import { getMeusTorneios, type TorneioResumo } from "@/features/tournament/data/getMeusTorneios";
-import type { TournamentStatus } from "@/lib/supabase/database.types";
 
 export const metadata: Metadata = {
   title: "Torneios · Arena",
 };
-
-const LABEL_STATUS: Record<TournamentStatus, string> = {
-  rascunho: "Rascunho",
-  ativo: "Ativo",
-  encerrado: "Encerrado",
-};
-
-/** Pílula de status — "ativo" ganha o ponto vivo (em jogo); os demais, neutros. */
-function StatusPill({ status }: { status: TournamentStatus }) {
-  const ativo = status === "ativo";
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-        ativo
-          ? "border-primary/30 bg-primary/10 text-primary"
-          : "border-border bg-muted/40 text-muted-foreground"
-      }`}
-    >
-      {ativo ? (
-        <span
-          className="size-1.5 rounded-full bg-primary motion-safe:animate-pulse"
-          aria-hidden="true"
-        />
-      ) : null}
-      {LABEL_STATUS[status]}
-    </span>
-  );
-}
 
 function ListaTorneios({ torneios }: { torneios: TorneioResumo[] }) {
   return (
