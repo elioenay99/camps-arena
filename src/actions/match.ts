@@ -497,7 +497,13 @@ async function mudarStatusComoDono(
         somenteSeRodadaCompleta: true,
       })
     } catch (e) {
-      // Secundário ao encerramento (que já teve sucesso): nunca derruba.
+      // Secundário ao encerramento (que já teve sucesso): nunca derruba. Mas é
+      // ESCRITA inesperada engolida (auto-W.O. via UPDATE em matches) — reporta
+      // ao Sentry, senão uma falha silenciosa deixa partidas órfãs sem o W.O. e
+      // some do painel. Paridade com os demais catches de escrita das actions.
+      Sentry.captureException(e, {
+        tags: { action: "encerrarPartida.varrerOrfaos" },
+      })
       console.error("fechamento automático da rodada falhou", e)
     }
   }
