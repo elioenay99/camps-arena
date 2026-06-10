@@ -55,6 +55,15 @@ const nextConfig: NextConfig = {
     // a foto é validada em ≤2MB na action, com folga aqui.
     serverActions: { bodySizeLimit: "3mb" },
   },
+  // O card OG lê fonte (woff) e logo (svg) via `readFile(process.cwd()...)`. No
+  // build atual as rotas saem `○ Static` (prerenderizadas — não herdam o
+  // force-dynamic do layout). Isto é defesa em profundidade: se uma mudança
+  // futura tornar a rota dinâmica (ex.: ler request), garante que os assets
+  // entrem no bundle serverless (o trace pode não pegar readFile dinâmico).
+  outputFileTracingIncludes: {
+    "/opengraph-image": ["./src/features/og/fonts/**", "./src/app/icon.svg"],
+    "/twitter-image": ["./src/features/og/fonts/**", "./src/app/icon.svg"],
+  },
 };
 
 // Envelopa com o Sentry: instrumentação + túnel same-origin (mantém a CSP) +

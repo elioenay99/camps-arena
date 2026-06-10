@@ -33,9 +33,15 @@ export const config = {
      * Aplica a todas as rotas, exceto:
      * - sentry-tunnel (o túnel do Sentry NÃO pode passar pelo updateSession do
      *   Supabase — sob Turbopack falharia em silêncio; 1º termo do lookahead)
+     * - opengraph-image, twitter-image (cards OG da marca: PNG estático; não
+     *   precisam de nonce/CSP nem de um getUser por hit de crawler)
      * - _next/static, _next/image
      * - favicon.ico e arquivos estáticos comuns
+     * O `(?:$|/)` ancora os três termos-palavra ao fim do segmento: só a rota
+     * exata (e filhos) é isenta — uma rota futura que só COMPARTILHE o prefixo
+     * (ex.: /opengraph-imagery) segue passando pelo auth-gate/CSP. Guard em
+     * src/proxy.test.ts. (Matcher é literal estático: exigência do Next.)
      */
-    "/((?!sentry-tunnel|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!(?:sentry-tunnel|opengraph-image|twitter-image)(?:$|/)|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }
