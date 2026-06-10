@@ -172,6 +172,12 @@ export function MatchCard({
     : null
   const rotuloChamar = adversario?.nomeConvocacao ?? "adversário"
 
+  // Só o ADVERSÁRIO é convocável dentro do modal — o lado do próprio usuário
+  // não ganha botão "Chamar" (sem auto-chamada). Usuário que não joga
+  // (adversario null) → nenhum lado convocável.
+  p1.convocavel = adversario === l1
+  p2.convocavel = adversario === l2
+
   return (
     <li>
       <Card className="motion-safe:transition-colors hover:border-primary/40">

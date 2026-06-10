@@ -16,7 +16,9 @@ import { MatchScoreModal } from "@/features/match/components/MatchScoreModal"
 afterEach(cleanup)
 
 describe("MatchScoreModal — atalho wa.me com mensagem POR COLUNA", () => {
-  it("cada coluna abre o chat do PRÓPRIO lado com a SUA mensagem (sem cross-wiring)", () => {
+  it("cada coluna convocável abre o chat do PRÓPRIO lado com a SUA mensagem (sem cross-wiring)", () => {
+    // Ambos convocáveis aqui é artificial (no produto só o adversário é) — o
+    // alvo é a fiação POR COLUNA: cada link aponta ao seu número/mensagem.
     render(
       <MatchScoreModal
         matchId="m1"
@@ -27,11 +29,13 @@ describe("MatchScoreModal — atalho wa.me com mensagem POR COLUNA", () => {
           nome: "Ana",
           celular: "11911111111",
           mensagemWhatsApp: "Fala, Ana! Bora?",
+          convocavel: true,
         }}
         participante2={{
           nome: "Beto",
           celular: "11922222222",
           mensagemWhatsApp: "Fala, Beto! Bora?",
+          convocavel: true,
         }}
       />
     )
@@ -57,8 +61,8 @@ describe("MatchScoreModal — atalho wa.me com mensagem POR COLUNA", () => {
         tituloPartida="Ana x Beto"
         subtitulo="Demo"
         descricao="Ana enfrenta Beto"
-        participante1={{ nome: "Ana", celular: "11911111111" }}
-        participante2={{ nome: "Beto", celular: null }}
+        participante1={{ nome: "Ana", celular: "11911111111", convocavel: true }}
+        participante2={{ nome: "Beto", celular: null, convocavel: true }}
       />
     )
     fireEvent.click(screen.getByRole("button"))
@@ -66,5 +70,29 @@ describe("MatchScoreModal — atalho wa.me com mensagem POR COLUNA", () => {
     expect(linkAna.getAttribute("href")).toBe("https://wa.me/5511911111111")
     // Sem celular válido a coluna não tem botão.
     expect(screen.queryByRole("link", { name: /Chamar Beto/ })).toBeNull()
+  })
+
+  it("não há auto-chamada: o lado NÃO convocável (próprio usuário) não tem botão mesmo com celular", () => {
+    render(
+      <MatchScoreModal
+        matchId="m1"
+        tituloPartida="Eu x Rival"
+        subtitulo="Copa da Firma • em andamento"
+        descricao="Eu enfrento Rival"
+        // O usuário logado: tem celular, mas NÃO é convocável (não se chama).
+        participante1={{ nome: "Eu", celular: "11911111111", convocavel: false }}
+        // O adversário: convocável.
+        participante2={{
+          nome: "Rival",
+          celular: "11922222222",
+          mensagemWhatsApp: "Fala, Rival! Bora?",
+          convocavel: true,
+        }}
+      />
+    )
+    fireEvent.click(screen.getByRole("button"))
+    // Só o adversário tem botão.
+    expect(screen.getByRole("link", { name: /Chamar Rival/ })).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Chamar Eu/ })).toBeNull()
   })
 })

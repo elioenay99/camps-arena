@@ -4,9 +4,14 @@ import { cleanup, render } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 // O card embute o modal conectado (client, importa Server Actions) e o
-// TeamCrest (next/image) — neutralizados: o alvo é o ATALHO do card.
+// TeamCrest (next/image) — neutralizados: o alvo é o ATALHO do card. O mock do
+// modal CAPTURA suas props para checar a fiação de `convocavel` (sem auto-chamada).
+const { modalProps } = vi.hoisted(() => ({ modalProps: vi.fn() }))
 vi.mock("@/features/match/components/MatchScoreModalConnected", () => ({
-  MatchScoreModalConnected: () => null,
+  MatchScoreModalConnected: (props: unknown) => {
+    modalProps(props)
+    return null
+  },
 }))
 vi.mock("@/features/team/components/TeamCrest", () => ({
   TeamCrest: () => null,
@@ -102,6 +107,34 @@ describe("MatchCard — atalho de convocação direto no card", () => {
       />
     )
     expect(container.querySelector('a[href*="wa.me"]')).toBeNull()
+  })
+
+  it("no modal, só o adversário é convocável — o próprio usuário não (sem auto-chamada)", () => {
+    modalProps.mockClear()
+    render(<MatchCard partida={partida()} userId={EU} />)
+    const props = modalProps.mock.calls.at(-1)?.[0] as {
+      participante1: { convocavel?: boolean }
+      participante2: { convocavel?: boolean }
+    }
+    // participante_1 é EU (não convocável); participante_2 é o Rival (convocável).
+    expect(props.participante1.convocavel).toBe(false)
+    expect(props.participante2.convocavel).toBe(true)
+  })
+
+  it("quem não joga não torna nenhum lado convocável no modal", () => {
+    modalProps.mockClear()
+    render(
+      <MatchCard
+        partida={partida()}
+        userId="99999999-9999-4999-8999-999999999999"
+      />
+    )
+    const props = modalProps.mock.calls.at(-1)?.[0] as {
+      participante1: { convocavel?: boolean }
+      participante2: { convocavel?: boolean }
+    }
+    expect(props.participante1.convocavel).toBe(false)
+    expect(props.participante2.convocavel).toBe(false)
   })
 })
 

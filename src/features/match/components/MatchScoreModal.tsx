@@ -45,6 +45,13 @@ export interface ParticipantePartida {
    * técnico (não o clube de `nome`); ausente → usa `nome` (avulso).
    */
   nomeConvocacao?: string | null
+  /**
+   * Este lado pode ser CONVOCADO pelo usuário logado (é o adversário dele).
+   * O botão "Chamar …" só aparece quando `true` — assim o usuário nunca vê o
+   * atalho na PRÓPRIA coluna (sem auto-chamada). Decidido no servidor (quem é
+   * o adversário); ausente/false → sem botão.
+   */
+  convocavel?: boolean
   /** Clube que o lado representa (escudo + nome). */
   clube?: { nome: string; escudoUrl?: string | null } | null
 }
@@ -191,7 +198,11 @@ function ColunaParticipante({
   onChange: (atualizar: (atual: number) => number) => void
   onSelecionarClube?: (lado: 1 | 2, team: TeamResult) => Promise<void> | void
 }) {
-  const wa = linkWhatsApp(participante.celular, participante.mensagemWhatsApp)
+  // Só o lado convocável (o adversário) ganha link — nunca a coluna do próprio
+  // usuário (sem auto-chamada).
+  const wa = participante.convocavel
+    ? linkWhatsApp(participante.celular, participante.mensagemWhatsApp)
+    : null
   const clube = participante.clube
   // No competitivo, "Chamar …" sauda o TÉCNICO (não o clube de `nome`).
   const nomeConvocacao = participante.nomeConvocacao?.trim() || participante.nome
