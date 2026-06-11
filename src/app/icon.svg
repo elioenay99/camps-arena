@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Marca Arena: escudo hexagonal Dracula (slate) com A em roxo #bd93f9. -->
+  <!-- Marca Goliseu: escudo hexagonal Dracula (slate) com G em roxo #bd93f9. -->
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#3a3d4f"/>
@@ -7,5 +7,6 @@
     </linearGradient>
   </defs>
   <path d="M32 2 58 14v22c0 13-11 22-26 26C17 58 6 49 6 36V14L32 2Z" fill="url(#g)" stroke="#bd93f9" stroke-width="3" stroke-linejoin="round"/>
-  <path d="M32 16 44 46h-7l-2.4-6.4H29.4L27 46h-7L32 16Zm0 13-2.4 6.2h4.8L32 29Z" fill="#bd93f9"/>
+  <path d="M40.5 22.5A12 12 0 1 0 42.6 36.6" fill="none" stroke="#bd93f9" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M42.6 36.6H33" fill="none" stroke="#bd93f9" stroke-width="5.5" stroke-linecap="round"/>
 </svg>

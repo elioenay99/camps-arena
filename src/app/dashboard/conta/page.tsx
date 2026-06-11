@@ -13,7 +13,7 @@ import { ProfileForm } from "@/features/profile/components/ProfileForm"
 import { getPerfil } from "@/features/profile/data/getPerfil"
 
 export const metadata: Metadata = {
-  title: "Conta · Arena",
+  title: "Conta · Goliseu",
 }
 
 export default async function ContaPage() {

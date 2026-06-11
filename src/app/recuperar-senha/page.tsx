@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card";
 
 export const metadata: Metadata = {
-  title: "Recuperar senha · Arena",
+  title: "Recuperar senha · Goliseu",
 };
 
 export default function RecuperarSenhaPage() {

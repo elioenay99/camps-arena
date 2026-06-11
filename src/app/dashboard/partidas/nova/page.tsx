@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { getOwnTournaments } from "@/features/tournament/data/getOwnTournaments";
 
 export const metadata: Metadata = {
-  title: "Nova partida · Arena",
+  title: "Nova partida · Goliseu",
 };
 
 /**

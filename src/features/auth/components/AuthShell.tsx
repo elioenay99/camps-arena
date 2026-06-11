@@ -1,6 +1,6 @@
 import Link from "next/link"
 
-import { ArenaMark } from "@/components/arena-mark"
+import { GoliseuMark } from "@/components/goliseu-mark"
 import { StadiumBackdrop } from "@/components/stadium-backdrop"
 
 /**
@@ -22,15 +22,15 @@ export function AuthShell({
 
       <Link
         href="/"
-        aria-label="Arena — página inicial"
+        aria-label="Goliseu — página inicial"
         className="animate-rise group flex flex-col items-center gap-3 rounded-2xl text-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
       >
         <span className="glow-primary flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/30 transition-transform motion-safe:group-hover:scale-105">
-          <ArenaMark className="size-8" />
+          <GoliseuMark className="size-8" />
         </span>
         <span className="flex flex-col items-center gap-1">
           <span className="font-display text-xl font-bold tracking-[0.3em] text-foreground">
-            ARENA<span className="text-primary">.</span>
+            GOLISEU<span className="text-primary">.</span>
           </span>
           <span className="text-xs text-muted-foreground">
             {tagline ?? "Torneios de clubes · placar ao vivo"}

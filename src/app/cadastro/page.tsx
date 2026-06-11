@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card";
 
 export const metadata: Metadata = {
-  title: "Criar conta · Arena",
+  title: "Criar conta · Goliseu",
 };
 
 export default async function CadastroPage({
@@ -29,7 +29,7 @@ export default async function CadastroPage({
         <CardHeader>
           <CardTitle className="font-display text-2xl">Criar conta</CardTitle>
           <CardDescription>
-            Cadastre-se para organizar e disputar partidas no Arena.
+            Cadastre-se para organizar e disputar partidas no Goliseu.
           </CardDescription>
         </CardHeader>
         <CardContent>

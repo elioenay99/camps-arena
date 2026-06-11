@@ -1,9 +1,9 @@
 /**
- * Escudo da marca Arena (o "A" no hexágono do `icon.svg`), como SVG inline que
+ * Escudo da marca Goliseu (o "G" no hexágono do `icon.svg`), como SVG inline que
  * herda `currentColor` — assim ganha cor e glow pelo contexto (text-primary,
  * etc.). Decorativo: `aria-hidden`. Reutilizável (auth hero, headers, vazios).
  */
-export function ArenaMark({ className }: { className?: string }) {
+export function GoliseuMark({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 64 64"
@@ -18,8 +18,16 @@ export function ArenaMark({ className }: { className?: string }) {
         strokeLinejoin="round"
       />
       <path
-        d="M32 16 44 46h-7l-2.4-6.4H29.4L27 46h-7L32 16Zm0 13-2.4 6.2h4.8L32 29Z"
-        fill="currentColor"
+        d="M40.5 22.5A12 12 0 1 0 42.6 36.6"
+        stroke="currentColor"
+        strokeWidth="5.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M42.6 36.6H33"
+        stroke="currentColor"
+        strokeWidth="5.5"
+        strokeLinecap="round"
       />
     </svg>
   )

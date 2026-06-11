@@ -8,7 +8,7 @@ import { LiveMatchesProvider } from "@/features/match/live/LiveMatchesProvider";
 import { EmptyActiveMatches } from "@/features/match/components/EmptyActiveMatches";
 
 export const metadata: Metadata = {
-  title: "Painel · Arena",
+  title: "Painel · Goliseu",
 };
 
 export default async function DashboardPage() {
@@ -35,7 +35,7 @@ export default async function DashboardPage() {
             className="flex items-center gap-1.5 text-xs font-medium tracking-[0.2em] text-muted-foreground uppercase"
           >
             <span className="size-1.5 rounded-full bg-primary motion-safe:animate-pulse" />
-            Ao vivo na arena
+            Ao vivo no Goliseu
           </span>
           <h1
             id="partidas-ativas-titulo"

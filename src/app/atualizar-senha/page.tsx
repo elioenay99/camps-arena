@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/card";
 
 export const metadata: Metadata = {
-  title: "Nova senha · Arena",
+  title: "Nova senha · Goliseu",
 };
 
 // Rota protegida pelo middleware: só chega aqui com sessão (a de recovery

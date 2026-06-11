@@ -39,7 +39,7 @@ export default async function DashboardLayout({
             href="/dashboard"
             className="font-display text-base font-bold tracking-[0.25em] text-foreground"
           >
-            ARENA<span className="text-primary">.</span>
+            GOLISEU<span className="text-primary">.</span>
           </Link>
 
           <NavLinks links={LINKS} />

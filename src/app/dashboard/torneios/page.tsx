@@ -11,7 +11,7 @@ import { StatusPill } from "@/features/tournament/components/StatusPill";
 import { getMeusTorneios, type TorneioResumo } from "@/features/tournament/data/getMeusTorneios";
 
 export const metadata: Metadata = {
-  title: "Torneios · Arena",
+  title: "Torneios · Goliseu",
 };
 
 function ListaTorneios({ torneios }: { torneios: TorneioResumo[] }) {

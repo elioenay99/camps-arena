@@ -12,7 +12,7 @@ import {
 import { TournamentForm } from "@/features/tournament/components/TournamentForm";
 
 export const metadata: Metadata = {
-  title: "Novo torneio · Arena",
+  title: "Novo torneio · Goliseu",
 };
 
 export default async function NovoTorneioPage() {
@@ -34,7 +34,7 @@ export default async function NovoTorneioPage() {
             Novo torneio
           </CardTitle>
           <CardDescription>
-            Escolha o formato e a Arena cuida do resto.
+            Escolha o formato e o Goliseu cuida do resto.
           </CardDescription>
         </CardHeader>
         <CardContent>

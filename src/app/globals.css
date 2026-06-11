@@ -281,18 +281,18 @@
 
   /* Entrada em cena: fade + sobe. Combinar com --stagger inline nas listas. */
   .animate-rise {
-    animation: arena-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: goliseu-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
     animation-delay: var(--stagger, 0ms);
   }
 
   /* Placar cinético: o número "pula" e pisca no primário quando muda (gol!). */
   .animate-score {
-    animation: arena-score 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: goliseu-score 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
   /* Respiração lenta do holofote — vida quase imperceptível no backdrop. */
   .animate-breathe {
-    animation: arena-breathe 7s ease-in-out infinite;
+    animation: goliseu-breathe 7s ease-in-out infinite;
   }
 
   /* Brilho de conquista: sweep dourado atravessa o elemento do campeão. */
@@ -311,12 +311,12 @@
       transparent 70%
     );
     background-size: 250% 100%;
-    animation: arena-sheen 4.5s ease-in-out infinite;
+    animation: goliseu-sheen 4.5s ease-in-out infinite;
     pointer-events: none;
   }
 }
 
-@keyframes arena-rise {
+@keyframes goliseu-rise {
   from {
     opacity: 0;
     transform: translateY(10px);
@@ -327,7 +327,7 @@
   }
 }
 
-@keyframes arena-score {
+@keyframes goliseu-score {
   0% {
     transform: scale(1);
   }
@@ -340,7 +340,7 @@
   }
 }
 
-@keyframes arena-breathe {
+@keyframes goliseu-breathe {
   0%,
   100% {
     opacity: 0.7;
@@ -350,7 +350,7 @@
   }
 }
 
-@keyframes arena-sheen {
+@keyframes goliseu-sheen {
   0% {
     background-position: 200% 0;
   }

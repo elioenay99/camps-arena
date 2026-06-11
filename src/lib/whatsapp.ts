@@ -41,5 +41,5 @@ export function mensagemConvocacao({
   const saudacao = nome ? `Fala, ${nome}!` : "Fala!"
   const torneio = titulo?.trim() || "nosso torneio"
   const url = `${env.NEXT_PUBLIC_SITE_URL}/dashboard/torneios/${tournamentId}`
-  return `${saudacao} Bora jogar nossa partida do ${torneio} no Arena? ${url}`
+  return `${saudacao} Bora jogar nossa partida do ${torneio} no Goliseu? ${url}`
 }

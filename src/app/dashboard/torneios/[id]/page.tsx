@@ -55,13 +55,13 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const fallback = { title: "Classificação · Arena" };
+  const fallback = { title: "Classificação · Goliseu" };
   if (!z.uuid().safeParse(id).success) {
     return fallback;
   }
   const classificacao = await getTournamentClassificacao(id);
   const titulo = classificacao?.torneio.titulo.trim();
-  return titulo ? { title: `${titulo} · Arena` } : fallback;
+  return titulo ? { title: `${titulo} · Goliseu` } : fallback;
 }
 
 

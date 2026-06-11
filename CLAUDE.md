@@ -1,6 +1,6 @@
 @AGENTS.md
 
-# Arena — instruções do projeto
+# Goliseu — instruções do projeto
 
 ## Comunicação
 Ao conversar comigo por aqui (chat do Claude Code), responda SEMPRE em Português do

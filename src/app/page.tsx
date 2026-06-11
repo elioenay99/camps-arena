@@ -62,7 +62,7 @@ export default async function Home() {
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-16 px-6 py-16">
         <header className="flex w-full items-center justify-between">
           <span className="font-display text-lg font-bold tracking-[0.25em]">
-            ARENA<span className="text-primary">.</span>
+            GOLISEU<span className="text-primary">.</span>
           </span>
           <div className="flex items-center gap-2">
             <ModeToggle />

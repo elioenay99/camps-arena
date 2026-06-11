@@ -47,7 +47,7 @@ describe("mensagemConvocacao", () => {
       tournamentId,
     })
     expect(msg).toBe(
-      `Fala, Beto! Bora jogar nossa partida do Copa da Firma no Arena? http://localhost:3000/dashboard/torneios/${tournamentId}`
+      `Fala, Beto! Bora jogar nossa partida do Copa da Firma no Goliseu? http://localhost:3000/dashboard/torneios/${tournamentId}`
     )
   })
 

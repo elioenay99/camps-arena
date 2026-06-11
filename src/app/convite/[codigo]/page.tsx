@@ -18,7 +18,7 @@ import { codigoConviteSchema } from "@/schema/participantSchema";
 // Título genérico de propósito: o título do torneio só aparece no corpo, para
 // quem TEM o código — metadata vaza em preview de link/history sem custo.
 export const metadata: Metadata = {
-  title: "Convite · Arena",
+  title: "Convite · Goliseu",
 };
 
 const LABEL_INVALIDO =
@@ -134,7 +134,7 @@ export default async function ConvitePage({
         <CardHeader>
           <CardTitle className="text-2xl">Convite</CardTitle>
           <CardDescription>
-            Convite para participar de um torneio no Arena.
+            Convite para participar de um torneio no Goliseu.
           </CardDescription>
         </CardHeader>
         <CardContent>{conteudo}</CardContent>

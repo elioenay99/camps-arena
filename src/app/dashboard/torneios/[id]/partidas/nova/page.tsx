@@ -15,7 +15,7 @@ import { MatchCreateForm } from "@/features/match/components/MatchCreateForm";
 import { getParticipantesDoTorneio } from "@/features/tournament/data/getParticipantesDoTorneio";
 
 export const metadata: Metadata = {
-  title: "Nova partida · Arena",
+  title: "Nova partida · Goliseu",
 };
 
 export default async function NovaPartidaDoTorneioPage({

@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card";
 
 export const metadata: Metadata = {
-  title: "Entrar · Arena",
+  title: "Entrar · Goliseu",
 };
 
 export default async function LoginPage({
@@ -29,7 +29,7 @@ export default async function LoginPage({
         <CardHeader>
           <CardTitle className="font-display text-2xl">Entrar</CardTitle>
           <CardDescription>
-            Acesse o painel do Arena para gerir suas partidas.
+            Acesse o painel do Goliseu para gerir suas partidas.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">

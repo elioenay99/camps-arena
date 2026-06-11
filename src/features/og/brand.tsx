@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { ImageResponse } from "next/og"
 
 /**
- * Card OG/Twitter ESTÁTICO da marca Arena (1200×630), gerado por `next/og`
+ * Card OG/Twitter ESTÁTICO da marca Goliseu (1200×630), gerado por `next/og`
  * (Satori). É a fonte ÚNICA dos `opengraph-image`/`twitter-image` da raiz —
  * herdado por TODAS as rotas, então qualquer link compartilhado (landing,
  * login, convite) ganha o mesmo preview da marca.
@@ -19,7 +19,7 @@ import { ImageResponse } from "next/og"
  */
 
 export const OG_SIZE = { width: 1200, height: 630 } as const
-export const OG_ALT = "Arena — torneios de clubes com placar ao vivo"
+export const OG_ALT = "Goliseu — torneios de clubes com placar ao vivo"
 export const OG_CONTENT_TYPE = "image/png"
 
 // Identidade Dracula (tema padrão): roxo de marca sobre o slate #282a36.
@@ -75,7 +75,7 @@ function BrandCard({ logoSrc }: { logoSrc: string }) {
           lineHeight: 1,
         }}
       >
-        Arena
+        Goliseu
       </div>
       <div
         style={{

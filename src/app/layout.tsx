@@ -38,21 +38,21 @@ export const metadata: Metadata = {
   // URL canônica do site: base para URLs absolutas de metadados/OG.
   // O default de dev (`http://localhost:3000`) vive no schema de `env`.
   metadataBase: new URL(env.NEXT_PUBLIC_SITE_URL),
-  title: "Arena",
+  title: "Goliseu",
   description: DESCRICAO,
   // og:image/twitter:image vêm dos arquivos `opengraph-image`/`twitter-image`
   // da raiz (card estático da marca) — herdados por todas as rotas.
   openGraph: {
     type: "website",
-    siteName: "Arena",
-    title: "Arena",
+    siteName: "Goliseu",
+    title: "Goliseu",
     description: DESCRICAO,
     locale: "pt_BR",
     url: "/",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Arena",
+    title: "Goliseu",
     description: DESCRICAO,
   },
 };
