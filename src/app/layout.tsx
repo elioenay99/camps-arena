@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import { headers } from "next/headers";
 import { Analytics } from "@vercel/analytics/next";
@@ -55,6 +55,21 @@ export const metadata: Metadata = {
     title: "Goliseu",
     description: DESCRICAO,
   },
+  // PWA/iOS: nome curto na tela inicial + barra de status integrada ao app.
+  appleWebApp: {
+    capable: true,
+    title: "Goliseu",
+    statusBarStyle: "black-translucent",
+  },
+};
+
+// A cor do chrome do navegador acompanha o tema: slate Dracula no escuro
+// (padrão), branco-quente Canarinho no claro.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#282a36" },
+    { media: "(prefers-color-scheme: light)", color: "#fffdf2" },
+  ],
 };
 
 export default async function RootLayout({
