@@ -1,19 +1,27 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import {
+  CircleCheck,
+  Flag,
+  Lock,
+  ShieldAlert,
+  Ticket,
+  Trophy,
+  UserX,
+} from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AcceptInviteForm } from "@/features/tournament/components/AcceptInviteForm";
 import { AcceptSlotInviteForm } from "@/features/tournament/components/AcceptSlotInviteForm";
-import { TeamCrest } from "@/features/team/components/TeamCrest";
 import { codigoConviteSchema } from "@/schema/participantSchema";
+import {
+  ConviteShell,
+  EstadoBloqueio,
+  HeroClube,
+  HeroIcone,
+  PainelConvite,
+} from "./convite-ui";
 
 // Título genérico de propósito: o título do torneio só aparece no corpo, para
 // quem TEM o código — metadata vaza em preview de link/history sem custo.
@@ -62,18 +70,21 @@ export default async function ConvitePage({
   } else if (!user) {
     const retorno = encodeURIComponent(`/convite/${codigoValido.data}`);
     conteudo = (
-      <div className="grid gap-4">
+      <PainelConvite>
+        <HeroIcone icon={Ticket} />
         <p className="text-muted-foreground text-sm">
           Entre na sua conta (ou crie uma) para ver o convite e participar do
           torneio.
         </p>
-        <Button asChild>
-          <Link href={`/login?redirectTo=${retorno}`}>Entrar</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link href={`/cadastro?redirectTo=${retorno}`}>Criar conta</Link>
-        </Button>
-      </div>
+        <div className="grid gap-2">
+          <Button asChild>
+            <Link href={`/login?redirectTo=${retorno}`}>Entrar</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href={`/cadastro?redirectTo=${retorno}`}>Criar conta</Link>
+          </Button>
+        </div>
+      </PainelConvite>
     );
   } else if (vaga !== null) {
     conteudo = vaga;
@@ -85,70 +96,62 @@ export default async function ConvitePage({
       throw new Error(`Falha ao carregar o convite: ${error.message}`);
     }
     const info = data?.[0] ?? null;
+    const titulo = info?.titulo?.trim() || "Torneio";
 
     if (!info) {
       conteudo = <AvisoInvalido />;
     } else if (info.ja_participa) {
       conteudo = (
-        <div className="grid gap-4">
+        <PainelConvite>
+          <HeroIcone icon={CircleCheck} />
           <p className="text-sm" role="status">
-            {`Você já participa de "${info.titulo.trim() || "Torneio"}".`}
+            {`Você já participa de "${titulo}".`}
           </p>
           <Button asChild>
             <Link href={`/dashboard/torneios/${info.tournament_id}`}>
               Abrir o torneio
             </Link>
           </Button>
-        </div>
+        </PainelConvite>
       );
     } else if (info.status === "encerrado") {
       conteudo = (
-        <p className="text-muted-foreground text-sm" role="status">
-          {`O torneio "${info.titulo.trim() || "Torneio"}" está encerrado e não aceita novos participantes.`}
-        </p>
+        <EstadoBloqueio icon={Flag}>
+          {`O torneio "${titulo}" está encerrado e não aceita novos participantes.`}
+        </EstadoBloqueio>
       );
     } else if (info.formato !== "avulso" && info.status !== "rascunho") {
       // Formato gerado (liga/mata-mata) iniciado: tabela/chave já geradas —
       // quem entrasse agora ficaria sem partidas. A função aceitar_convite
       // rejeita de qualquer forma; explicar AQUI evita o clique fadado ao erro.
       conteudo = (
-        <p className="text-muted-foreground text-sm" role="status">
-          {`O torneio "${info.titulo.trim() || "Torneio"}" já foi iniciado e não aceita novos participantes.`}
-        </p>
+        <EstadoBloqueio icon={Lock}>
+          {`O torneio "${titulo}" já foi iniciado e não aceita novos participantes.`}
+        </EstadoBloqueio>
       );
     } else {
       conteudo = (
-        <div className="grid gap-4">
-          <p className="text-sm">
-            {`Você foi convidado para participar de "${info.titulo.trim() || "Torneio"}".`}
-          </p>
+        <PainelConvite>
+          <HeroIcone icon={Trophy} />
+          <div className="flex flex-col items-center gap-1">
+            <span className="font-display text-xl font-bold tracking-tight">
+              {titulo}
+            </span>
+            <p className="text-muted-foreground text-sm">
+              Você foi convidado para participar deste torneio.
+            </p>
+          </div>
           <AcceptInviteForm codigo={codigoValido.data} />
-        </div>
+        </PainelConvite>
       );
     }
   }
 
-  return (
-    <main className="flex flex-1 items-center justify-center px-6 py-16">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle className="text-2xl">Convite</CardTitle>
-          <CardDescription>
-            Convite para participar de um torneio no Goliseu.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>{conteudo}</CardContent>
-      </Card>
-    </main>
-  );
+  return <ConviteShell>{conteudo}</ConviteShell>;
 }
 
 function AvisoInvalido() {
-  return (
-    <p className="text-muted-foreground text-sm" role="status">
-      {LABEL_INVALIDO}
-    </p>
-  );
+  return <EstadoBloqueio icon={ShieldAlert}>{LABEL_INVALIDO}</EstadoBloqueio>;
 }
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
@@ -180,14 +183,15 @@ async function conteudoDeVaga(
 
   if (info.status === "encerrado") {
     return (
-      <p className="text-muted-foreground text-sm" role="status">
+      <EstadoBloqueio icon={Flag}>
         {`O torneio "${tituloTorneio}" está encerrado e não aceita novos técnicos.`}
-      </p>
+      </EstadoBloqueio>
     );
   }
   if (info.ja_tem_vaga) {
     return (
-      <div className="grid gap-4">
+      <PainelConvite>
+        <HeroIcone icon={CircleCheck} />
         <p className="text-sm" role="status">
           {`Você já comanda um clube em "${tituloTorneio}".`}
         </p>
@@ -196,32 +200,24 @@ async function conteudoDeVaga(
             Abrir o torneio
           </Link>
         </Button>
-      </div>
+      </PainelConvite>
     );
   }
   if (info.vaga_ocupada) {
     return (
-      <p className="text-muted-foreground text-sm" role="status">
+      <EstadoBloqueio icon={UserX}>
         {`O clube ${clube} já tem um técnico. Peça outro convite a quem organiza "${tituloTorneio}".`}
-      </p>
+      </EstadoBloqueio>
     );
   }
 
   return (
-    <div className="grid gap-4">
-      <div className="flex items-center gap-3">
-        <TeamCrest nome={clube} escudoUrl={info.escudo_url} size={40} />
-        <div className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-medium">{clube}</span>
-          <span className="text-muted-foreground truncate text-xs">
-            {`em "${tituloTorneio}"`}
-          </span>
-        </div>
-      </div>
+    <PainelConvite>
+      <HeroClube clube={clube} torneio={tituloTorneio} escudoUrl={info.escudo_url} />
       <p className="text-sm">
         {`Você foi convidado para comandar ${clube} como técnico.`}
       </p>
       <AcceptSlotInviteForm codigo={codigo} />
-    </div>
+    </PainelConvite>
   );
 }
