@@ -1,8 +1,15 @@
+import { ListOrdered } from "lucide-react"
+
 import {
   LIGA_MAX_PARTICIPANTES,
   previaLiga,
 } from "@/features/league/gerarTabelaLiga"
 import { IniciarTorneioButton } from "@/features/tournament/components/IniciarTorneioButton"
+import {
+  PainelInicioShell,
+  PreviaBox,
+} from "@/features/tournament/components/iniciar-panel-ui"
+import type { TournamentStatus } from "@/lib/supabase/database.types"
 
 /**
  * Painel "Iniciar torneio" — RSC puro, renderizado SÓ para o dono de liga em
@@ -13,33 +20,29 @@ export function IniciarTorneioPanel({
   tournamentId,
   qtdParticipantes,
   idaEVolta,
+  status = "rascunho",
 }: {
   tournamentId: string
   qtdParticipantes: number
   idaEVolta: boolean
+  status?: TournamentStatus
 }) {
   const previa = previaLiga(qtdParticipantes, idaEVolta)
   const participantesSuficientes = qtdParticipantes >= 2
   const dentroDoLimite = qtdParticipantes <= LIGA_MAX_PARTICIPANTES
 
   return (
-    <section
-      aria-labelledby="iniciar-titulo"
-      className="flex flex-col gap-3 rounded-lg border px-4 py-4"
+    <PainelInicioShell
+      Icon={ListOrdered}
+      formatoLabel="Liga"
+      qtdClubes={qtdParticipantes}
+      chips={idaEVolta ? ["ida e volta"] : []}
+      status={status}
     >
-      <div className="flex flex-col gap-1">
-        <h2 id="iniciar-titulo" className="text-lg font-semibold">
-          Iniciar torneio
-        </h2>
-        <p className="text-muted-foreground text-sm">
-          {`Liga em rascunho • ${qtdParticipantes} ${qtdParticipantes === 1 ? "clube" : "clubes"} • ${idaEVolta ? "ida e volta" : "ida simples"}`}
-        </p>
-      </div>
-
       {participantesSuficientes && dentroDoLimite ? (
-        <p className="text-sm">
+        <PreviaBox>
           {`Ao iniciar, a tabela completa é gerada: ${previa.partidas} ${previa.partidas === 1 ? "partida" : "partidas"} em ${previa.rodadas} ${previa.rodadas === 1 ? "rodada" : "rodadas"}. A lista de clubes fica fixa; técnicos podem assumir as vagas a qualquer momento.`}
-        </p>
+        </PreviaBox>
       ) : participantesSuficientes ? (
         <p className="text-destructive text-sm" role="status">
           {`A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} clubes. Crie o torneio novamente com menos clubes.`}
@@ -56,6 +59,6 @@ export function IniciarTorneioPanel({
           disabled={!participantesSuficientes || !dentroDoLimite}
         />
       </div>
-    </section>
+    </PainelInicioShell>
   )
 }

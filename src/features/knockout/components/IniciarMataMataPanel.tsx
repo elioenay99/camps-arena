@@ -1,5 +1,6 @@
 "use client"
 
+import { Hand, Layers, Network, Shuffle } from "lucide-react"
 import { useActionState, useState } from "react"
 import { useFormStatus } from "react-dom"
 
@@ -13,6 +14,12 @@ import {
   tamanhoChave,
   type ModoChaveamento,
 } from "@/features/knockout/gerarChaveMataMata"
+import {
+  ModoCard,
+  PainelInicioShell,
+  PreviaBox,
+} from "@/features/tournament/components/iniciar-panel-ui"
+import type { TournamentStatus } from "@/lib/supabase/database.types"
 
 const initialState: TournamentFormState = {}
 
@@ -46,11 +53,13 @@ export function IniciarMataMataPanel({
   participantes,
   idaEVolta,
   terceiroLugar,
+  status = "rascunho",
 }: {
   tournamentId: string
   participantes: Participante[]
   idaEVolta: boolean
   terceiroLugar: boolean
+  status?: TournamentStatus
 }) {
   const [state, formAction] = useActionState(iniciarMataMata, initialState)
   const [modo, setModo] = useState<ModoChaveamento>("sorteio")
@@ -62,6 +71,11 @@ export function IniciarMataMataPanel({
   const potesValido = (TAMANHOS_POTES as readonly number[]).includes(qtd)
   const confrontos = suficientes ? tamanhoChave(qtd) / 2 : 0
   const byes = suficientes ? tamanhoChave(qtd) - qtd : 0
+
+  const chips = [
+    ...(idaEVolta ? ["ida e volta"] : []),
+    ...(terceiroLugar ? ["3º lugar"] : []),
+  ]
 
   const opcoes = (
     <>
@@ -75,23 +89,17 @@ export function IniciarMataMataPanel({
   )
 
   return (
-    <section
-      aria-labelledby="iniciar-titulo"
-      className="flex flex-col gap-3 rounded-lg border px-4 py-4"
+    <PainelInicioShell
+      Icon={Network}
+      formatoLabel="Mata-mata"
+      qtdClubes={qtd}
+      chips={chips}
+      status={status}
     >
-      <div className="flex flex-col gap-1">
-        <h2 id="iniciar-titulo" className="text-lg font-semibold">
-          Iniciar torneio
-        </h2>
-        <p className="text-muted-foreground text-sm">
-          {`Mata-mata em rascunho • ${qtd} ${qtd === 1 ? "clube" : "clubes"}${idaEVolta ? " • ida e volta" : ""}${terceiroLugar ? " • com 3º lugar" : ""}`}
-        </p>
-      </div>
-
       {suficientes && dentroDoLimite ? (
-        <p className="text-sm">
+        <PreviaBox>
           {`Ao iniciar, a chave é gerada: ${previa.jogos} ${previa.jogos === 1 ? "jogo" : "jogos"} em ${previa.fases} ${previa.fases === 1 ? "fase" : "fases"}${byes > 0 ? ` (${byes} ${byes === 1 ? "clube avança direto na 1ª fase" : "clubes avançam direto na 1ª fase"})` : ""}. A lista de clubes fica fixa; técnicos podem assumir as vagas a qualquer momento.`}
-        </p>
+        </PreviaBox>
       ) : suficientes ? (
         <p className="text-destructive text-sm" role="alert">
           {`O mata-mata aceita no máximo ${MATA_MATA_MAX_PARTICIPANTES} clubes. Crie o torneio novamente com menos clubes.`}
@@ -104,76 +112,60 @@ export function IniciarMataMataPanel({
       )}
 
       {suficientes && dentroDoLimite ? (
-        <form action={formAction} className="flex flex-col gap-3" noValidate>
+        <form action={formAction} className="flex flex-col gap-4" noValidate>
           <input type="hidden" name="tournamentId" value={tournamentId} />
 
           {/* border-0/p-0/m-0/min-w-0: o preflight do Tailwind v4 NÃO reseta
               fieldset/legend (mesma decisão do TournamentForm). */}
-          <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
+          <fieldset className="m-0 grid min-w-0 gap-2.5 border-0 p-0">
             <legend className="pb-2 text-sm font-medium">Chaveamento</legend>
-            <div className="flex items-start gap-2">
-              <input
-                id="modoSorteio"
+            <div className="flex flex-col gap-2.5 sm:flex-row">
+              <ModoCard
                 name="modo"
-                type="radio"
                 value="sorteio"
                 checked={modo === "sorteio"}
                 onChange={() => setModo("sorteio")}
-                className="accent-primary mt-1 size-4"
+                Icon={Shuffle}
+                titulo="Sorteio"
+                descricao="Os confrontos são sorteados automaticamente."
               />
-              <Label htmlFor="modoSorteio" className="flex-col items-start gap-0.5 font-normal">
-                Sorteio
-                <span className="text-muted-foreground text-xs font-normal">
-                  Os confrontos são sorteados automaticamente.
-                </span>
-              </Label>
-            </div>
-            <div className="flex items-start gap-2">
-              <input
-                id="modoPotes"
+              <ModoCard
                 name="modo"
-                type="radio"
                 value="potes"
                 checked={modo === "potes"}
                 onChange={() => setModo("potes")}
                 disabled={!potesValido}
-                className="accent-primary mt-1 size-4"
-              />
-              <Label htmlFor="modoPotes" className="flex-col items-start gap-0.5 font-normal">
-                Sorteio com potes
-                <span className="text-muted-foreground text-xs font-normal">
-                  {potesValido
+                Icon={Layers}
+                titulo="Sorteio com potes"
+                descricao={
+                  potesValido
                     ? "Marque as cabeças de chave: cada confronto cruza uma cabeça com um não-cabeça."
-                    : `Exige ${TAMANHOS_POTES.join(", ")} clubes (chave completa).`}
-                </span>
-              </Label>
-            </div>
-            <div className="flex items-start gap-2">
-              <input
-                id="modoManual"
+                    : `Exige ${TAMANHOS_POTES.join(", ")} clubes (chave completa).`
+                }
+              />
+              <ModoCard
                 name="modo"
-                type="radio"
                 value="manual"
                 checked={modo === "manual"}
                 onChange={() => setModo("manual")}
-                className="accent-primary mt-1 size-4"
+                Icon={Hand}
+                titulo="Montagem manual"
+                descricao="Você define cada confronto da 1ª fase."
               />
-              <Label htmlFor="modoManual" className="flex-col items-start gap-0.5 font-normal">
-                Montagem manual
-                <span className="text-muted-foreground text-xs font-normal">
-                  Você define cada confronto da 1ª fase.
-                </span>
-              </Label>
             </div>
           </fieldset>
 
           {modo === "potes" && potesValido ? (
-            <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
-              <legend className="pb-2 text-sm font-medium">
+            <fieldset className="animate-rise bg-muted/20 m-0 grid min-w-0 gap-2 rounded-xl border p-4">
+              <legend className="px-1 text-sm font-medium">
                 {`Cabeças de chave (marque ${qtd / 2})`}
               </legend>
               {participantes.map((p) => (
-                <div key={p.id} className="flex items-center gap-2">
+                <Label
+                  key={p.id}
+                  htmlFor={`cabeca-${p.id}`}
+                  className="bg-card/40 hover:border-primary/40 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-background flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 font-normal transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-offset-2"
+                >
                   <input
                     id={`cabeca-${p.id}`}
                     name="cabecas"
@@ -181,17 +173,15 @@ export function IniciarMataMataPanel({
                     value={p.id}
                     className="border-input accent-primary size-4 rounded"
                   />
-                  <Label htmlFor={`cabeca-${p.id}`} className="font-normal">
-                    {nomeOuFallback(p.nome)}
-                  </Label>
-                </div>
+                  {nomeOuFallback(p.nome)}
+                </Label>
               ))}
             </fieldset>
           ) : null}
 
           {modo === "manual" ? (
-            <fieldset className="m-0 grid min-w-0 gap-3 border-0 p-0">
-              <legend className="pb-2 text-sm font-medium">
+            <fieldset className="animate-rise bg-muted/20 m-0 grid min-w-0 gap-3 rounded-xl border p-4">
+              <legend className="px-1 text-sm font-medium">
                 {`Confrontos da 1ª fase${byes > 0 ? ` (deixe ${byes} ${byes === 1 ? "lado vazio" : "lados vazios"} — bye)` : ""}`}
               </legend>
               {Array.from({ length: confrontos }, (_, i) => i + 1).map((slot) => (
@@ -199,7 +189,7 @@ export function IniciarMataMataPanel({
                   <select
                     name={`slot_${slot}_1`}
                     aria-label={`Confronto ${slot}, lado 1`}
-                    className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+                    className="border-input bg-background h-9 min-w-0 rounded-md border px-2 text-sm"
                     defaultValue=""
                   >
                     {opcoes}
@@ -208,7 +198,7 @@ export function IniciarMataMataPanel({
                   <select
                     name={`slot_${slot}_2`}
                     aria-label={`Confronto ${slot}, lado 2`}
-                    className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+                    className="border-input bg-background h-9 min-w-0 rounded-md border px-2 text-sm"
                     defaultValue=""
                   >
                     {opcoes}
@@ -229,6 +219,6 @@ export function IniciarMataMataPanel({
           </div>
         </form>
       ) : null}
-    </section>
+    </PainelInicioShell>
   )
 }

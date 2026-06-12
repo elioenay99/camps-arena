@@ -231,6 +231,7 @@ export default async function TorneioPage({
           tournamentId={id}
           qtdParticipantes={lados.length}
           idaEVolta={torneio.ida_e_volta}
+          status={torneio.status}
         />
       ) : null}
 
@@ -240,6 +241,7 @@ export default async function TorneioPage({
           participantes={lados}
           idaEVolta={torneio.ida_e_volta}
           terceiroLugar={torneio.terceiro_lugar}
+          status={torneio.status}
         />
       ) : null}
 
@@ -250,6 +252,7 @@ export default async function TorneioPage({
           idaEVolta={torneio.ida_e_volta}
           terceiroLugar={torneio.terceiro_lugar}
           faseLiga={ehFaseLiga}
+          status={torneio.status}
         />
       ) : null}
 

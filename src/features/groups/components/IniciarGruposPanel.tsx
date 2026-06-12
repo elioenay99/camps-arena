@@ -1,5 +1,6 @@
 "use client"
 
+import { Boxes, Hand, Layers, LayoutGrid, Shuffle } from "lucide-react"
 import { useActionState, useState } from "react"
 import { useFormStatus } from "react-dom"
 
@@ -13,6 +14,12 @@ import {
   TOTAIS_CHAVE_VALIDOS,
 } from "@/features/groups/gerarFaseDeGrupos"
 import { MATA_MATA_MAX_PARTICIPANTES } from "@/features/knockout/gerarChaveMataMata"
+import {
+  ModoCard,
+  PainelInicioShell,
+  PreviaBox,
+} from "@/features/tournament/components/iniciar-panel-ui"
+import type { TournamentStatus } from "@/lib/supabase/database.types"
 
 const initialState: TournamentFormState = {}
 
@@ -68,6 +75,7 @@ export function IniciarGruposPanel({
   idaEVolta,
   terceiroLugar,
   faseLiga,
+  status = "rascunho",
 }: {
   tournamentId: string
   participantes: Participante[]
@@ -75,6 +83,7 @@ export function IniciarGruposPanel({
   terceiroLugar: boolean
   /** Formato fase_liga: grupo único (G = 1 fixo). */
   faseLiga: boolean
+  status?: TournamentStatus
 }) {
   const [state, formAction] = useActionState(iniciarTorneioGrupos, initialState)
   const qtd = participantes.length
@@ -114,20 +123,19 @@ export function IniciarGruposPanel({
 
   const rotuloFase1 = faseLiga ? "Fase de liga" : "Fase de grupos"
 
-  return (
-    <section
-      aria-labelledby="iniciar-titulo"
-      className="flex flex-col gap-3 rounded-lg border px-4 py-4"
-    >
-      <div className="flex flex-col gap-1">
-        <h2 id="iniciar-titulo" className="text-lg font-semibold">
-          Iniciar torneio
-        </h2>
-        <p className="text-muted-foreground text-sm">
-          {`${faseLiga ? "Fase de liga" : "Grupos + mata-mata"} em rascunho • ${qtd} ${qtd === 1 ? "clube" : "clubes"}${idaEVolta ? " • ida e volta" : ""}${terceiroLugar ? " • com 3º lugar" : ""}`}
-        </p>
-      </div>
+  const chips = [
+    ...(idaEVolta ? ["ida e volta"] : []),
+    ...(terceiroLugar ? ["3º lugar"] : []),
+  ]
 
+  return (
+    <PainelInicioShell
+      Icon={faseLiga ? LayoutGrid : Boxes}
+      formatoLabel={faseLiga ? "Fase de liga" : "Grupos + mata-mata"}
+      qtdClubes={qtd}
+      chips={chips}
+      status={status}
+    >
       {!suficientes ? (
         <p className="text-muted-foreground text-sm" role="status">
           O torneio precisa de pelo menos 2 clubes.
@@ -142,11 +150,11 @@ export function IniciarGruposPanel({
           {`Com ${qtd} clubes não há configuração válida de ${faseLiga ? "classificados" : "grupos e classificados"}. Crie o torneio com outra quantidade de clubes.`}
         </p>
       ) : (
-        <form action={formAction} className="flex flex-col gap-3" noValidate>
+        <form action={formAction} className="flex flex-col gap-4" noValidate>
           <input type="hidden" name="tournamentId" value={tournamentId} />
           {faseLiga ? <input type="hidden" name="qtdGrupos" value={1} /> : null}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={faseLiga ? "grid gap-2" : "grid grid-cols-1 gap-3 sm:grid-cols-2"}>
             {!faseLiga ? (
               <div className="grid gap-2">
                 <Label htmlFor="qtdGrupos">Grupos</Label>
@@ -195,9 +203,9 @@ export function IniciarGruposPanel({
           </div>
 
           {previa ? (
-            <p className="text-sm">
+            <PreviaBox>
               {`Ao iniciar: ${previa.jogosGrupos} ${previa.jogosGrupos === 1 ? "jogo" : "jogos"} na ${rotuloFase1.toLowerCase()} (${previa.rodadasGrupos} ${previa.rodadasGrupos === 1 ? "rodada" : "rodadas"}); depois, mata-mata com ${previa.jogosChave} ${previa.jogosChave === 1 ? "jogo" : "jogos"} em ${previa.fasesChave} ${previa.fasesChave === 1 ? "fase" : "fases"}. A lista de clubes fica fixa; técnicos podem assumir as vagas a qualquer momento.`}
-            </p>
+            </PreviaBox>
           ) : (
             <p className="text-destructive text-sm" role="alert">
               Combinação de grupos e classificados inválida para o número de
@@ -207,77 +215,60 @@ export function IniciarGruposPanel({
 
           {/* border-0/p-0/m-0/min-w-0: o preflight do Tailwind v4 NÃO reseta
               fieldset/legend (mesma decisão do TournamentForm). */}
-          <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
+          <fieldset className="m-0 grid min-w-0 gap-2.5 border-0 p-0">
             <legend className="pb-2 text-sm font-medium">
               {faseLiga ? "Ordem dos confrontos" : "Distribuição nos grupos"}
             </legend>
-            <div className="flex items-start gap-2">
-              <input
-                id="modoSorteio"
+            <div className="flex flex-col gap-2.5 sm:flex-row">
+              <ModoCard
                 name="modo"
-                type="radio"
                 value="sorteio"
                 checked={modo === "sorteio"}
                 onChange={() => setModo("sorteio")}
-                className="accent-primary mt-1 size-4"
-              />
-              <Label htmlFor="modoSorteio" className="flex-col items-start gap-0.5 font-normal">
-                Sorteio
-                <span className="text-muted-foreground text-xs font-normal">
-                  {faseLiga
+                Icon={Shuffle}
+                titulo="Sorteio"
+                descricao={
+                  faseLiga
                     ? "A ordem da tabela é sorteada automaticamente."
-                    : "Os grupos são sorteados automaticamente."}
-                </span>
-              </Label>
-            </div>
-            {!faseLiga ? (
-              <>
-                <div className="flex items-start gap-2">
-                  <input
-                    id="modoPotes"
+                    : "Os grupos são sorteados automaticamente."
+                }
+              />
+              {!faseLiga ? (
+                <>
+                  <ModoCard
                     name="modo"
-                    type="radio"
                     value="potes"
                     checked={modo === "potes"}
                     onChange={() => setModo("potes")}
-                    className="accent-primary mt-1 size-4"
+                    Icon={Layers}
+                    titulo="Sorteio com potes"
+                    descricao={`Marque ${gEfetivo} cabeças de chave — uma cai em cada grupo.`}
                   />
-                  <Label htmlFor="modoPotes" className="flex-col items-start gap-0.5 font-normal">
-                    Sorteio com potes
-                    <span className="text-muted-foreground text-xs font-normal">
-                      {`Marque ${gEfetivo} cabeças de chave — uma cai em cada grupo.`}
-                    </span>
-                  </Label>
-                </div>
-                <div className="flex items-start gap-2">
-                  <input
-                    id="modoManual"
+                  <ModoCard
                     name="modo"
-                    type="radio"
                     value="manual"
                     checked={modo === "manual"}
                     onChange={() => setModo("manual")}
-                    className="accent-primary mt-1 size-4"
+                    Icon={Hand}
+                    titulo="Montagem manual"
+                    descricao="Você escolhe o grupo de cada clube (equilíbrio máximo de 1 de diferença)."
                   />
-                  <Label htmlFor="modoManual" className="flex-col items-start gap-0.5 font-normal">
-                    Montagem manual
-                    <span className="text-muted-foreground text-xs font-normal">
-                      Você escolhe o grupo de cada clube (equilíbrio
-                      máximo de 1 de diferença).
-                    </span>
-                  </Label>
-                </div>
-              </>
-            ) : null}
+                </>
+              ) : null}
+            </div>
           </fieldset>
 
           {modo === "potes" && !faseLiga ? (
-            <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
-              <legend className="pb-2 text-sm font-medium">
+            <fieldset className="animate-rise bg-muted/20 m-0 grid min-w-0 gap-2 rounded-xl border p-4">
+              <legend className="px-1 text-sm font-medium">
                 {`Cabeças de chave (marque ${gEfetivo})`}
               </legend>
               {participantes.map((p) => (
-                <div key={p.id} className="flex items-center gap-2">
+                <Label
+                  key={p.id}
+                  htmlFor={`cabeca-${p.id}`}
+                  className="bg-card/40 hover:border-primary/40 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-background flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 font-normal transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-offset-2"
+                >
                   <input
                     id={`cabeca-${p.id}`}
                     name="cabecas"
@@ -285,17 +276,15 @@ export function IniciarGruposPanel({
                     value={p.id}
                     className="border-input accent-primary size-4 rounded"
                   />
-                  <Label htmlFor={`cabeca-${p.id}`} className="font-normal">
-                    {nomeOuFallback(p.nome)}
-                  </Label>
-                </div>
+                  {nomeOuFallback(p.nome)}
+                </Label>
               ))}
             </fieldset>
           ) : null}
 
           {modo === "manual" && !faseLiga ? (
-            <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
-              <legend className="pb-2 text-sm font-medium">
+            <fieldset className="animate-rise bg-muted/20 m-0 grid min-w-0 gap-2 rounded-xl border p-4">
+              <legend className="px-1 text-sm font-medium">
                 Grupo de cada clube
               </legend>
               {participantes.map((p) => (
@@ -303,7 +292,7 @@ export function IniciarGruposPanel({
                   key={p.id}
                   className="grid grid-cols-[1fr_auto] items-center gap-2"
                 >
-                  <Label htmlFor={`grupo-${p.id}`} className="font-normal">
+                  <Label htmlFor={`grupo-${p.id}`} className="min-w-0 truncate font-normal">
                     {nomeOuFallback(p.nome)}
                   </Label>
                   <select
@@ -334,6 +323,6 @@ export function IniciarGruposPanel({
           </div>
         </form>
       )}
-    </section>
+    </PainelInicioShell>
   )
 }
