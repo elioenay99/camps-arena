@@ -81,13 +81,18 @@ export function AvatarUpload({
       {preview ? (
         <span
           aria-hidden="true"
-          className="inline-flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full"
+          className="ring-foreground/20 inline-flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={preview} alt="" className="size-full object-cover" />
         </span>
       ) : (
-        <UserAvatar nome={nome} avatarUrl={avatarUrl} size={64} />
+        <UserAvatar
+          nome={nome}
+          avatarUrl={avatarUrl}
+          size={64}
+          className="ring-foreground/20 ring-2"
+        />
       )}
 
       <input
