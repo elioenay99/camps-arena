@@ -139,14 +139,14 @@ function Stepper({
   const noMaximo = value >= max
 
   return (
-    <div className="flex items-center justify-center gap-3">
+    <div className="flex items-center justify-center gap-2">
       <Button
         type="button"
         variant="outline"
         size="icon"
         aria-label={`Diminuir placar de ${label}`}
         aria-disabled={noMinimo}
-        className="aria-disabled:opacity-50"
+        className="size-10 aria-disabled:opacity-50"
         onClick={() => {
           if (noMinimo) return
           // Updater funcional: cliques rápidos no mesmo tick acumulam (não lê
@@ -158,7 +158,7 @@ function Stepper({
       </Button>
 
       <span
-        className="min-w-12 text-center text-4xl font-bold tabular-nums"
+        className="font-display min-w-12 text-center text-4xl font-bold tabular-nums"
         aria-hidden="true"
       >
         {value}
@@ -173,7 +173,7 @@ function Stepper({
         size="icon"
         aria-label={`Aumentar placar de ${label}`}
         aria-disabled={noMaximo}
-        className="aria-disabled:opacity-50"
+        className="size-10 aria-disabled:opacity-50"
         onClick={() => {
           if (noMaximo) return
           onChange((atual) => Math.min(max, atual + 1))
@@ -324,7 +324,7 @@ export function MatchScoreModal({
           >
             MENU DA PARTIDA
           </span>
-          <DialogTitle className="text-center text-lg font-semibold">
+          <DialogTitle className="font-display text-center text-xl font-bold tracking-tight">
             {tituloPartida}
           </DialogTitle>
           <DialogDescription asChild>
@@ -339,9 +339,9 @@ export function MatchScoreModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded-xl border bg-muted/40 p-4">
-          <p className="mb-4 text-center text-sm font-medium text-muted-foreground">
-            Lançar Placar
+        <div className="elevate rounded-2xl border bg-card/60 p-4">
+          <p className="mb-4 text-center text-xs font-semibold tracking-wide uppercase text-muted-foreground">
+            Lançar placar
           </p>
           <div className="grid grid-cols-2 gap-4">
             <ColunaParticipante
@@ -370,11 +370,12 @@ export function MatchScoreModal({
           </span>
           <Button
             type="button"
+            size="lg"
             onClick={handleSalvar}
             disabled={salvando}
-            className="w-full rounded-full bg-green-700 text-base font-semibold text-white hover:bg-green-800"
+            className="w-full rounded-full"
           >
-            {salvando ? "Salvando…" : "SALVAR PLACAR"}
+            {salvando ? "Salvando…" : "Salvar placar"}
           </Button>
           <DialogClose asChild>
             <Button
@@ -383,7 +384,7 @@ export function MatchScoreModal({
               disabled={salvando}
               className="w-full rounded-full"
             >
-              FECHAR
+              Fechar
             </Button>
           </DialogClose>
         </DialogFooter>
