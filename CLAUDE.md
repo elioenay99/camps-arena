@@ -44,9 +44,18 @@ Arquiteto de Software Principal + Engenheiro Frontend Sênior no ecossistema Nex
 Toda mudança passa por uma proposal em `openspec/changes/<id>/`. Change atual: `add-arena-app`.
 
 ## Regra suprema de workflow
-Execute UMA fase por vez. Ao concluir todas as tarefas da fase, PARE a execução
-imediatamente, reporte o progresso em português e PEÇA aprovação explícita antes de
-avançar. Mantenha os portões de qualidade entre as fases.
+NÃO pausar entre fases pedindo aprovação humana. O fluxo é:
+1. **OpenSpec**: criar a proposal da mudança (`openspec/changes/<id>/` —
+   proposal/design/tasks/specs).
+2. **Verificação por WORKFLOW**: disparar um workflow que revisa a proposal — faz
+   sentido? escopo coerente? riscos/edge cases cobertos?
+3. **Se o workflow aprovar** (sem devoluções/changes_required): **IMPLEMENTAR TUDO
+   de uma vez, sem pausar**. Se devolver, corrigir a proposal e re-verificar.
+Manter os portões de QUALIDADE (typecheck/lint/test/build + revisão adversarial por
+workflow) antes de commitar — são gates AUTOMÁTICOS, não pausas para o humano.
+Únicas paradas que ainda exigem o humano: decisões de PRODUTO genuínas
+(AskUserQuestion) e mostrar o SQL antes de aplicar DDL em produção (REGRA 4 + grant
+de MCP). Tudo o mais é autônomo.
 
 ## Dev local
 - `pnpm dev` (host) ou `docker compose up` (container, hot reload em http://localhost:3000)
