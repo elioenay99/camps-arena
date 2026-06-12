@@ -23,6 +23,9 @@ const pontos = z
 export const TORNEIO_MIN_CLUBES = 2
 export const TORNEIO_MAX_CLUBES = 32
 
+/** Tamanho máximo do nome de um competidor "por nome" (espelha o form). */
+export const NOME_MAX = 40
+
 /**
  * Criação de torneio: título, visibilidade, regras de pontuação e formato.
  * O refine espelha a CHECK `tournaments_pontuacao_coerente` do banco — derrota
@@ -62,6 +65,21 @@ export const createTournamentSchema = z
       .refine((ids) => new Set(ids).size === ids.length, {
         error: "Há clubes repetidos na seleção.",
       }),
+    // Modo "competidores por nome" (change add-competidores-por-nome): em vez de
+    // buscar clubes reais, o dono digita NOMES — cada um vira uma vaga sem clube,
+    // sem técnico e sem convite. Toggle por torneio (nunca misto). A action
+    // normaliza server-side (zera o lado oposto conforme `porNome`).
+    porNome: z.boolean().default(false),
+    nomes: z
+      .array(
+        z
+          .string()
+          .trim()
+          .min(1, "Nome vazio.")
+          .max(NOME_MAX, `Nome muito longo (máx. ${NOME_MAX}).`)
+      )
+      .max(TORNEIO_MAX_CLUBES, `Informe no máximo ${TORNEIO_MAX_CLUBES} nomes.`)
+      .default([]),
   })
   .refine((d) => d.pontosDerrota <= d.pontosEmpate, {
     error: "A derrota não pode valer mais pontos que o empate.",
@@ -71,21 +89,46 @@ export const createTournamentSchema = z
     error: "O empate não pode valer mais pontos que a vitória.",
     path: ["pontosEmpate"],
   })
-  // Formato competitivo exige no mínimo 2 clubes (a disputa é entre vagas);
-  // avulso ignora `clubes` por completo.
-  .refine((d) => d.formato === "avulso" || d.clubes.length >= TORNEIO_MIN_CLUBES, {
-    error: `Selecione ao menos ${TORNEIO_MIN_CLUBES} clubes para o torneio.`,
-    path: ["clubes"],
-  })
-  // Teto POR FORMATO na criação: vagas não são removíveis pós-criação (a
-  // geometria é fixa) — uma liga com mais clubes que o motor aceita nasceria
-  // TRAVADA (iniciarTorneio rejeita e não há como reduzir). Os demais formatos
-  // usam o teto geral (32, espelho do mata-mata).
+  // Formato competitivo exige no mínimo 2 VAGAS (clubes OU nomes, conforme o
+  // toggle); avulso ignora ambos. Refines separados por path (o form mostra o
+  // passo de clubes OU o de nomes).
   .refine(
-    (d) => d.formato !== "liga" || d.clubes.length <= LIGA_MAX_PARTICIPANTES,
+    (d) => d.formato === "avulso" || d.porNome || d.clubes.length >= TORNEIO_MIN_CLUBES,
+    {
+      error: `Selecione ao menos ${TORNEIO_MIN_CLUBES} clubes para o torneio.`,
+      path: ["clubes"],
+    }
+  )
+  .refine(
+    (d) => d.formato === "avulso" || !d.porNome || d.nomes.length >= TORNEIO_MIN_CLUBES,
+    {
+      error: `Informe ao menos ${TORNEIO_MIN_CLUBES} nomes para o torneio.`,
+      path: ["nomes"],
+    }
+  )
+  // Nomes únicos por torneio (case-insensitive) — espelha o índice parcial
+  // `slots_rotulo_unico_no_torneio` do banco; evita classificação ambígua.
+  .refine(
+    (d) =>
+      !d.porNome ||
+      new Set(d.nomes.map((n) => n.trim().toLowerCase())).size === d.nomes.length,
+    { error: "Há nomes repetidos na lista.", path: ["nomes"] }
+  )
+  // Teto POR FORMATO na criação: vagas não são removíveis pós-criação (a
+  // geometria é fixa) — uma liga com mais vagas que o motor aceita nasceria
+  // TRAVADA. Refines separados por path (clubes OU nomes, conforme o toggle).
+  .refine(
+    (d) => d.formato !== "liga" || d.porNome || d.clubes.length <= LIGA_MAX_PARTICIPANTES,
     {
       error: `A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} clubes.`,
       path: ["clubes"],
+    }
+  )
+  .refine(
+    (d) => d.formato !== "liga" || !d.porNome || d.nomes.length <= LIGA_MAX_PARTICIPANTES,
+    {
+      error: `A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} competidores.`,
+      path: ["nomes"],
     }
   )
 

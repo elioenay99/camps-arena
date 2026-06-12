@@ -23,6 +23,8 @@ const PADRAO = {
   idaEVolta: false,
   terceiroLugar: false,
   clubes: [],
+  porNome: false,
+  nomes: [],
 }
 
 describe("createTournamentSchema", () => {
@@ -290,6 +292,74 @@ describe("createTournamentSchema", () => {
           clubes: [...noTeto, uuidDeIndice(TORNEIO_MAX_CLUBES)],
         }).success
       ).toBe(false)
+    })
+  })
+
+  describe("competidores por NOME (modo porNome)", () => {
+    it("exige ao menos 2 nomes em formato competitivo", () => {
+      expect(
+        createTournamentSchema.safeParse({
+          titulo: "Liga",
+          formato: "liga",
+          porNome: true,
+          nomes: ["João"],
+        }).success
+      ).toBe(false)
+      expect(
+        createTournamentSchema.safeParse({
+          titulo: "Liga",
+          formato: "liga",
+          porNome: true,
+          nomes: ["João", "Maria"],
+        }).success
+      ).toBe(true)
+    })
+
+    it("rejeita nomes repetidos (case-insensitive) no path nomes", () => {
+      const r = createTournamentSchema.safeParse({
+        titulo: "Liga",
+        formato: "liga",
+        porNome: true,
+        nomes: ["João", "joão"],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(z.flattenError(r.error).fieldErrors.nomes).toBeTruthy()
+      }
+    })
+
+    it("aplica o teto da liga aos NOMES (20 passa, 21 rejeita no path nomes)", () => {
+      const nomes = (n: number) => Array.from({ length: n }, (_, i) => `J${i}`)
+      expect(
+        createTournamentSchema.safeParse({
+          titulo: "Liga",
+          formato: "liga",
+          porNome: true,
+          nomes: nomes(20),
+        }).success
+      ).toBe(true)
+      const r = createTournamentSchema.safeParse({
+        titulo: "Liga",
+        formato: "liga",
+        porNome: true,
+        nomes: nomes(21),
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(z.flattenError(r.error).fieldErrors.nomes?.[0]).toMatch(/máximo 20/)
+      }
+    })
+
+    it("no modo porNome a lista de clubes não é exigida", () => {
+      expect(
+        createTournamentSchema.safeParse({
+          titulo: "Liga",
+          formato: "liga",
+          porNome: true,
+          nomes: ["João", "Maria"],
+          clubes: [],
+        }).success
+      ).toBe(true)
     })
   })
 })

@@ -16,6 +16,7 @@ import { TeamSearchInput } from "@/features/team/components/TeamSearchInput"
 import { FORMATO_META } from "@/features/tournament/formatoMeta"
 import type { TeamResult } from "@/schema/teamSchema"
 import {
+  NOME_MAX,
   PONTOS_MAX,
   PONTUACAO_PADRAO,
   TORNEIO_MAX_CLUBES,
@@ -274,6 +275,108 @@ function ClubesStep({
   )
 }
 
+/**
+ * Passo de COMPETIDORES POR NOME (modo `porNome`): em vez de buscar clubes
+ * reais, o dono digita nomes — cada um vira uma vaga sem clube, sem técnico e
+ * sem convite. Nomes únicos (case-insensitive); submetidos como hidden `nomes`.
+ */
+function NomesStep({
+  nomes,
+  setNomes,
+  erro,
+}: {
+  nomes: string[]
+  setNomes: React.Dispatch<React.SetStateAction<string[]>>
+  erro?: string
+}) {
+  const [texto, setTexto] = useState("")
+
+  function adicionar() {
+    const nome = texto.trim()
+    if (!nome) return
+    if (nome.length > NOME_MAX) {
+      toast.error(`Nome muito longo (máx. ${NOME_MAX}).`)
+      return
+    }
+    if (nomes.some((n) => n.toLowerCase() === nome.toLowerCase())) {
+      toast.error("Esse nome já está na lista.")
+      return
+    }
+    if (nomes.length >= TORNEIO_MAX_CLUBES) {
+      toast.error(`Informe no máximo ${TORNEIO_MAX_CLUBES} nomes.`)
+      return
+    }
+    setNomes((atual) => [...atual, nome])
+    setTexto("")
+  }
+
+  return (
+    <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
+      <legend className="flex items-baseline gap-2 pb-1 text-sm font-medium">
+        Competidores
+        <span className="text-muted-foreground text-xs font-normal">
+          {`mínimo ${TORNEIO_MIN_CLUBES} · ${nomes.length} adicionado${nomes.length === 1 ? "" : "s"}`}
+        </span>
+      </legend>
+      <p className="text-muted-foreground -mt-1 pb-1 text-xs">
+        Cada nome é um competidor — sem clube, sem convite. Você lança os placares.
+      </p>
+
+      <div className="flex gap-2">
+        <Input
+          aria-label="Nome do competidor"
+          placeholder="Ex.: João"
+          value={texto}
+          maxLength={NOME_MAX}
+          onChange={(e) => setTexto(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              adicionar()
+            }
+          }}
+        />
+        <Button type="button" variant="outline" onClick={adicionar}>
+          Adicionar
+        </Button>
+      </div>
+
+      {/* Hidden inputs com os nomes — o que a action consome (getAll("nomes")). */}
+      {nomes.map((n, i) => (
+        <input key={`hidden-${i}`} type="hidden" name="nomes" value={n} />
+      ))}
+
+      {nomes.length > 0 ? (
+        <ul className="grid list-none gap-2 p-0">
+          {nomes.map((n, i) => (
+            <li
+              key={`${n}-${i}`}
+              className="bg-card flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
+            >
+              <span className="truncate text-sm">{n}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setNomes((atual) => atual.filter((_, idx) => idx !== i))}
+                aria-label={`Remover ${n}`}
+              >
+                <X aria-hidden="true" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-4 text-center text-sm">
+          Nenhum competidor adicionado ainda.
+        </p>
+      )}
+
+      {erro ? <p className="text-destructive text-sm">{erro}</p> : null}
+    </fieldset>
+  )
+}
+
 export function TournamentForm() {
   const [state, formAction] = useActionState(createTournament, initialState)
   // Estado local SÓ para progressive disclosure; o valor submetido é o do radio
@@ -282,6 +385,9 @@ export function TournamentForm() {
   // Clubes (vagas) dos formatos competitivos — submetidos como hidden `clubes`
   // pelo ClubesStep; preservados ao alternar o formato (a state vive aqui).
   const [clubes, setClubes] = useState<ClubeSelecionado[]>([])
+  // Modo "competidores por nome": digita nomes em vez de buscar clubes.
+  const [porNome, setPorNome] = useState(false)
+  const [nomes, setNomes] = useState<string[]>([])
 
   const ehCompetitivo = formato !== "avulso"
   const temChave =
@@ -343,11 +449,37 @@ export function TournamentForm() {
           key={formato}
           className="animate-rise grid gap-4 rounded-xl border bg-muted/20 p-4"
         >
-          <ClubesStep
-            clubes={clubes}
-            setClubes={setClubes}
-            erro={state.fieldErrors?.clubes?.[0]}
-          />
+          {/* Toggle: clubes reais (busca) × competidores por nome (digitados). */}
+          <label className="bg-card/40 hover:border-primary/40 has-[:focus-visible]:ring-ring flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2">
+            <input
+              type="checkbox"
+              name="porNome"
+              checked={porNome}
+              onChange={(e) => setPorNome(e.target.checked)}
+              className="border-input accent-primary size-4 rounded"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-sm">Competidores por nome</span>
+              <span className="text-muted-foreground text-xs">
+                Em vez de clubes reais, digite os nomes dos jogadores (sem escudo,
+                sem convite — você lança os placares).
+              </span>
+            </span>
+          </label>
+
+          {porNome ? (
+            <NomesStep
+              nomes={nomes}
+              setNomes={setNomes}
+              erro={state.fieldErrors?.nomes?.[0]}
+            />
+          ) : (
+            <ClubesStep
+              clubes={clubes}
+              setClubes={setClubes}
+              erro={state.fieldErrors?.clubes?.[0]}
+            />
+          )}
 
           <div className="grid gap-2.5">
             <OpcaoCheckbox id="idaEVolta" rotulo={labelIdaEVolta} />

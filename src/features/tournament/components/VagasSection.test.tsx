@@ -30,8 +30,9 @@ const VAGAS: VagaDoTorneio[] = [
     clube: "Grêmio",
     escudoUrl: null,
     tecnico: { id: TECNICO, nome: "Ana", avatar: null },
+    porNome: false,
   },
-  { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null },
+  { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null, porNome: false },
 ]
 
 function renderSection(over: Partial<Parameters<typeof VagasSection>[0]> = {}) {

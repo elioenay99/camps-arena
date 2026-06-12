@@ -260,10 +260,10 @@ describe("getTournamentClassificacao", () => {
     expect(cols).toMatch(/(^|,)vaga_1(,|$)/)
     expect(cols).toMatch(/(^|,)vaga_2(,|$)/)
     expect(cols).toContain(
-      "v1:tournament_slots!matches_vaga_1_fkey(id,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome,celular))"
+      "v1:tournament_slots!matches_vaga_1_fkey(id,rotulo,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome,celular))"
     )
     expect(cols).toContain(
-      "v2:tournament_slots!matches_vaga_2_fkey(id,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome,celular))"
+      "v2:tournament_slots!matches_vaga_2_fkey(id,rotulo,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome,celular))"
     )
     // celular entrou DELIBERADAMENTE (add-match-engagement): insumo do atalho
     // de convocação, consumido só pela projeção de partidas abertas — a

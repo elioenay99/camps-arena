@@ -45,6 +45,7 @@ export interface Database {
           formato: TournamentFormat
           ida_e_volta: boolean
           terceiro_lugar: boolean
+          por_nome: boolean
           classificados_por_grupo: number | null
           created_by: string | null
           is_public: boolean
@@ -60,6 +61,7 @@ export interface Database {
           formato?: TournamentFormat
           ida_e_volta?: boolean
           terceiro_lugar?: boolean
+          por_nome?: boolean
           classificados_por_grupo?: number | null
           created_by?: string | null
           is_public?: boolean
@@ -75,6 +77,7 @@ export interface Database {
           formato?: TournamentFormat
           ida_e_volta?: boolean
           terceiro_lugar?: boolean
+          por_nome?: boolean
           classificados_por_grupo?: number | null
           created_by?: string | null
           is_public?: boolean
@@ -312,21 +315,24 @@ export interface Database {
         Row: {
           id: string
           tournament_id: string
-          team_id: string
+          team_id: string | null
+          rotulo: string | null
           user_id: string | null
           created_at: string
         }
         Insert: {
           id?: string
           tournament_id: string
-          team_id: string
+          team_id?: string | null
+          rotulo?: string | null
           user_id?: string | null
           created_at?: string
         }
         Update: {
           id?: string
           tournament_id?: string
-          team_id?: string
+          team_id?: string | null
+          rotulo?: string | null
           user_id?: string | null
           created_at?: string
         }

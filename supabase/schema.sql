@@ -86,6 +86,12 @@ alter table public.tournaments
 alter table public.tournaments
   add column if not exists terceiro_lugar boolean not null default false;
 
+-- Competidores por NOME (aditivo; idempotente — change add-competidores-por-nome).
+-- true = torneio competitivo cujas vagas são NOMES livres (sem clube). Default
+-- false preserva os legados (todos por clube). A criação bifurca o INSERT de vaga.
+alter table public.tournaments
+  add column if not exists por_nome boolean not null default false;
+
 -- Classificados por grupo (aditivo; idempotente). Gravado AO INICIAR um
 -- formato de grupos (G é derivável das partidas; K não) — o "Gerar mata-mata"
 -- o consome depois. NULL fora dos formatos de grupos.
@@ -171,6 +177,29 @@ create index if not exists tournament_slots_user_idx
 create unique index if not exists slots_um_clube_por_tecnico
   on public.tournament_slots (tournament_id, user_id)
   where user_id is not null;
+
+-- ---------- Vaga por NOME (aditivo; idempotente — change add-competidores-por-nome) ----------
+-- Toggle por torneio: um torneio competitivo é TODO de clubes reais OU TODO de
+-- NOMES livres (rótulo). Vaga por nome = team_id NULL + rotulo preenchido; SEM
+-- técnico, SEM convite (slot_invites), SEM dono — o organizador lança os placares.
+-- Sem backfill: todo slot legado tem team_id (o XOR passa: team_id not null, rotulo null).
+alter table public.tournament_slots alter column team_id drop not null;
+alter table public.tournament_slots add column if not exists rotulo text;
+
+alter table public.tournament_slots drop constraint if exists slots_clube_xor_rotulo;
+alter table public.tournament_slots
+  add constraint slots_clube_xor_rotulo check ((team_id is null) <> (rotulo is null));
+alter table public.tournament_slots drop constraint if exists slots_rotulo_nao_vazio;
+alter table public.tournament_slots
+  add constraint slots_rotulo_nao_vazio check (rotulo is null or length(trim(rotulo)) > 0);
+
+-- A UNIQUE inline (tournament_id, team_id) vira índice PARCIAL (constraint não
+-- aceita predicado); + rótulo único por torneio (case-insensitive).
+alter table public.tournament_slots drop constraint if exists slots_team_unico_no_torneio;
+create unique index if not exists slots_team_unico_no_torneio
+  on public.tournament_slots (tournament_id, team_id) where team_id is not null;
+create unique index if not exists slots_rotulo_unico_no_torneio
+  on public.tournament_slots (tournament_id, lower(trim(rotulo))) where rotulo is not null;
 
 -- ---------- Tabela: slot_invites (código de convite POR VAGA, 1:1) ----------
 -- Mesmo padrão do tournament_invites: o código é SEGREDO do dono e mora FORA
@@ -886,7 +915,7 @@ as $$
   select t.id,
          t.titulo,
          t.status,
-         tm.nome,
+         coalesce(tm.nome, ts.rotulo),
          tm.escudo_url,
          ts.user_id is not null,
          exists (
@@ -896,7 +925,9 @@ as $$
          )
     from public.slot_invites si
     join public.tournament_slots ts on ts.id = si.slot_id
-    join public.teams tm on tm.id = ts.team_id
+    -- LEFT JOIN: vaga por NOME não tem clube (defensivo — vaga por nome nunca
+    -- gera slot_invite, então o RPC não a alcança na prática).
+    left join public.teams tm on tm.id = ts.team_id
     join public.tournaments t on t.id = ts.tournament_id
    where si.code = codigo;
 $$;
@@ -933,6 +964,16 @@ begin
        )
     then
       raise exception 'O clube da vaga não pode mudar após o início do torneio';
+    end if;
+    -- Vaga por NOME: o rótulo também é geometria da disputa — travado pós-rascunho.
+    if new.rotulo is distinct from old.rotulo
+       and exists (
+         select 1 from public.tournaments t
+         where t.id = old.tournament_id
+           and t.status <> 'rascunho'
+       )
+    then
+      raise exception 'O nome do competidor não pode mudar após o início do torneio';
     end if;
   end if;
   return new;

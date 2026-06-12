@@ -79,21 +79,28 @@ function ladoVaga(vaga: VagaResumo | null, mensagemWhatsApp: string): Lado {
     }
   }
   const tecnico = vaga.tecnico
-  const detalhe = tecnico?.nome?.trim()
-    ? `téc. ${tecnico.nome.trim()}`
-    : "vaga aberta"
+  // Modo por-nome: o lado é o RÓTULO (sem clube, sem técnico, sem escudo).
+  const porNome = vaga.clube == null
+  const nome = vaga.clube?.nome ?? vaga.rotulo ?? "A definir"
+  const escudoUrl = vaga.clube?.escudo_url ?? null
+  // No modo por-nome não há técnico nem "vaga aberta" — sem detalhe.
+  const detalhe = porNome
+    ? undefined
+    : tecnico?.nome?.trim()
+      ? `téc. ${tecnico.nome.trim()}`
+      : "vaga aberta"
   return {
     ownerId: vaga.id,
     participante: {
-      // O NOME exibido é o do CLUBE; o técnico aparece como detalhe e é o
-      // destinatário da convocação (nomeConvocacao).
-      nome: vaga.clube.nome,
+      // O NOME exibido é o do CLUBE (ou o rótulo); o técnico aparece como
+      // detalhe e é o destinatário da convocação (null no modo por-nome).
+      nome,
       detalhe,
       nomeConvocacao: tecnico?.nome?.trim() || null,
-      avatarUrl: vaga.clube.escudo_url,
+      avatarUrl: escudoUrl,
       celular: tecnico?.celular ?? null,
       mensagemWhatsApp,
-      clube: { nome: vaga.clube.nome, escudoUrl: vaga.clube.escudo_url },
+      clube: { nome, escudoUrl },
     },
     nomeConvocacao: tecnico?.nome?.trim() || null,
     celularConvocacao: tecnico?.celular ?? null,

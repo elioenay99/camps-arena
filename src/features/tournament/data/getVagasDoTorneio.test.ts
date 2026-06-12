@@ -78,9 +78,16 @@ describe("getVagasDoTorneio", () => {
         clube: "Grêmio",
         escudoUrl: "https://media.api-sports.io/football/teams/130.png",
         tecnico: { id: "u1", nome: "Ana" },
+        porNome: false,
       },
-      { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null },
-      { id: "s3", clube: "Bahia", escudoUrl: null, tecnico: { id: "u3", nome: null } },
+      { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null, porNome: false },
+      {
+        id: "s3",
+        clube: "Bahia",
+        escudoUrl: null,
+        tecnico: { id: "u3", nome: null },
+        porNome: false,
+      },
     ])
     expect(client.from).toHaveBeenCalledWith("tournament_slots")
     expect(client.filtroSpy).toHaveBeenCalledWith("eq", "tournament_id", TORNEIO)
@@ -88,15 +95,29 @@ describe("getVagasDoTorneio", () => {
     expect(client.orderSpy).toHaveBeenCalledWith("created_at", { ascending: true })
   })
 
-  it("clube sem nome (embed nulo ou em branco) ganha o fallback 'Clube'", async () => {
+  it("vaga sem nome (clube nulo/em branco e sem rótulo) ganha o fallback 'Vaga'", async () => {
     montarClient({
       data: [
-        { id: "s1", clube: null, tecnico: null },
-        { id: "s2", clube: { nome: "  ", escudo_url: null }, tecnico: null },
+        { id: "s1", clube: null, rotulo: null, tecnico: null },
+        { id: "s2", clube: { nome: "  ", escudo_url: null }, rotulo: null, tecnico: null },
       ],
     })
     const r = await getVagasDoTorneio(TORNEIO)
-    expect(r.map((v) => v.clube)).toEqual(["Clube", "Clube"])
+    expect(r.map((v) => v.clube)).toEqual(["Vaga", "Vaga"])
+  })
+
+  it("vaga POR NOME (clube nulo + rótulo): nome vem do rótulo, porNome true, sem técnico", async () => {
+    montarClient({
+      data: [
+        { id: "s1", clube: null, rotulo: "João", tecnico: null },
+        { id: "s2", clube: null, rotulo: "Maria", tecnico: null },
+      ],
+    })
+    const r = await getVagasDoTorneio(TORNEIO)
+    expect(r).toEqual([
+      { id: "s1", clube: "João", escudoUrl: null, tecnico: null, porNome: true },
+      { id: "s2", clube: "Maria", escudoUrl: null, tecnico: null, porNome: true },
+    ])
   })
 
   it("embed do técnico seleciona só id/nome — sem celular (PII)", async () => {

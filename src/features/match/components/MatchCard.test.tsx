@@ -54,11 +54,13 @@ function partidaCompetitiva(over: Partial<PartidaAtiva> = {}): PartidaAtiva {
     participante_2: null,
     vaga_1: {
       id: "vaga-eu",
+      rotulo: null,
       clube: { nome: "Grêmio", escudo_url: null },
       tecnico: { id: EU, nome: "Eu", avatar: null, celular: null },
     },
     vaga_2: {
       id: "vaga-rival",
+      rotulo: null,
       clube: { nome: "Internacional", escudo_url: null },
       tecnico: { id: RIVAL, nome: "Rival", avatar: null, celular: "11912345678" },
     },
@@ -158,6 +160,7 @@ describe("MatchCard — partida competitiva (clube como lado)", () => {
         partida={partidaCompetitiva({
           vaga_2: {
             id: "vaga-rival",
+            rotulo: null,
             clube: { nome: "Internacional", escudo_url: null },
             tecnico: null,
           },
@@ -188,6 +191,7 @@ describe("MatchCard — partida competitiva (clube como lado)", () => {
         partida={partidaCompetitiva({
           vaga_2: {
             id: "vaga-rival",
+            rotulo: null,
             clube: { nome: "Internacional", escudo_url: null },
             tecnico: null,
           },

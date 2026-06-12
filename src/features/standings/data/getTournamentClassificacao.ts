@@ -171,9 +171,10 @@ interface ClubeEmbed {
   nome: string
 }
 
-/** Vaga embutida na partida competitiva: clube (sempre) + técnico (anulável). */
+/** Vaga embutida na partida competitiva: clube OU rótulo (por nome) + técnico. */
 interface VagaEmbed {
   id: string
+  rotulo: string | null
   team: { nome: string | null; escudo_url: string | null } | null
   tecnico: { id: string; nome: string | null; celular: string | null } | null
 }
@@ -218,9 +219,10 @@ function nomeDoLado(embed: ParticipanteEmbed | null): string {
   return embed ? nomeOuFallback(embed.nome) : "A definir"
 }
 
-/** Lado COMPETITIVO: o nome é o CLUBE da vaga; vaga vazia é "A definir". */
+/** Lado COMPETITIVO: o nome é o CLUBE da vaga (ou o RÓTULO, no modo por-nome);
+ * vaga vazia (bye/TBD) é "A definir". */
 function nomeDaVaga(vaga: VagaEmbed | null): string {
-  return vaga ? nomeOuFallback(vaga.team?.nome) : "A definir"
+  return vaga ? nomeOuFallback(vaga.team?.nome ?? vaga.rotulo) : "A definir"
 }
 
 /**
@@ -319,8 +321,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
        p2:users!matches_participante_2_fkey ( id, nome, celular, avatar ),
        t1:teams!matches_time_1_fkey ( id, nome ),
        t2:teams!matches_time_2_fkey ( id, nome ),
-       v1:tournament_slots!matches_vaga_1_fkey ( id, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome, celular ) ),
-       v2:tournament_slots!matches_vaga_2_fkey ( id, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome, celular ) )`
+       v1:tournament_slots!matches_vaga_1_fkey ( id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome, celular ) ),
+       v2:tournament_slots!matches_vaga_2_fkey ( id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome, celular ) )`
     )
     .eq("tournament_id", tournamentId)
     .order("updated_at", { ascending: false })
@@ -372,11 +374,11 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   for (const p of linhasPartidas) {
     if (competitivo) {
       if (p.v1) {
-        nomes.set(p.v1.id, nomeOuFallback(p.v1.team?.nome))
+        nomes.set(p.v1.id, nomeOuFallback(p.v1.team?.nome ?? p.v1.rotulo))
         escudos.set(p.v1.id, p.v1.team?.escudo_url ?? null)
       }
       if (p.v2) {
-        nomes.set(p.v2.id, nomeOuFallback(p.v2.team?.nome))
+        nomes.set(p.v2.id, nomeOuFallback(p.v2.team?.nome ?? p.v2.rotulo))
         escudos.set(p.v2.id, p.v2.team?.escudo_url ?? null)
       }
     } else {
@@ -450,9 +452,12 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
           : null
 
   // Clube ÓRFÃO de um lado (só competitivo): a vaga existe mas sem técnico.
-  // Insumo da UI de fechamento de rodada (qual partida aberta vira W.O.).
+  // Insumo da UI de fechamento de rodada (qual partida aberta vira W.O.). Só
+  // vaga de CLUBE sem técnico é "vaga aberta" (órfã, candidata a W.O.); vaga
+  // por NOME (team null + rótulo) NUNCA tem técnico por design — não é "aberta",
+  // é competidor fixo (o dono lança o placar).
   const orfao = (vaga: VagaEmbed | null | undefined) =>
-    competitivo && vaga != null && vaga.tecnico === null
+    competitivo && vaga != null && vaga.team != null && vaga.tecnico === null
 
   // Segunda projeção do MESMO snapshot: o histórico registra toda encerrada
   // (inclusive sem participante — diferente do motor, que exige os dois lados).

@@ -25,8 +25,11 @@ export interface ClubeResumo {
  */
 export interface VagaResumo {
   id: string
-  clube: ClubeResumo
-  /** Técnico ATUAL da vaga (substituível); null em vaga sem técnico. */
+  /** Clube da vaga; null no modo por-nome (o nome vem de `rotulo`). */
+  clube: ClubeResumo | null
+  /** Rótulo livre (modo por-nome); null no modo clube. */
+  rotulo: string | null
+  /** Técnico ATUAL da vaga (substituível); null em vaga sem técnico/por nome. */
   tecnico: ParticipanteResumo | null
 }
 
@@ -58,8 +61,8 @@ const COLUNAS = `id, placar_1, placar_2, status, created_at,
    participante_2:users!matches_participante_2_fkey ( id, nome, avatar, celular ),
    time_1:teams!matches_time_1_fkey ( nome, escudo_url ),
    time_2:teams!matches_time_2_fkey ( nome, escudo_url ),
-   vaga_1:tournament_slots!matches_vaga_1_fkey ( id, clube:teams ( nome, escudo_url ), tecnico:users ( id, nome, avatar, celular ) ),
-   vaga_2:tournament_slots!matches_vaga_2_fkey ( id, clube:teams ( nome, escudo_url ), tecnico:users ( id, nome, avatar, celular ) )`
+   vaga_1:tournament_slots!matches_vaga_1_fkey ( id, rotulo, clube:teams ( nome, escudo_url ), tecnico:users ( id, nome, avatar, celular ) ),
+   vaga_2:tournament_slots!matches_vaga_2_fkey ( id, rotulo, clube:teams ( nome, escudo_url ), tecnico:users ( id, nome, avatar, celular ) )`
 
 /**
  * Lista as partidas ativas (não encerradas) que dizem respeito ao usuário, em

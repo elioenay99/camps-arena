@@ -189,6 +189,7 @@ describe("createTournament", () => {
       formato: "avulso",
       ida_e_volta: false,
       terceiro_lugar: false,
+      por_nome: false,
       pontos_vitoria: 3,
       pontos_empate: 1,
       pontos_derrota: 0,

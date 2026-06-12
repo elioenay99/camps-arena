@@ -29,6 +29,7 @@ export async function getSolicitacoesWO(
     .select(
       `id, match_id,
        solicitante:tournament_slots!match_wo_requests_solicitante_slot_fkey (
+         rotulo,
          team:teams!tournament_slots_team_id_fkey ( nome )
        ),
        match:matches!match_wo_requests_match_id_fkey!inner ( rodada, tournament_id )`
@@ -44,14 +45,15 @@ export async function getSolicitacoesWO(
   const linhas = (data ?? []) as unknown as Array<{
     id: string
     match_id: string
-    solicitante: { team: { nome: string | null } | null } | null
+    solicitante: { rotulo: string | null; team: { nome: string | null } | null } | null
     match: { rodada: number | null } | null
   }>
 
   return linhas.map((l) => ({
     id: l.id,
     matchId: l.match_id,
-    clubeSolicitante: l.solicitante?.team?.nome?.trim() || "Clube",
+    clubeSolicitante:
+      l.solicitante?.team?.nome?.trim() || l.solicitante?.rotulo?.trim() || "Competidor",
     rodada: l.match?.rodada ?? null,
   }))
 }

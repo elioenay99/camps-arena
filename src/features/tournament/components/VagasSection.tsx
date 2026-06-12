@@ -66,7 +66,9 @@ export function VagasSection({
                     <TeamCrest nome={vaga.clube} escudoUrl={vaga.escudoUrl} size={28} />
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate text-sm font-medium">{vaga.clube}</span>
-                      {vaga.tecnico ? (
+                      {/* Modo por-nome: o rótulo é o competidor — sem linha de
+                          técnico ("téc."/"vaga aberta"). */}
+                      {vaga.porNome ? null : vaga.tecnico ? (
                         <span className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs">
                           <UserAvatar
                             nome={vaga.tecnico.nome}
@@ -94,8 +96,9 @@ export function VagasSection({
                 </div>
 
                 {/* Console do dono por vaga: convite + troca de técnico. Só
-                    renderizado para o dono — o code é segredo dele. */}
-                {ehDono && !torneioEncerrado ? (
+                    renderizado para o dono — o code é segredo dele. Modo
+                    por-nome NÃO tem convite/técnico: sem console. */}
+                {ehDono && !torneioEncerrado && !vaga.porNome ? (
                   <div className="flex flex-col gap-2 border-t pt-3">
                     {url ? (
                       <p className="bg-muted min-w-0 truncate rounded-md px-3 py-1.5 font-mono text-xs">

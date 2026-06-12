@@ -163,10 +163,10 @@ describe("getActiveMatches", () => {
     // Whitespace normalizado (postgrest-js remove espaços não-citados).
     const cols = String(client.selectSpy.mock.calls[0][0]).replace(/\s+/g, "")
     expect(cols).toContain(
-      "vaga_1:tournament_slots!matches_vaga_1_fkey(id,clube:teams(nome,escudo_url),tecnico:users(id,nome,avatar,celular))"
+      "vaga_1:tournament_slots!matches_vaga_1_fkey(id,rotulo,clube:teams(nome,escudo_url),tecnico:users(id,nome,avatar,celular))"
     )
     expect(cols).toContain(
-      "vaga_2:tournament_slots!matches_vaga_2_fkey(id,clube:teams(nome,escudo_url),tecnico:users(id,nome,avatar,celular))"
+      "vaga_2:tournament_slots!matches_vaga_2_fkey(id,rotulo,clube:teams(nome,escudo_url),tecnico:users(id,nome,avatar,celular))"
     )
     // O torneio segue com !inner (filtro de encerrado afeta a linha de matches).
     expect(cols).toContain(

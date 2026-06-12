@@ -66,7 +66,7 @@ describe("getSolicitacoesWO", () => {
 
     expect(r).toEqual([
       { id: "r1", matchId: "m1", clubeSolicitante: "Grêmio", rodada: 2 },
-      { id: "r2", matchId: "m2", clubeSolicitante: "Clube", rodada: null },
+      { id: "r2", matchId: "m2", clubeSolicitante: "Competidor", rodada: null },
     ])
     expect(client.from).toHaveBeenCalledWith("match_wo_requests")
     // Só pendentes, escopadas ao torneio via embed inner.

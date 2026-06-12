@@ -12,10 +12,13 @@ export interface TecnicoDaVaga {
 /** Uma VAGA do torneio competitivo: o clube É a vaga; o técnico é metadado. */
 export interface VagaDoTorneio {
   id: string
+  /** Nome exibido: clube (modo clube) ou o rótulo (modo por-nome). */
   clube: string
   escudoUrl: string | null
   /** Técnico atual; null = clube órfão ("vaga aberta"). */
   tecnico: TecnicoDaVaga | null
+  /** Vaga por NOME (sem clube): sem técnico, sem convite. */
+  porNome: boolean
 }
 
 /**
@@ -34,7 +37,7 @@ export async function getVagasDoTorneio(
   const { data, error } = await supabase
     .from("tournament_slots")
     .select(
-      `id,
+      `id, rotulo,
        clube:teams!tournament_slots_team_id_fkey ( nome, escudo_url ),
        tecnico:users!tournament_slots_user_id_fkey ( id, nome, avatar )`
     )
@@ -49,17 +52,23 @@ export async function getVagasDoTorneio(
   // confiança (mesma decisão de getTournamentClassificacao).
   const linhas = (data ?? []) as unknown as Array<{
     id: string
+    rotulo: string | null
     clube: { nome: string | null; escudo_url: string | null } | null
     tecnico: { id: string; nome: string | null; avatar: string | null } | null
   }>
 
   return linhas.map((linha) => ({
     id: linha.id,
-    clube: linha.clube?.nome?.trim() || "Clube",
+    // Modo clube → nome do time; modo por-nome → rótulo. Fallback final defensivo.
+    clube: linha.clube?.nome?.trim() || linha.rotulo?.trim() || "Vaga",
     escudoUrl: linha.clube?.escudo_url ?? null,
-    tecnico: linha.tecnico
-      ? { id: linha.tecnico.id, nome: linha.tecnico.nome, avatar: linha.tecnico.avatar }
+    // Vaga por nome (sem clube): sem técnico, sem convite.
+    tecnico: linha.clube
+      ? linha.tecnico
+        ? { id: linha.tecnico.id, nome: linha.tecnico.nome, avatar: linha.tecnico.avatar }
+        : null
       : null,
+    porNome: linha.clube == null,
   }))
 }
 

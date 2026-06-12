@@ -78,6 +78,9 @@ export async function createTournament(
     // Clubes (formatos competitivos): inputs hidden name="clubes"; só strings
     // entram (File etc. caem na validação do Zod como uuid inválido).
     clubes: formData.getAll("clubes").filter((c): c is string => typeof c === "string"),
+    // Modo por-nome: checkbox + nomes livres (hidden name="nomes").
+    porNome: formData.get("porNome") !== null,
+    nomes: formData.getAll("nomes").filter((n): n is string => typeof n === "string"),
   })
 
   if (!parsed.success) {
@@ -101,6 +104,9 @@ export async function createTournament(
   // convite; tabela/chave geradas pelo dono ao iniciar). Avulso omite o status
   // — fica com o default 'ativo' do banco, preservando o comportamento original.
   const ehGerado = parsed.data.formato !== "avulso"
+  // Modo "competidores por nome": só vale em formato gerado; o servidor decide
+  // (não confia no toggle do form para avulso).
+  const porNome = ehGerado && parsed.data.porNome
 
   let torneioId: string
   try {
@@ -121,6 +127,8 @@ export async function createTournament(
           ? parsed.data.terceiroLugar
           : false,
         ...(ehGerado ? { status: "rascunho" as const } : {}),
+        // Vagas por NOME (sem clube) — só em formato gerado.
+        por_nome: porNome,
         // Sempre enviados (defaults do Zod): o default do DDL é só para
         // torneios legados/escritas administrativas.
         pontos_vitoria: parsed.data.pontosVitoria,
@@ -145,14 +153,18 @@ export async function createTournament(
       // DELETE do torneio recém-criado + erro no form (o useActionState
       // preserva título/clubes; re-submeter recria tudo). Convite faltando é
       // diferente: regenerável por vaga na página do torneio (não-fatal).
+      // Shape unificado (team_id OU rotulo; o outro fica undefined → a CHECK XOR
+      // do banco garante a coerência). Tipado p/ não inferir union de arrays.
+      const linhasVagas: {
+        tournament_id: string
+        team_id?: string
+        rotulo?: string
+      }[] = porNome
+        ? parsed.data.nomes.map((nome) => ({ tournament_id: torneio.id, rotulo: nome }))
+        : parsed.data.clubes.map((teamId) => ({ tournament_id: torneio.id, team_id: teamId }))
       const { data: vagas, error: vagasError } = await supabase
         .from("tournament_slots")
-        .insert(
-          parsed.data.clubes.map((teamId) => ({
-            tournament_id: torneio.id,
-            team_id: teamId,
-          }))
-        )
+        .insert(linhasVagas)
         .select("id")
       if (vagasError || !vagas || vagas.length === 0) {
         console.error(
@@ -175,9 +187,11 @@ export async function createTournament(
         }
         return {
           error:
-            "Não foi possível criar as vagas dos clubes. Nada foi salvo — tente novamente.",
+            "Não foi possível criar as vagas do torneio. Nada foi salvo — tente novamente.",
         }
-      } else {
+      } else if (!porNome) {
+        // Vaga por NOME é rótulo fixo sem dono — não gera convite. Só o modo
+        // clube cria slot_invites.
         // Um code por vaga. Colisão do UNIQUE global (23505, ~impossível com 80
         // bits) → regenera TODOS os codes e re-tenta o lote 1x; depois desiste
         // (os convites faltantes são regeneráveis por vaga na UI).

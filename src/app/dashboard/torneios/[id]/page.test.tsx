@@ -157,8 +157,8 @@ describe("TorneioPage — lados por formato (integração das seções)", () => 
   it("COMPETITIVO: renderiza a seção VAGAS (não Participantes) e busca códigos só do dono", async () => {
     montarCenario({ torneio: { formato: "liga" } })
     mockVagas.mockResolvedValue([
-      { id: "s1", clube: "Grêmio", escudoUrl: null, tecnico: null },
-      { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null },
+      { id: "s1", clube: "Grêmio", escudoUrl: null, tecnico: null, porNome: false },
+      { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null, porNome: false },
     ])
     await renderPage()
     expect(screen.getByRole("heading", { name: "Vagas" })).toBeInTheDocument()
@@ -175,7 +175,7 @@ describe("TorneioPage — lados por formato (integração das seções)", () => 
   it("COMPETITIVO não-dono: vagas visíveis, códigos NUNCA buscados", async () => {
     montarCenario({ user: { id: "visitante" }, torneio: { formato: "liga", status: "ativo" } })
     mockVagas.mockResolvedValue([
-      { id: "s1", clube: "Grêmio", escudoUrl: null, tecnico: null },
+      { id: "s1", clube: "Grêmio", escudoUrl: null, tecnico: null, porNome: false },
     ])
     await renderPage()
     expect(screen.getByRole("heading", { name: "Vagas" })).toBeInTheDocument()
@@ -191,9 +191,9 @@ describe("TorneioPage — lados por formato (integração das seções)", () => 
   it("painel de início da LIGA conta as VAGAS (não participants)", async () => {
     montarCenario({ torneio: { formato: "liga", status: "rascunho" } })
     mockVagas.mockResolvedValue([
-      { id: "s1", clube: "Grêmio", escudoUrl: null, tecnico: null },
-      { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null },
-      { id: "s3", clube: "Bahia", escudoUrl: null, tecnico: null },
+      { id: "s1", clube: "Grêmio", escudoUrl: null, tecnico: null, porNome: false },
+      { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null, porNome: false },
+      { id: "s3", clube: "Bahia", escudoUrl: null, tecnico: null, porNome: false },
     ])
     await renderPage()
     expect(screen.getByTestId("painel-liga")).toHaveAttribute("data-qtd", "3")
@@ -202,8 +202,8 @@ describe("TorneioPage — lados por formato (integração das seções)", () => 
   it("painel do MATA-MATA recebe as vagas como lados (clube como rótulo)", async () => {
     montarCenario({ torneio: { formato: "mata_mata", status: "rascunho" } })
     mockVagas.mockResolvedValue([
-      { id: "s1", clube: "Grêmio", escudoUrl: null, tecnico: null },
-      { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null },
+      { id: "s1", clube: "Grêmio", escudoUrl: null, tecnico: null, porNome: false },
+      { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null, porNome: false },
     ])
     await renderPage()
     expect(screen.getByTestId("painel-mata-mata")).toHaveAttribute(
