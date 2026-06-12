@@ -75,7 +75,7 @@ export function MatchCreateForm({
   const [state, formAction] = useActionState(createMatch, initialState)
 
   return (
-    <form action={formAction} className="grid gap-4" noValidate>
+    <form action={formAction} className="grid gap-3" noValidate>
       <input type="hidden" name="tournamentId" value={tournamentId} />
 
       <ParticipanteSelect
@@ -84,6 +84,17 @@ export function MatchCreateForm({
         participantes={participantes}
         erro={state.fieldErrors?.participante1?.[0]}
       />
+
+      {/* Divisor de confronto (decorativo): badge × ladeado por linhas — dá a
+          cara de "P1 × P2" sem tocar o contrato dos selects. */}
+      <div className="flex items-center gap-3" aria-hidden="true">
+        <span className="bg-foreground/15 h-px flex-1" />
+        <span className="bg-card text-muted-foreground font-display flex size-8 items-center justify-center rounded-full border text-sm font-bold">
+          ×
+        </span>
+        <span className="bg-foreground/15 h-px flex-1" />
+      </div>
+
       <ParticipanteSelect
         campo="participante2"
         rotulo="Participante 2"

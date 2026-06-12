@@ -1,3 +1,4 @@
+import { Swords } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -41,10 +42,20 @@ export default async function NovaPartidaPage() {
     <main className="flex flex-1 items-center justify-center px-6 py-10">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="font-display text-2xl">Nova partida</CardTitle>
-          <CardDescription>
-            Escolha o torneio que vai receber a partida.
-          </CardDescription>
+          {/* Wrapper centralizado em vez de sobrescrever o display do CardHeader
+              (mantém o grid base intacto p/ slots futuros). */}
+          <div className="flex flex-col items-center gap-1.5 text-center">
+            <span
+              aria-hidden="true"
+              className="bg-primary/10 text-primary ring-primary/20 flex size-11 items-center justify-center rounded-xl ring-1"
+            >
+              <Swords className="size-5" />
+            </span>
+            <CardTitle className="font-display text-2xl">Nova partida</CardTitle>
+            <CardDescription>
+              Escolha o torneio que vai receber a partida.
+            </CardDescription>
+          </div>
         </CardHeader>
         <CardContent>
           {torneios.length === 0 ? (
