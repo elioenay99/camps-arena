@@ -9,15 +9,21 @@ import { Card, CardContent } from "@/components/ui/card"
 import { FluxoTemporadaPanel } from "@/features/league/components/FluxoTemporadaPanel"
 import { IniciarDivisaoButton } from "@/features/league/components/IniciarDivisaoButton"
 import { MontarTemporadaButton } from "@/features/league/components/MontarTemporadaButton"
+import {
+  PlayoffsPanel,
+  type PlayoffFronteiraView,
+} from "@/features/league/components/PlayoffsPanel"
 import { SeasonStatusPill } from "@/features/league/components/SeasonStatusPill"
 import {
   getDivisionStandings,
   type DivisaoStandings,
 } from "@/features/league/data/getDivisionStandings"
+import { getPlayoffs } from "@/features/league/data/getPlayoffs"
 import {
   getSeason,
   type DivisaoTemporada,
 } from "@/features/league/data/getSeason"
+import { BracketView } from "@/features/knockout/components/BracketView"
 import { StandingsTable } from "@/features/standings/components/StandingsTable"
 import { createClient } from "@/lib/supabase/server"
 
@@ -93,18 +99,36 @@ export default async function TemporadaPage({
   for (const div of temporada.divisoes) nivelNomes[div.nivel] = div.nome
 
   // Fim de temporada: ATIVA com todas as divisões já encerradas (torneios
-  // encerrados) → habilita o painel de sobe e cai.
+  // encerrados) → habilita a sequência de fim de temporada (playoffs → fluxo).
   const todasEncerradas =
     temporada.status === "ativa" &&
     standingsPorDivisao.length > 0 &&
     standingsPorDivisao.every((s) => s?.status === "encerrado")
+
+  // PLAYOFFS (Fase 2): só relevante quando as divisões já encerraram. A SEQUÊNCIA
+  // nova é: divisões encerram → MONTAR playoffs → jogar/encerrar as chaves →
+  // calcular fluxo. `resolvidos` = toda fronteira de playoff tem chave decidida;
+  // até lá o painel de fluxo fica BLOQUEADO (o sobe/cai depende da chave).
+  const playoffs = todasEncerradas
+    ? await getPlayoffs(temporada.seasonId, user.id)
+    : null
 
   // 'em_fluxo' = a confirmação começou mas não concluiu (falha parcial entre
   // 'em_fluxo' e 'encerrada'). O painel reaparece para RETOMAR — confirmar é
   // idempotente (recalcula com a mesma semente = id da temporada). Sem isto o
   // dono ficaria num beco sem saída (vê os torneios encerrados, sem console).
   const emRetomada = temporada.status === "em_fluxo"
-  const mostrarFluxo = todasEncerradas || emRetomada
+
+  // Há playoff pendente quando todas as divisões encerraram, existem fronteiras
+  // não-'direto' e nem todas as chaves resolveram. Nesse caso o fluxo fica
+  // escondido e a seção de playoffs aparece no lugar.
+  const playoffPendente =
+    todasEncerradas && (playoffs?.temPlayoffs ?? false) && !playoffs?.resolvidos
+
+  // O fluxo de sobe/cai só abre quando: (a) todas encerraram E (não há playoff OU
+  // os playoffs resolveram), ou (b) a temporada está em retomada (em_fluxo).
+  const mostrarFluxo =
+    (todasEncerradas && !playoffPendente) || emRetomada
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
@@ -164,6 +188,46 @@ export default async function TemporadaPage({
           ))}
         </section>
       )}
+
+      {/* Playoffs (Fase 2): entre as Divisões e o Fim-de-temporada. Aparece
+          quando todas as divisões encerraram e há fronteira de playoff ainda
+          não resolvida. A page (server) renderiza o BracketView; o painel
+          (client) cuida só dos botões (montar / avançar fase). */}
+      {playoffPendente && playoffs ? (
+        <section
+          aria-labelledby="playoffs-titulo"
+          className="flex flex-col gap-4 border-t pt-6"
+        >
+          <h2
+            id="playoffs-titulo"
+            className="text-muted-foreground text-xs font-semibold tracking-wide uppercase"
+          >
+            Playoffs
+          </h2>
+          <PlayoffsPanel
+            seasonId={temporada.seasonId}
+            nivelNomes={nivelNomes}
+            fronteiras={playoffs.fronteiras.map(
+              (f): PlayoffFronteiraView => ({
+                nivelSuperior: f.nivelSuperior,
+                modo: f.modo,
+                estilo: f.estilo,
+                playoffVagas: f.playoffVagas,
+                vagasAcesso: f.vagasAcesso,
+                vagasRebaixamento: f.vagasRebaixamento,
+                playoffTournamentId: f.playoffTournamentId,
+                torneioStatus: f.torneioStatus,
+                decidida: f.decidida,
+                totalPartidas: f.partidas.length,
+                bracket:
+                  f.partidas.length > 0 ? (
+                    <BracketView partidas={f.partidas} />
+                  ) : null,
+              })
+            )}
+          />
+        </section>
+      ) : null}
 
       {/* Fim de temporada: todas as divisões encerradas (ou retomada de um
           fluxo interrompido) → sobe e cai. */}

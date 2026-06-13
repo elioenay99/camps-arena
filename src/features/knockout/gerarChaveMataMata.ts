@@ -567,3 +567,189 @@ export function rotuloFase(rodada: number, fases: number): string {
   if (confrontos === 8) return "Oitavas de final"
   return `${rodada}ª fase`
 }
+
+/* -------------------------------------------------------------------------- */
+/* Playoff de liga (Fase 2): seeding por posição + leitura do resultado         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Ordem de seeding PADRÃO de uma chave de tamanho `s` (potência de 2): devolve
+ * os números de seed (1-based) na ORDEM DE SLOT, de forma que o seed 1 e o seed 2
+ * só se encontrem numa eventual final (espalhamento recursivo clássico).
+ * Ex.: s=4 → [1,4,2,3]; s=8 → [1,8,4,5,2,7,3,6]. Em cada par (order[2i],
+ * order[2i+1]) o primeiro é SEMPRE o melhor seed (≤ s/2 < o segundo).
+ */
+export function ordemDeSeed(s: number): number[] {
+  let order = [1]
+  while (order.length < s) {
+    const n = order.length * 2
+    const next: number[] = []
+    for (const x of order) {
+      next.push(x)
+      next.push(n + 1 - x)
+    }
+    order = next
+  }
+  return order
+}
+
+/**
+ * Semeia uma chave por POSIÇÃO na liga (determinístico, SEM aleatoriedade): o 1º
+ * colocado (`participantesOrdenados[0]`) é o seed 1; o último, o seed N. Usa o
+ * espalhamento padrão (1×N, 2×(N-1)…) para os favoritos se cruzarem tarde; os
+ * byes (chave incompleta) vão para os melhores seeds (o lado 2 fantasma vira
+ * bye). Pareia para casar com o pareamento fixo 2i-1×2i das fases seguintes.
+ * NÃO embaralha nem reordena — o seeding por classificação é a essência do playoff.
+ */
+export function semearPlayoffPorPosicao(
+  participantesOrdenados: string[]
+): ConfrontoChave[] {
+  validarParticipantes(participantesOrdenados)
+  const n = participantesOrdenados.length
+  const s = tamanhoChave(n)
+  const order = ordemDeSeed(s)
+  const confrontos: ConfrontoChave[] = []
+  for (let i = 0; i < s / 2; i++) {
+    const seedA = order[2 * i] // sempre o melhor seed do par (≤ s/2 < N ⇒ real)
+    const seedB = order[2 * i + 1]
+    const pA = participantesOrdenados[seedA - 1] // seedA ≤ s/2 < N ⇒ sempre existe
+    const pB = seedB <= n ? participantesOrdenados[seedB - 1] : null // > N = bye
+    confrontos.push({ posicao: i + 1, participante_1: pA, participante_2: pB })
+  }
+  return confrontos
+}
+
+export type PlayoffModo = "playoff_acesso" | "playout"
+export type PlayoffEstilo = "vagas" | "extra"
+
+/** Desfecho de uma chave de playoff (ids = vaga/slot do competitivo). */
+export interface ResultadoChave {
+  /** A chave resolveu o necessário (rodada `f` no 'vagas'; final no 'extra'). */
+  decidida: boolean
+  /** Ids que SOBEM (não-vazio só em playoff_acesso decidido). */
+  sobem: Set<string>
+  /** Ids que CAEM (não-vazio só em playout decidido). */
+  caem: Set<string>
+  /** Ids que PERMANECEM (todos os demais participantes da chave). */
+  permanecem: Set<string>
+}
+
+/**
+ * Deriva o desfecho de uma chave de playoff a partir das partidas persistidas.
+ * PURO: a action mapeia vaga→id antes e id→competidor depois. Reúsa
+ * `decidirConfronto` slot a slot (NUNCA recalcula agregado; W.O. e bye já
+ * tratados lá; empate de jogo/agregado é barrado na persistência pelo trigger
+ * `valida_resultado_mata_mata`, então uma chave jogada validamente sempre resolve).
+ *
+ * - estilo 'vagas': a chave joga SÓ `f = log2(playoffVagas/alvo)` rodadas.
+ *   playoff_acesso: `alvo = vagas` sobreviventes SOBEM. playout: `alvo =
+ *   playoffVagas - vagas` sobreviventes se SALVAM e os `vagas` eliminados CAEM.
+ *   `decidida` = todas as partidas das rodadas 1..f encerradas e decididas.
+ * - estilo 'extra': a chave vai à FINAL. playoff_acesso: campeão SOBE. playout:
+ *   vice (perdedor da final) CAI. `decidida` = final decidida.
+ * Todo participante sem desfecho favorável/desfavorável PERMANECE (cobertura total:
+ * `|sobem|+|caem|+|permanecem| == nº de participantes da chave`).
+ */
+export function resultadoDaChave(
+  partidas: PartidaJogada[],
+  opts: {
+    modo: PlayoffModo
+    estilo: PlayoffEstilo
+    vagas: number
+    playoffVagas: number
+  }
+): ResultadoChave {
+  const geradas = partidas.filter(
+    (p): p is PartidaJogada & { rodada: number; posicao: number } =>
+      p.rodada !== null && p.posicao !== null
+  )
+  const sobem = new Set<string>()
+  const caem = new Set<string>()
+  const permanecem = new Set<string>()
+  const indecisa: ResultadoChave = { decidida: false, sobem, caem, permanecem }
+  if (geradas.length === 0) return indecisa
+
+  const base = rodadaBaseDaChave(geradas)
+  const s = tamanhoChaveDasPartidas(geradas)
+  const fases = totalFases(s)
+
+  // Todos os participantes da chave: lados da FASE BASE (rodada base), sem nulos.
+  const participantes = new Set<string>()
+  for (const p of geradas) {
+    if (p.rodada - base + 1 !== 1) continue
+    if (p.participante_1) participantes.add(p.participante_1)
+    if (p.participante_2) participantes.add(p.participante_2)
+  }
+
+  // Vencedores (vivos) após a fase relativa `faseRel`, decidindo cada slot
+  // REGULAR via decidirConfronto (exclui o 3º lugar). null = fase não gerada ou
+  // confronto ainda em aberto/empate (a chave não resolveu até ali).
+  const vencedoresDaFase = (faseRel: number): Set<string> | null => {
+    // Defensivo: faseRel fora de [1, fases] (ex.: alvo<=0 ⇒ f=Infinity) NUNCA pode
+    // virar um Set vazio "decidido" — devolve null (indecisa). Espelha o guard do
+    // schema/CHECK (defense-in-depth do motor puro).
+    if (!Number.isInteger(faseRel) || faseRel < 1 || faseRel > fases) return null
+    const slotsEsperados = s / 2 ** faseRel
+    if (!Number.isInteger(slotsEsperados) || slotsEsperados < 1) return null
+    const porSlot = new Map<number, PartidaJogada[]>()
+    for (const p of geradas) {
+      if (p.rodada - base + 1 !== faseRel) continue
+      if (ehTerceiroLugar(faseRel, p.posicao, fases)) continue
+      const lista = porSlot.get(p.posicao) ?? []
+      lista.push(p)
+      porSlot.set(p.posicao, lista)
+    }
+    const vivos = new Set<string>()
+    for (let slot = 1; slot <= slotsEsperados; slot++) {
+      const doSlot = porSlot.get(slot)
+      if (!doSlot) return null
+      const r = decidirConfronto(doSlot)
+      if (!r) return null
+      vivos.add(r.vencedor)
+    }
+    return vivos
+  }
+
+  if (opts.estilo === "vagas") {
+    const alvo =
+      opts.modo === "playoff_acesso" ? opts.vagas : opts.playoffVagas - opts.vagas
+    // Guard: alvo precisa ser potência de 2 em (0, playoffVagas) — senão a chave
+    // não para numa rodada exata. Config inválida ⇒ indecisa (não decide errado).
+    if (
+      !(alvo > 0 && alvo < opts.playoffVagas) ||
+      !Number.isInteger(Math.log2(opts.playoffVagas / alvo))
+    ) {
+      return indecisa
+    }
+    const f = Math.round(Math.log2(opts.playoffVagas / alvo))
+    const sobreviventes = vencedoresDaFase(f)
+    if (!sobreviventes) return indecisa
+    if (opts.modo === "playoff_acesso") {
+      for (const id of sobreviventes) sobem.add(id)
+      for (const id of participantes) if (!sobreviventes.has(id)) permanecem.add(id)
+    } else {
+      for (const id of participantes) {
+        if (sobreviventes.has(id)) permanecem.add(id)
+        else caem.add(id)
+      }
+    }
+    return { decidida: true, sobem, caem, permanecem }
+  }
+
+  // estilo 'extra': resolve a FINAL (fase `fases`, posicao 1 — não o 3º lugar).
+  const partidasFinal = geradas.filter(
+    (p) => p.rodada - base + 1 === fases && p.posicao === 1
+  )
+  const resFinal = partidasFinal.length > 0 ? decidirConfronto(partidasFinal) : null
+  if (!resFinal || resFinal.perdedor === null) return indecisa
+  for (const id of participantes) {
+    if (opts.modo === "playoff_acesso") {
+      if (id === resFinal.vencedor) sobem.add(id)
+      else permanecem.add(id)
+    } else {
+      if (id === resFinal.perdedor) caem.add(id)
+      else permanecem.add(id)
+    }
+  }
+  return { decidida: true, sobem, caem, permanecem }
+}

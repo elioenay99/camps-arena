@@ -520,3 +520,91 @@ Se dois competidores da MESMA divisão têm o mesmo `holder_user_id`, o UNIQUE `
 - **Freeze furado por `reabrirTorneio`**: fechado em 3 camadas (§3.4) — guard na action + trigger `lock_division_tournament_reopen` em `tournaments` + reflexo na RLS spec.
 - **Mobile-first**: wizard com presets resolve ~90% dos casos em poucos toques; config avançada (fronteiras/desempate) em telas dedicadas validadas a 390px nos 2 temas.
 - **Não-regressão do motor**: `desempate_criterio` default `'cbf'` + `por_nome`/`rotulo` intactos → torneios legados e standalone idênticos.
+
+---
+
+## 8. Fase 2 — Playoff de acesso + playout (detalhe)
+
+Sintetizado de um mapeamento exaustivo (workflow 5 áreas) do motor de mata-mata, da RPC `montar_temporada`, do reader de classificação de chave, da UI de fluxo e do wizard. Decisão de produto do dono (AskUserQuestion 2026-06-13): **suportar OS DOIS estilos por fronteira** (`vagas` e `extra`) e **leg format configurável por fronteira**. Reúso máximo: a chave de cada fronteira É um `tournaments` de `formato='mata_mata'` — todo o motor de chave (`gerarChaveMataMata`, `iniciarMataMata`/`avancarFase`, `BracketView`, `decidirConfronto`) é reaproveitado.
+
+### 8.1 Semântica por fronteira (qual lado a chave decide)
+- `playoff_acesso`: o lado do ACESSO (quem sobe de d+1) é decidido por chave; o REBAIXAMENTO de d continua DIRETO por posição.
+- `playout`: o lado da QUEDA (quem cai de d) é decidido por chave; o ACESSO de d+1 continua DIRETO por posição.
+- `barragem_cruzada` (Fase 3): chave MISTA entre d e d+1 (fica para a Fase 3).
+
+### 8.2 Dois estilos (resolução da chave)
+- **`vagas`** (chave decide as vagas): chave COMPLETA de `playoff_vagas ∈ {4,8,16,32}` (sem byes — `TAMANHOS_POTES`). Joga SÓ `f` rodadas (chave PARCIAL — NÃO vai à final) até `sobreviventes = playoff_vagas/2^f`. `playoff_acesso`: os `vagas_acesso` sobreviventes SOBEM (⇒ `vagas_acesso` potência de 2, `0 < vagas_acesso < playoff_vagas`, `= playoff_vagas/2^f`). `playout`: os `vagas_rebaixamento` ELIMINADOS na(s) rodada(s) jogadas caem (⇒ `sobreviventes = playoff_vagas - vagas_rebaixamento` é potência de 2, `0 < sobreviventes < playoff_vagas`). `f = log2(playoff_vagas / sobreviventes)`. Reader puro novo `resultadoDaChave(partidas, opts)` (em `gerarChaveMataMata.ts`) deriva sobreviventes/eliminados por rodada via `decidirConfronto` slot a slot. **`decidida` no `vagas` = rodada `f` 100% encerrada** (não "final decidida" — a chave nem chega à final). A UI NÃO oferece avançar fase além da rodada `f` no `vagas` (senão o dono mudaria quem subiu).
+- **`extra`** (direto + 1 na chave): vagas diretas por posição (igual `direto`) + chave COMPLETA de `playoff_vagas ∈ [2,32]` (byes ok) jogada ATÉ A FINAL, decidindo 1 extra. `playoff_acesso`: campeão sobe. `playout`: PERDEDOR DA FINAL cai (simétrico — não inventar ranking de eliminados precoces que o motor não fornece). **`decidida` no `extra` = final decidida** (`decidirConfronto` do slot 1 da fase final ≠ null).
+
+### 8.3 Conservação com movimento efetivo (o `+1` é de UM lado só)
+Helper PURO exportado do schema `movimentoEfetivo(f) → { sobeEf, caiEf }`, dependente de **modo × estilo** (o `+1` do `extra` entra SÓ no lado da CHAVE, não nos dois):
+```
+direto                       ⇒ { sobeEf: vagasAcesso,     caiEf: vagasRebaixamento }
+qualquer estilo 'vagas'      ⇒ { sobeEf: vagasAcesso,     caiEf: vagasRebaixamento }   // a chave decide exatamente as vagas
+playoff_acesso + 'extra'     ⇒ { sobeEf: vagasAcesso + 1, caiEf: vagasRebaixamento }   // +1 sobe (campeão); queda toda direta
+playout + 'extra'            ⇒ { sobeEf: vagasAcesso,     caiEf: vagasRebaixamento + 1 } // +1 cai (perdedor da final); acesso direto
+```
+A conservação (§7.1) e a SIMETRIA por fronteira valem sobre os EFETIVOS: **`sobeEf == caiEf` por fronteira**. Consequências (a validar):
+- `vagas`/`direto`: `vagasAcesso == vagasRebaixamento`.
+- `playoff_acesso` `extra`: `vagasRebaixamento == vagasAcesso + 1` (o lado direto da queda precisa da vaga extra configurada).
+- `playout` `extra`: `vagasAcesso == vagasRebaixamento + 1`.
+
+**Espelhado em LOCKSTEP**: `leaguePyramidSchema` (servidor: `superRefine` de movimento físico/fechamento) e `LeagueWizard` (`tamanhoFinal`/`erroConservacao`) consomem o MESMO `movimentoEfetivo` — drift aceita config que o outro lado rejeita. O `.refine(vagasAcesso===vagasRebaixamento)` BRUTO de `fronteiraSchema:122` é REMOVIDO; a simetria migra para o `superRefine` do schema-mãe sobre os efetivos. O movimento físico (`saem = sobeEf+caiEf ≤ tamanho`) e o fechamento (`pos = tamanho - sobeEf - caiEf + recebeDeCimaEf + recebeDeBaixoEf ∈ [2,20]`) somam EFETIVOS. `derivarZonas` no client também: a zona de rebaixamento DIRETO do `playoff_acesso extra` é `vagasRebaixamento` (= `vagasAcesso+1`) posições.
+
+### 8.4 Sequência nova (estado)
+`divisões encerram → montarPlayoffs(seasonId) → dono joga as chaves → todas decididas → dono ENCERRA cada chave → calcularFluxoTemporada → confirmar`. A página da temporada ganha uma flag derivada `playoffsResolvidos` (toda fronteira não-`direto` tem `playoff_tournament_id` com `resultadoDaChave(...).decidida === true` — NÃO "final decidida" genérica, pois no `vagas` a chave para na rodada `f`). `mostrarFluxo` passa a exigir `todasEncerradas && playoffsResolvidos`. Um novo `PlayoffsPanel` (client) aparece quando `todasEncerradas && !playoffsResolvidos`: botão "Montar playoffs" + `BracketView` (RSC, reúso) por chave + link "Abrir chave" (joga no ciclo de torneio existente) + `AvancarFaseButton` (reúso) **escondido após a rodada `f` no estilo `vagas`**. A semente do sorteio de empate residual NÃO se aplica às fronteiras de playoff (a chave decide por jogo); o sorteio só age nas fronteiras `direto`.
+
+### 8.5 DDL aditiva (Fase 2) — `league_boundaries`
+```sql
+alter table public.league_boundaries add column if not exists playoff_estilo text;       -- 'vagas' | 'extra'
+alter table public.league_boundaries add column if not exists playoff_ida_e_volta boolean not null default false;
+alter table public.league_boundaries add column if not exists playoff_tournament_id uuid
+  references public.tournaments (id) on delete restrict;                                  -- sentinela
+-- CHECK: estilo coerente com o modo
+alter table public.league_boundaries drop constraint if exists league_boundaries_estilo_coerente;
+alter table public.league_boundaries add constraint league_boundaries_estilo_coerente
+  check ((modo = 'direto' and playoff_estilo is null)
+      or (modo <> 'direto' and playoff_estilo in ('vagas','extra')));
+create unique index if not exists league_boundaries_playoff_tournament_unico
+  on public.league_boundaries (playoff_tournament_id) where playoff_tournament_id is not null;
+```
+A coerência "vagas potência de 2 / estilo bate com playoff_vagas" NÃO é expressável em CHECK cruzada — validada no Zod + na action `montarPlayoffs` (igual à conservação de tamanho da Fase 1). `playoff_ida_e_volta` herda em `tournaments.ida_e_volta`. NÃO há coluna `modo_chaveamento` em `tournaments` — a SEMENTE da chave (por posição) é responsabilidade da action.
+
+### 8.6 RPC `montar_playoff` (SECURITY DEFINER) + `gerarChaveSemeada` (action)
+**RPC `montar_playoff(p_boundary_id uuid, p_competitor_ids uuid[])`**: espelha `montar_temporada` — `set search_path=''`, `auth.uid()` + posse via `boundary → season → competition.created_by` (`NAO_DONO`), `pg_advisory_xact_lock` por `p_boundary_id`, sentinela `playoff_tournament_id` (promote-first). Cria `tournaments(formato='mata_mata', status='rascunho', ida_e_volta=playoff_ida_e_volta, terceiro_lugar=false, por_nome herdado, desempate_criterio herdado, is_public herdado)`, grava `playoff_tournament_id`, insere os `tournament_slots` dos competidores em `p_competitor_ids` **na ordem recebida** (= ordem de classificação/seeding), com degradação de `user_id` anti-`slots_um_clube_por_tecnico` idêntica. **Validações de integridade barata (definer)**: cada `competitor_id` pertence à competição da fronteira (`COMPETIDOR_DE_OUTRA_PIRAMIDE`) e tem `league_division_entry` na divisão-FONTE certa desta season (acesso ⇒ inferior `nivel_superior+1`; playout ⇒ superior `nivel_superior`); homogeneidade `por_nome` das duas divisões (`PLAYOFF_POR_NOME_INCOERENTE`). A RPC retorna o `playoff_tournament_id` + o mapa `competitor_id → slot_id` (a action precisa para semear na ordem certa).
+
+**A GERAÇÃO da chave fica na ACTION** (reúso do motor JS, não na RPC). Helper `gerarChaveSemeada(supabase, tournamentId, confrontos, idaEVolta)` EXTRAÍDO de `iniciarMataMata` mas **SEM `participantes.sort()` nem `montarConfrontos*`** (esses destruiriam o seeding por posição — `iniciarMataMata.ts:681`): recebe os `confrontos` JÁ semeados, roda `gerarFaseInicial`, insere a 1ª fase e **PROMOVE `tournaments` de `rascunho`→`ativo` atomicamente** (INSERT da 1ª fase ANTES do UPDATE de status, tratamento de 23505) — sem isso a chave fica em rascunho e a página de torneio (`torneios/[id]/page.tsx:131-150`) mostra o painel de RE-SORTEIO em vez de deixar jogar/avançar. O seeding é `semearPlayoffPorPosicao(competitorIds_ordenados, slotPorCompetitor)`: bracket padrão (1×N, 2×N-1 espelhado) na ORDEM DE SLOT, para que o pareamento fixo `2i-1×2i` das fases seguintes (`gerarChaveMataMata.ts:485-492`) cruze corretamente (1º só encontra o 2º numa eventual final).
+
+**Idempotência / retomada parcial** (a sentinela é gravada pela RPC ao criar o torneio, mas a 1ª fase é inserida pela ACTION depois): `montarPlayoffs` NÃO pula cegamente quando a sentinela existe — replica o gate `jaGeradas` de `iniciarMataMata` (`tournaments.ts:647-657`): se há `playoff_tournament_id` mas NÃO há `matches WHERE rodada IS NOT NULL`, completa via `gerarChaveSemeada` (idempotente, trata 23505). Fecha a janela "torneio criado, chave não gerada".
+
+### 8.7 Freeze da chave (3 camadas, como na divisão §3.4)
+1. **Trigger `lock_division_tournament_reopen`** (em `tournaments`) ganha um 2º ramo: barra reabrir (`encerrado`→`ativo`/`rascunho`) quando `old.id` é referenciado por `league_boundaries.playoff_tournament_id` de uma season `em_fluxo`/`encerrada`. `service_role` livre. Defesa REAL.
+2. **Guard na action `reabrirTorneio`** (`tournaments.ts:523-527`, hoje só olha `league_division_seasons.tournament_id`) ganha um 2º ramo análogo em `league_boundaries` (playoff de season congelada) → retorna o `erroPropriedade` (UX consistente; sem o guard cairia no catch genérico "Não foi possível reabrir").
+3. **`confirmarFluxoTemporada` EXIGE `status='encerrado'`** em TODA chave de playoff da temporada ANTES de montar a N+1 (não basta `decidida`). Fecha a janela de corrupção: enquanto a season é `'ativa'`, a chave `'ativa'` é editável (legítimo, pré-confirmação); ao confirmar, a season vira `em_fluxo` e o trigger (1) congela. Sem o `encerrado`, o dono poderia editar um placar da semi DEPOIS de a N+1 já ter sido montada. As partidas em si já são travadas por `valida_resultado_mata_mata`/`lock_match_lifecycle` (agnósticos à pirâmide) quanto a renumerar/reabrir fase.
+
+### 8.8 Integração no motor de fluxo (`flowEngine.calcularPlanoFluxo`)
+O motor hoje garante a DISJUNÇÃO em duas etapas ACOPLADAS (`flowEngine.ts:240-272`): rebaixa primeiro (popula `caiDe`), depois acessa filtrando `elegiveis = inf.linhas.filter(!jaCaiu)`. O ramo playoff PRESERVA essa ordem com FONTE ÚNICA:
+1. **Todos os REBAIXAMENTOS primeiro** — diretos via `resolverZonaDeCorte` (fronteira `direto`/`playoff_acesso`, cujo lado de queda é direto) E playout via `resultadoDaChave` (eliminados no `vagas` / perdedor da final no `extra`) — populam o MESMO `caiDe`/`jaCaiu` por nível.
+2. **Só então os ACESSOS** — diretos via `resolverZonaDeCorte` (excluindo `jaCaiu`) E `playoff_acesso` via `resultadoDaChave` (sobreviventes no `vagas` / campeão no `extra`, também excluindo `jaCaiu`).
+
+Sem unificar as fontes ANTES do laço de acesso, um competidor poderia entrar em `sobe` (corte direto acima) E `cai` (playout abaixo) numa divisão do meio, e a vaga de acesso sumiria (prioridade `cai>sobe` em `flowEngine.ts:283`). **Cobertura total**: o laço de emissão itera sobre TODAS as `div.linhas`; o ramo playoff marca `permanece` para todo participante de chave sem desfecho — `|itens| == Σ tamanhos` independente de quantas fronteiras são playoff. **Assertion**: o nº de sobe/cai de cada chave DEVE bater com `movimentoEfetivo` da fronteira (divergência ⇒ erro explícito, não perda silenciosa). `resolvido_por='playoff'` (enum já existe). `validarFechamentoTamanho` inalterado.
+
+**`calcularFluxoTemporada` (action) — SELECT de 3 estados**: hoje o SELECT de fronteiras (`leaguePyramid.ts:502`) traz só `nivel_superior, vagas_acesso, vagas_rebaixamento` — CEGO ao modo. Ampliar para `modo, playoff_estilo, playoff_vagas, playoff_tournament_id`. Ramificar: (1) sem `playoff_tournament_id` ⇒ erro "Monte os playoffs antes"; (2) chave existe mas `!resultadoDaChave(...).decidida` ⇒ erro "Há playoff pendente"; (3) decidida ⇒ injeta o conjunto no motor. A definição de `decidida` vive SÓ em `resultadoDaChave` (pura), consumida tanto por `getPlayoffs` (gating da UI) quanto por `calcularFluxoTemporada` (gate da action) — nunca duas heurísticas. **Empate de agregado em ida-e-volta**: o trigger `valida_resultado_mata_mata` (`schema.sql:646-650`) já BARRA persistir agregado empatado (e empate em jogo único), então a chave SEMPRE resolve para um vencedor uma vez jogada validamente — o dono registra prorrogação/pênaltis na própria súmula (igual ao mata-mata avulso). Não há auto-desempate por seed na Fase 2 (anotado como melhoria futura); o gate `decidida` é só verdadeiro quando todos os confrontos necessários (até a rodada `f` no `vagas`, até a final no `extra`) resolvem.
+
+### 8.9 UI (reúso + aditivo)
+- `PlayoffsPanel` (client novo) — padrão de `FluxoTemporadaPanel` (useTransition/toast/router.refresh).
+- `BracketView` (RSC, reúso direto) por chave; fetcher devolve `PartidaDaChave[]` via `getTournamentClassificacao(playoffTournamentId).chave`.
+- `StandingsZonas`/`derivarZonas` ganham `playoffAcesso?`/`playoffRebaixamento?` (posições que vão à chave). **Correção de premissa**: na tabela, acesso direto = `primary`, rebaixamento direto = `destructive`; `accent` JÁ é o hover de linha (`StandingsTable.tsx:109`) E a cor de sorteio/ajuste — NÃO reusar para playoff. A zona de playoff usa um tratamento DISTINTO de `primary`/`destructive`/`accent` (sugestão: faixa/borda âmbar-`gold`-tracejada ou `warning`, escolhida na implementação e validada para contraste AA a 390px nos 2 temas). Legenda com 3 itens (Acesso direto / Playoff / Rebaixamento). Aditivo (default vazio preserva standalone).
+- `FluxoTemporadaPanel` intacto; aceita `resolvido_por='playoff'` no chip (aditivo em `DESTINO_ESTILO`/`ResolvidoPor`).
+
+### 8.10 Edge cases Fase 2 (invariantes precisas)
+- **Potência de 2 do `vagas`, FECHADA POR LADO/MODO** (3 invariantes distintas, validadas no Zod + action):
+  - `playoff_acesso` `vagas`: `playoff_vagas ∈ {4,8,16,32}` (`Number.isInteger(log2)`) E `Number.isInteger(log2(vagas_acesso))` E `0 < vagas_acesso < playoff_vagas` (`vagas_acesso == playoff_vagas` ⇒ `f=0`, ninguém joga = direto disfarçado → rejeita).
+  - `playout` `vagas`: `Number.isInteger(log2(playoff_vagas - vagas_rebaixamento))` E `0 < (playoff_vagas - vagas_rebaixamento) < playoff_vagas`. Ex.: 8 jogam ⇒ `vagas_rebaixamento ∈ {4,6,7}` válidos; **"caem 3 de 8" é IMPOSSÍVEL no `vagas`** (sobreviventes 5 não é potência de 2) → a mensagem de erro SUGERE o estilo `extra`.
+  - O wizard oferece SÓ combinações válidas (dropdown derivado por modo+playoff_vagas).
+- **Zona cabe na divisão** (3ª invariante, distinta de 5a/5b; precisa do tamanho ⇒ no `superRefine`): `playoff_acesso` ⇒ zona na INFERIOR (`playoff_vagas` no `vagas`; `vagas_acesso + playoff_vagas` no `extra`) ≤ `tamanho_inferior`; `playout` ⇒ zona na SUPERIOR (`playoff_vagas` no `vagas`; `vagas_rebaixamento + playoff_vagas` no `extra`) ≤ `tamanho_superior`. Como `tamanho ≤ DIVISAO_MAX (20) < MATA_MATA_MAX (32)`, o teto de 32 nunca aperta primeiro. Rejeita divisão de tamanho 2 com qualquer playoff.
+- **Homogeneidade `por_nome`**: chave entre divisão clube e divisão nome é incoerente — `montar_playoff` recusa (`PLAYOFF_POR_NOME_INCOERENTE`).
+- **Idempotência/retomada**: sentinela `playoff_tournament_id` + gate `jaGeradas` (§8.6) — re-rodar `montarPlayoffs` completa torneio sem chave; jogar a chave é o ciclo de torneio idempotente existente.
+- **Pontas**: a divisão 1 nunca é INFERIOR de fronteira (não recebe playoff_acesso de cima); a última nunca é SUPERIOR (não sofre playout). Já garantido pelo refine de adjacência (`leaguePyramidSchema.ts:262-271`, independe de modo) — 2 cenários de teste documentam.
+- **N=1 / fronteira direto**: inalterado — `montarPlayoffs` é no-op para temporadas sem fronteira de playoff; `mostrarFluxo` cai no caminho da Fase 1.
+- **Empate de agregado (ida-e-volta)**: barrado na persistência pelo trigger `valida_resultado_mata_mata` (§8.8) — sem estado preso; sem auto-desempate na Fase 2.

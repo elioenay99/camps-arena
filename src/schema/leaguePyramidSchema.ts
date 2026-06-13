@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { MATA_MATA_MAX_PARTICIPANTES } from "@/features/knockout/gerarChaveMataMata"
 import { LIGA_MAX_PARTICIPANTES } from "@/features/league/gerarTabelaLiga"
 
 import { NOME_MAX } from "@/schema/tournamentSchema"
@@ -32,8 +33,74 @@ export const MAX_DIVISOES = 8
  */
 export const DESEMPATES_DISPONIVEIS = ["cbf", "ingles"] as const
 
+/** Modos de fronteira disponíveis até a Fase 2 (barragem_cruzada é Fase 3). */
+export const MODOS_FRONTEIRA = ["direto", "playoff_acesso", "playout"] as const
+
+/** Estilos de resolução de uma fronteira de playoff (Fase 2). */
+export const PLAYOFF_ESTILOS = ["vagas", "extra"] as const
+
+/**
+ * Tamanhos de chave COMPLETA (sem byes) exigidos pelo estilo `vagas`: a chave
+ * para numa rodada exata e o nº de vencedores é potência de 2. O estilo `extra`
+ * aceita qualquer 2..32 (byes ok).
+ */
+export const PLAYOFF_VAGAS_COMPLETAS = [4, 8, 16, 32] as const
+
 /** Identificador de preset de pirâmide (atalhos de UI). */
 export const PRESET_PERSONALIZADO = "personalizado" as const
+
+/** true se `n` é uma potência de 2 positiva (1,2,4,8…). */
+export function ehPotenciaDe2(n: number): boolean {
+  return Number.isInteger(n) && n > 0 && (n & (n - 1)) === 0
+}
+
+/** Forma mínima de fronteira que o movimento efetivo precisa. */
+export type FronteiraMovimento = {
+  modo: (typeof MODOS_FRONTEIRA)[number]
+  playoffEstilo?: (typeof PLAYOFF_ESTILOS)[number]
+  vagasAcesso: number
+  vagasRebaixamento: number
+}
+
+/**
+ * Movimento EFETIVO de uma fronteira (quantos REALMENTE sobem/caem). O `+1` do
+ * estilo `extra` entra SÓ no lado da CHAVE (design §8.3): `playoff_acesso extra`
+ * promove `vagasAcesso+1` (diretos + campeão) e rebaixa `vagasRebaixamento`
+ * diretos; `playout extra` rebaixa `vagasRebaixamento+1` (diretos + perdedor da
+ * final) e promove `vagasAcesso` diretos. `vagas`/`direto` ⇒ efetivos = brutos.
+ * FONTE ÚNICA consumida por schema (conservação) + wizard (lockstep) + actions.
+ */
+export function movimentoEfetivo(f: FronteiraMovimento): {
+  sobeEf: number
+  caiEf: number
+} {
+  if (f.modo === "playoff_acesso" && f.playoffEstilo === "extra") {
+    return { sobeEf: f.vagasAcesso + 1, caiEf: f.vagasRebaixamento }
+  }
+  if (f.modo === "playout" && f.playoffEstilo === "extra") {
+    return { sobeEf: f.vagasAcesso, caiEf: f.vagasRebaixamento + 1 }
+  }
+  return { sobeEf: f.vagasAcesso, caiEf: f.vagasRebaixamento }
+}
+
+/**
+ * Tamanho da ZONA da chave (quantos competidores entram no playoff), tirada da
+ * divisão-fonte (inferior no acesso; superior no playout). No `vagas` é a chave
+ * inteira (`playoffVagas`); no `extra` são os `playoffVagas` que disputam a vaga
+ * extra ALÉM dos diretos (que também ocupam posições da divisão).
+ */
+export function zonaDaChave(f: {
+  modo: (typeof MODOS_FRONTEIRA)[number]
+  playoffEstilo?: (typeof PLAYOFF_ESTILOS)[number]
+  vagasAcesso: number
+  vagasRebaixamento: number
+  playoffVagas: number
+}): number {
+  if (f.playoffEstilo === "vagas") return f.playoffVagas
+  // extra: diretos (do lado da chave) + os que disputam a chave.
+  const diretos = f.modo === "playoff_acesso" ? f.vagasAcesso : f.vagasRebaixamento
+  return diretos + f.playoffVagas
+}
 
 /**
  * Competidor no modo CLUBE: id do cache `teams` + nome/escudo já resolvidos
@@ -115,14 +182,91 @@ const fronteiraSchema = z
       .number({ error: "Vagas de rebaixamento inválidas." })
       .int("As vagas devem ser inteiras.")
       .min(0, "As vagas de rebaixamento não podem ser negativas."),
-    // Fase 1 só entrega 'direto' (extremos da tabela). Os demais modos
-    // (playoff/playout/barragem) entram nas Fases 2-3.
-    modo: z.literal("direto", { error: "Modo de fronteira inválido (Fase 1 só aceita 'direto')." }),
+    // Fase 2: 'direto' (extremos da tabela), 'playoff_acesso' (chave decide o
+    // acesso) e 'playout' (chave decide a queda). 'barragem_cruzada' = Fase 3.
+    modo: z.enum(MODOS_FRONTEIRA, { error: "Modo de fronteira inválido." }),
+    // Estilo do playoff (Fase 2): 'vagas' = chave decide as vagas; 'extra' =
+    // diretos + 1 na chave. Obrigatório sse modo ≠ 'direto'.
+    playoffEstilo: z.enum(PLAYOFF_ESTILOS).optional(),
+    // Leg format da chave (jogo único vs ida-e-volta; final sempre jogo único).
+    playoffIdaEVolta: z.boolean().default(false),
+    // Quantos competidores entram na chave (2..32). Obrigatório sse modo ≠ 'direto'.
+    playoffVagas: z
+      .number({ error: "Tamanho da chave inválido." })
+      .int("O tamanho da chave deve ser inteiro.")
+      .min(2, "A chave precisa de ao menos 2 participantes.")
+      .max(
+        MATA_MATA_MAX_PARTICIPANTES,
+        `A chave aceita no máximo ${MATA_MATA_MAX_PARTICIPANTES} participantes.`
+      )
+      .optional(),
   })
-  .refine((f) => f.vagasAcesso === f.vagasRebaixamento, {
-    error:
-      "Na Fase 1, devem subir e cair o mesmo número de competidores em cada fronteira (mantém o tamanho das divisões estável entre temporadas).",
-    path: ["vagasAcesso"],
+  // Coerência POR FRONTEIRA (a conservação/zona-cabe, que dependem do tamanho da
+  // divisão, ficam no superRefine do schema-mãe). A simetria por fronteira (sobre
+  // os EFETIVOS) também é validada lá (precisa de movimentoEfetivo cruzado).
+  .superRefine((f, ctx) => {
+    if (f.modo === "direto") {
+      if (f.playoffEstilo !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Uma fronteira direta não tem estilo de playoff.",
+          path: ["playoffEstilo"],
+        })
+      }
+      return
+    }
+
+    // modo playoff_acesso | playout
+    if (f.playoffEstilo === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Escolha o estilo do playoff: a chave decide as vagas, ou direto + 1 na chave.",
+        path: ["playoffEstilo"],
+      })
+      return
+    }
+    if (f.playoffVagas === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Informe quantos competidores entram na chave.",
+        path: ["playoffVagas"],
+      })
+      return
+    }
+    const pv = f.playoffVagas
+
+    if (f.playoffEstilo === "vagas") {
+      if (!(PLAYOFF_VAGAS_COMPLETAS as readonly number[]).includes(pv)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `O estilo "a chave decide as vagas" exige uma chave completa (${PLAYOFF_VAGAS_COMPLETAS.join(", ")}). Para outros tamanhos, use "direto + 1 na chave".`,
+          path: ["playoffVagas"],
+        })
+        return
+      }
+      if (f.modo === "playoff_acesso") {
+        // Os `vagasAcesso` SOBREVIVENTES sobem ⇒ potência de 2 < pv.
+        if (!ehPotenciaDe2(f.vagasAcesso) || f.vagasAcesso >= pv) {
+          ctx.addIssue({
+            code: "custom",
+            message: `Numa chave de ${pv} que decide as vagas, o nº que sobe deve ser potência de 2 e menor que ${pv} (a chave para na rodada que deixa esse nº de vencedores). Use ${PLAYOFF_VAGAS_COMPLETAS.filter((x) => x < pv).join("/")} ou "direto + 1 na chave".`,
+            path: ["vagasAcesso"],
+          })
+        }
+      } else {
+        // playout: os ELIMINADOS caem ⇒ sobreviventes = pv - vagasRebaixamento
+        // deve ser potência de 2 (a chave para deixando os salvos).
+        const sobreviventes = pv - f.vagasRebaixamento
+        if (!ehPotenciaDe2(sobreviventes) || sobreviventes >= pv) {
+          ctx.addIssue({
+            code: "custom",
+            message: `Num playout de ${pv} que decide as vagas, devem sobrar (salvar) uma potência de 2 — caem ${f.vagasRebaixamento} ⇒ sobram ${sobreviventes}. Ajuste para sobrar 2, 4, 8… ou use "direto + 1 na chave".`,
+            path: ["vagasRebaixamento"],
+          })
+        }
+      }
+    }
+    // estilo 'extra': pv ∈ [2,32] já garantido pelos .min/.max do campo.
   })
 
 export type FronteiraInput = z.infer<typeof fronteiraSchema>
@@ -280,12 +424,50 @@ export const createCompetitionSchema = z
       }
       paresVistos.add(sup)
 
+      // Movimento EFETIVO (o +1 do estilo 'extra' é de UM lado só — §8.3).
+      const { sobeEf, caiEf } = movimentoEfetivo(f)
+
+      // SIMETRIA sobre os EFETIVOS: sobeEf == caiEf mantém o tamanho de CADA
+      // divisão estável a cada temporada (pirâmide imortal). Em 'extra' isso
+      // EXIGE a assimetria bruta (playoff_acesso: rebaix = acesso+1; playout:
+      // acesso = rebaix+1). Sem isto a divisão oscila até estourar [2,20].
+      if (sobeEf !== caiEf) {
+        const dica =
+          f.modo === "playoff_acesso" && f.playoffEstilo === "extra"
+            ? ` (no acesso "direto + 1", configure ${sobeEf} rebaixamentos diretos da divisão de cima).`
+            : f.modo === "playout" && f.playoffEstilo === "extra"
+              ? ` (no playout "direto + 1", configure ${caiEf} acessos diretos da divisão de baixo).`
+              : " (devem subir e cair o mesmo número, mantendo o tamanho das divisões estável)."
+        ctx.addIssue({
+          code: "custom",
+          message: `Esta fronteira promoveria ${sobeEf} e rebaixaria ${caiEf} — precisa ser igual${dica}`,
+          path: ["fronteiras", idx, "vagasAcesso"],
+        })
+      }
+
+      // ZONA da chave cabe na divisão-FONTE (acesso ⇒ inferior; playout ⇒
+      // superior). É invariante distinta do movimento físico/fechamento.
+      if (f.modo !== "direto" && f.playoffEstilo && f.playoffVagas) {
+        const fonteNivel = f.modo === "playout" ? sup : inf
+        const fonte = porNivel.get(fonteNivel)
+        if (fonte) {
+          const zona = zonaDaChave({ ...f, playoffVagas: f.playoffVagas })
+          if (zona > fonte.tamanho) {
+            ctx.addIssue({
+              code: "custom",
+              message: `A chave de playoff precisa de ${zona} competidores da divisão "${fonte.nome}", que só tem ${fonte.tamanho}. Reduza o tamanho da chave ou as vagas diretas.`,
+              path: ["fronteiras", idx, "playoffVagas"],
+            })
+          }
+        }
+      }
+
       // CAEM da superior (d=sup) e descem para inf; SOBEM da inferior (d=inf)
-      // e sobem para sup.
-      cai.set(sup, (cai.get(sup) ?? 0) + f.vagasRebaixamento)
-      recebeDeCima.set(inf, (recebeDeCima.get(inf) ?? 0) + f.vagasRebaixamento)
-      sobe.set(inf, (sobe.get(inf) ?? 0) + f.vagasAcesso)
-      recebeDeBaixo.set(sup, (recebeDeBaixo.get(sup) ?? 0) + f.vagasAcesso)
+      // e sobem para sup. Acumula os EFETIVOS (conservação real, §8.3).
+      cai.set(sup, (cai.get(sup) ?? 0) + caiEf)
+      recebeDeCima.set(inf, (recebeDeCima.get(inf) ?? 0) + caiEf)
+      sobe.set(inf, (sobe.get(inf) ?? 0) + sobeEf)
+      recebeDeBaixo.set(sup, (recebeDeBaixo.get(sup) ?? 0) + sobeEf)
     })
 
     // Sem fronteiras contínuas confiáveis, não dá para fechar a conservação —

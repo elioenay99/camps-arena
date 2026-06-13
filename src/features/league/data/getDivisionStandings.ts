@@ -5,12 +5,35 @@ import {
   getTournamentClassificacao,
   type LinhaComNome,
 } from "@/features/standings/data/getTournamentClassificacao"
-import type { TournamentStatus } from "@/lib/supabase/database.types"
+import type {
+  LeagueBoundaryMode,
+  TournamentStatus,
+} from "@/lib/supabase/database.types"
 
 /** Posições (1-based) que sobem / caem numa divisão. */
 export interface Zonas {
+  /** Posições que SOBEM DIRETO (sem chave). */
   acesso: number[]
+  /** Posições que CAEM DIRETO (sem chave). */
   rebaixamento: number[]
+  /** Posições que vão à CHAVE de acesso (decidem o acesso jogando). */
+  playoffAcesso: number[]
+  /** Posições que vão à CHAVE de playout (decidem a permanência jogando). */
+  playoffRebaixamento: number[]
+}
+
+/**
+ * Forma da fronteira que `derivarZonas` precisa: o sobe/cai DIRETO e a config de
+ * playoff (modo/estilo/vagas). A página passa só o subconjunto mínimo; os campos
+ * de playoff são opcionais (ausentes ⇒ tratada como 'direto', retrocompatível).
+ */
+export interface FronteiraZona {
+  nivelSuperior: number
+  vagasAcesso: number
+  vagasRebaixamento: number
+  modo?: LeagueBoundaryMode
+  playoffEstilo?: string | null
+  playoffVagas?: number | null
 }
 
 /** Classificação de UMA divisão da pirâmide, com as zonas de sobe/cai. */
@@ -23,38 +46,96 @@ export interface DivisaoStandings {
   zonas: Zonas
 }
 
+/** Empurra `[de, ate]` (1-based, clampado a [1, total]) em `destino`. */
+function intervalo(destino: number[], de: number, ate: number, total: number) {
+  for (let p = Math.max(1, de); p <= Math.min(total, ate); p++) destino.push(p)
+}
+
 /**
- * Deriva as zonas (posições 1-based) de uma divisão a partir das fronteiras:
- *  - a fronteira ACIMA (nivelSuperior = nivel - 1) define quantos SOBEM (as
- *    `vagasAcesso` PRIMEIRAS posições desta divisão);
- *  - a fronteira ABAIXO (nivelSuperior = nivel) define quantos CAEM (as
- *    `vagasRebaixamento` ÚLTIMAS posições, contadas do total de competidores).
- * Função PURA — o cálculo do destino real (com empate/sorteio) vive na action;
- * aqui é só o destaque visual da tabela, posicional.
+ * Deriva as zonas (posições 1-based) de uma divisão a partir das fronteiras.
+ * Particiona cada lado em DIRETO (sobe/cai sem jogar) vs PLAYOFF (vai à chave):
+ *
+ *  - fronteira ACIMA (nivelSuperior = nivel - 1) ⇒ esta divisão é a INFERIOR/fonte
+ *    do acesso. As posições do TOPO formam a zona de acesso:
+ *      • 'direto' / 'playout' (a chave do playout decide a queda da superior, não
+ *        o acesso daqui) ⇒ os `vagasAcesso` primeiros sobem DIRETO;
+ *      • 'playoff_acesso' 'vagas' ⇒ os `playoffVagas` primeiros vão à CHAVE (sem
+ *        acesso direto — a chave decide tudo);
+ *      • 'playoff_acesso' 'extra' ⇒ os `vagasAcesso` primeiros sobem DIRETO e os
+ *        `playoffVagas` logo abaixo vão à CHAVE (disputam a vaga extra).
+ *
+ *  - fronteira ABAIXO (nivelSuperior = nivel) ⇒ esta divisão é a SUPERIOR/fonte do
+ *    rebaixamento. As posições do FUNDO formam a zona de queda:
+ *      • 'direto' / 'playoff_acesso' (a chave do acesso vem da inferior) ⇒ os
+ *        `vagasRebaixamento` últimos caem DIRETO;
+ *      • 'playout' 'vagas' ⇒ os `playoffVagas` últimos vão à CHAVE;
+ *      • 'playout' 'extra' ⇒ os `vagasRebaixamento` últimos caem DIRETO e os
+ *        `playoffVagas` logo acima vão à CHAVE (disputam a permanência).
+ *
+ * Uma posição é OU direta OU de playoff, nunca as duas (partição). Função PURA —
+ * o destino real (com empate/sorteio/resultado da chave) vive na action; aqui é
+ * só o destaque visual, posicional.
  */
 export function derivarZonas(
   nivel: number,
   total: number,
-  fronteiras: readonly {
-    nivelSuperior: number
-    vagasAcesso: number
-    vagasRebaixamento: number
-  }[]
+  fronteiras: readonly FronteiraZona[]
 ): Zonas {
   const acima = fronteiras.find((f) => f.nivelSuperior === nivel - 1)
   const abaixo = fronteiras.find((f) => f.nivelSuperior === nivel)
 
   const acesso: number[] = []
-  const nAcesso = Math.min(acima?.vagasAcesso ?? 0, total)
-  for (let p = 1; p <= nAcesso; p++) acesso.push(p)
-
   const rebaixamento: number[] = []
-  const nQueda = Math.min(abaixo?.vagasRebaixamento ?? 0, total)
-  for (let p = total - nQueda + 1; p <= total; p++) {
-    if (p >= 1) rebaixamento.push(p)
+  const playoffAcesso: number[] = []
+  const playoffRebaixamento: number[] = []
+
+  // --- Lado do ACESSO (topo da tabela), fronteira ACIMA, esta divisão é a fonte.
+  if (acima) {
+    const ehPlayoffAcesso = acima.modo === "playoff_acesso"
+    if (ehPlayoffAcesso && acima.playoffVagas) {
+      if (acima.playoffEstilo === "extra") {
+        // diretos no topo, depois a chave logo abaixo.
+        intervalo(acesso, 1, acima.vagasAcesso, total)
+        intervalo(
+          playoffAcesso,
+          acima.vagasAcesso + 1,
+          acima.vagasAcesso + acima.playoffVagas,
+          total
+        )
+      } else {
+        // 'vagas': a chave inteira decide (nenhum acesso direto).
+        intervalo(playoffAcesso, 1, acima.playoffVagas, total)
+      }
+    } else {
+      // 'direto' (ou 'playout' acima — a chave dele decide a queda da superior).
+      intervalo(acesso, 1, acima.vagasAcesso, total)
+    }
   }
 
-  return { acesso, rebaixamento }
+  // --- Lado da QUEDA (fundo da tabela), fronteira ABAIXO, esta divisão é a fonte.
+  if (abaixo) {
+    const ehPlayout = abaixo.modo === "playout"
+    if (ehPlayout && abaixo.playoffVagas) {
+      if (abaixo.playoffEstilo === "extra") {
+        // diretos no fundo, depois a chave logo acima.
+        intervalo(rebaixamento, total - abaixo.vagasRebaixamento + 1, total, total)
+        intervalo(
+          playoffRebaixamento,
+          total - abaixo.vagasRebaixamento - abaixo.playoffVagas + 1,
+          total - abaixo.vagasRebaixamento,
+          total
+        )
+      } else {
+        // 'vagas': a chave inteira decide (nenhuma queda direta).
+        intervalo(playoffRebaixamento, total - abaixo.playoffVagas + 1, total, total)
+      }
+    } else {
+      // 'direto' (ou 'playoff_acesso' abaixo — a chave dele vem da inferior).
+      intervalo(rebaixamento, total - abaixo.vagasRebaixamento + 1, total, total)
+    }
+  }
+
+  return { acesso, rebaixamento, playoffAcesso, playoffRebaixamento }
 }
 
 /**
@@ -80,10 +161,12 @@ export async function getDivisionStandings(
   const supabase = await createClient()
 
   // Divisão + posse por FILTRO transitivo (divisão → season → competition).
+  // `season_id` alimenta o fetch de metadados de playoff das fronteiras (modo/
+  // estilo/vagas) — a página passa só o sobe/cai DIRETO, então enriquecemos aqui.
   const { data: divisao, error: divError } = await supabase
     .from("league_division_seasons")
     .select(
-      "id, nivel, tournament_id, league_seasons!inner ( league_competitions!inner ( created_by ) )"
+      "id, nivel, season_id, tournament_id, league_seasons!inner ( league_competitions!inner ( created_by ) )"
     )
     .eq("id", divisionSeasonId)
     .eq("league_seasons.league_competitions.created_by", userId)
@@ -95,6 +178,34 @@ export async function getDivisionStandings(
   if (!divisao || !divisao.tournament_id) {
     return null
   }
+
+  // Metadados de playoff das fronteiras desta temporada (modo/estilo/vagas). A
+  // página só repassa o sobe/cai DIRETO; aqui fundimos com a config de playoff
+  // para que `derivarZonas` particione zona direta vs zona de chave. Fronteiras
+  // 'direto' não têm playoff_vagas — caem no ramo direto naturalmente.
+  const { data: boundariesRaw, error: boundariesError } = await supabase
+    .from("league_boundaries")
+    .select("nivel_superior, modo, playoff_estilo, playoff_vagas")
+    .eq("season_id", divisao.season_id)
+
+  if (boundariesError) {
+    throw new Error(
+      `Falha ao carregar as fronteiras da divisão: ${boundariesError.message}`
+    )
+  }
+  const playoffPorNivel = new Map(
+    (boundariesRaw ?? []).map((b) => [b.nivel_superior, b])
+  )
+  // Funde o sobe/cai DIRETO (vindo da página) com os metadados de playoff.
+  const fronteirasZona: FronteiraZona[] = fronteiras.map((f) => {
+    const meta = playoffPorNivel.get(f.nivelSuperior)
+    return {
+      ...f,
+      modo: meta?.modo,
+      playoffEstilo: meta?.playoff_estilo,
+      playoffVagas: meta?.playoff_vagas,
+    }
+  })
 
   // slot_id → competitor_id (via entries da divisão) para reescrever a identidade.
   const { data: entries, error: entriesError } = await supabase
@@ -123,7 +234,7 @@ export async function getDivisionStandings(
       competitorPorSlot.get(linha.participanteId) ?? linha.participanteId,
   }))
 
-  const zonas = derivarZonas(divisao.nivel, linhas.length, fronteiras)
+  const zonas = derivarZonas(divisao.nivel, linhas.length, fronteirasZona)
 
   return {
     linhas,

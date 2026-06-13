@@ -20,10 +20,14 @@ const COLUNAS = [
 
 /** Zonas de acesso/rebaixamento (posições 1-based) — destaque da pirâmide. */
 export interface StandingsZonas {
-  /** Posições que SOBEM (faixa positiva/accent). */
+  /** Posições que SOBEM DIRETO (faixa primary). */
   acesso: number[]
-  /** Posições que CAEM (faixa destrutiva/mutada). */
+  /** Posições que CAEM DIRETO (faixa destructive). */
   rebaixamento: number[]
+  /** Posições que vão à CHAVE de acesso (faixa gold tracejada). */
+  playoffAcesso?: number[]
+  /** Posições que vão à CHAVE de playout (faixa gold tracejada). */
+  playoffRebaixamento?: number[]
 }
 
 /** Tabela de classificação — RSC puro: só renderiza o que o motor calculou. */
@@ -45,7 +49,17 @@ export function StandingsTable({
   // o destaque some e a tabela volta ao comportamento standalone.
   const posAcesso = new Set(zonas?.acesso ?? [])
   const posRebaixamento = new Set(zonas?.rebaixamento ?? [])
-  const temZonas = posAcesso.size > 0 || posRebaixamento.size > 0
+  // Zonas de PLAYOFF (vão à chave, não sobem/caem direto). Separadas das diretas:
+  // uma posição é OU direta OU de chave, nunca as duas (partição no derivarZonas).
+  const posPlayoffAcesso = new Set(zonas?.playoffAcesso ?? [])
+  const posPlayoffRebaixamento = new Set(zonas?.playoffRebaixamento ?? [])
+  const temPlayoffAcesso = posPlayoffAcesso.size > 0
+  const temPlayoffRebaixamento = posPlayoffRebaixamento.size > 0
+  const temZonas =
+    posAcesso.size > 0 ||
+    posRebaixamento.size > 0 ||
+    temPlayoffAcesso ||
+    temPlayoffRebaixamento
   return (
     <div className="flex flex-col gap-2">
       <div className="overflow-x-auto rounded-lg border">
@@ -87,10 +101,24 @@ export function StandingsTable({
             // podem repetir posicao===1 — o destaque vale para toda linha líder.
             const ehLider = linha.posicao === 1
             // Zonas da pirâmide (posicionais). O ouro do líder tem prioridade
-            // sobre o accent de acesso (a pos. 1 mora na zona de acesso).
+            // sobre qualquer faixa de zona (a pos. 1 mora numa zona de acesso/
+            // playoff). Por isso o `tom` de zona só pinta quando NÃO é líder.
             const ehAcesso = posAcesso.has(linha.posicao)
             const ehRebaixamento = posRebaixamento.has(linha.posicao)
-            // Faixa lateral (indicador de zona) — só pinta quando há zonas.
+            // Zona de CHAVE (playoff). Cor escolhida: GOLD/âmbar TRACEJADO — 3ª
+            // cor distinta de primary (acesso direto), destructive (queda direta)
+            // e accent (hover/sorteio). O ouro do líder usa faixa SÓLIDA + troféu
+            // + texto gold-ink; a zona de chave usa borda TRACEJADA + tom mais
+            // sutil (gold/8 < gold/12 do líder) e mantém o TEXTO padrão (foreground),
+            // distinguindo as duas leituras de ouro sem criar token novo.
+            // Contraste AA: o texto continua foreground (alto contraste) nos dois
+            // temas; gold só pinta stripe/borda/tom de fundo — a mesma família do
+            // líder, que já valida AA em Dracula (dark) e Canarinho (light).
+            const ehPlayoff =
+              posPlayoffAcesso.has(linha.posicao) ||
+              posPlayoffRebaixamento.has(linha.posicao)
+            // Faixa lateral SÓLIDA (acesso/queda diretos). Playoff usa borda
+            // tracejada (abaixo), não esta faixa — leitura visual distinta.
             const faixa = ehRebaixamento
               ? "before:bg-destructive/70"
               : ehAcesso
@@ -101,8 +129,13 @@ export function StandingsTable({
                 ? "bg-destructive/10 hover:bg-destructive/14"
                 : !ehLider && ehAcesso
                   ? "bg-primary/8 hover:bg-primary/12"
-                  : ""
+                  : !ehLider && ehPlayoff
+                    ? "bg-gold/8 hover:bg-gold/12"
+                    : ""
             const temFaixa = faixa !== ""
+            // Borda esquerda TRACEJADA dourada = marca da zona de chave (só quando
+            // não há faixa sólida; partição garante que nunca coexistem).
+            const ehPlayoffMarcado = ehPlayoff && !temFaixa
             return (
               <tr
                 key={linha.participanteId}
@@ -112,7 +145,9 @@ export function StandingsTable({
                   className={`px-2 py-2 text-center font-display font-bold tabular-nums ${
                     temFaixa
                       ? `relative before:absolute before:inset-y-0 before:left-0 before:w-1 ${faixa}`
-                      : ""
+                      : ehPlayoffMarcado
+                        ? "border-l-2 border-dashed border-gold/70"
+                        : ""
                   }`}
                 >
                   <span
@@ -178,6 +213,21 @@ export function StandingsTable({
                 className="inline-block h-3 w-1 rounded-full bg-destructive/70"
               />
               Rebaixamento (cai)
+            </li>
+          ) : null}
+          {/* Playoff: faixa dourada TRACEJADA (espelha a borda da linha). Rótulo
+              específico por lado; se ambos coexistirem, "Playoff" cobre os dois. */}
+          {temPlayoffAcesso || temPlayoffRebaixamento ? (
+            <li className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block h-3 w-0.5 border-l-2 border-dashed border-gold/70"
+              />
+              {temPlayoffAcesso && temPlayoffRebaixamento
+                ? "Playoff"
+                : temPlayoffAcesso
+                  ? "Playoff de acesso"
+                  : "Playout"}
             </li>
           ) : null}
         </ul>

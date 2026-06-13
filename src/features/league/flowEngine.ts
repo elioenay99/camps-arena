@@ -55,11 +55,33 @@ export interface ItemPlanoFluxo {
   cortePonta?: "sobe" | "cai"
 }
 
+/**
+ * Conjuntos JÁ resolvidos de uma fronteira de PLAYOFF (Fase 2). A action combina
+ * o corte DIRETO (estilo `extra`) com o resultado da CHAVE (`resultadoDaChave`) e
+ * passa os competidores finais aqui — o motor de fluxo só aplica (com a disjunção
+ * unificada). `*PorChave` é o SUBCONJUNTO decidido pela chave (marca
+ * `resolvido_por='playoff'`; o resto do conjunto é corte direto = 'classificacao').
+ */
+export interface PlayoffFronteira {
+  /** Quem SOBE da divisão inferior (direto + campeão/sobreviventes da chave). */
+  sobem: Set<string>
+  /** Quem CAI da divisão superior (direto + vice/eliminados da chave). */
+  caem: Set<string>
+  sobemPorChave: Set<string>
+  caemPorChave: Set<string>
+}
+
 /** Fronteira entre a divisão `nivelSuperior` (d) e a de baixo (d+1). */
 export interface FronteiraFluxo {
   nivelSuperior: number
   vagasAcesso: number
   vagasRebaixamento: number
+  /**
+   * Presente em fronteiras de PLAYOFF/PLAYOUT (Fase 2). Quando definido, o motor
+   * usa estes conjuntos em vez de `resolverZonaDeCorte` (corte por posição). O
+   * sorteio de empate NÃO se aplica (a chave decide por jogo).
+   */
+  playoff?: PlayoffFronteira
 }
 
 /** Uma divisão pronta para o cálculo: nível + suas linhas classificadas. */
@@ -231,44 +253,65 @@ export function calcularPlanoFluxo(
   // Conjuntos de quem sobe/cai por nível. Os PARTICIPANTES do sorteio são
   // rastreados POR PONTA (sorteadosSobe/sorteadosCai) — uma divisão do meio pode
   // ter empate sorteado no acesso E no rebaixamento, e a UI de override precisa
-  // saber a qual corte cada empatado (vencedor ou perdedor) pertence.
+  // saber a qual corte cada empatado (vencedor ou perdedor) pertence. Os conjuntos
+  // decididos PELA CHAVE (Fase 2) viram `resolvido_por='playoff'`.
   const sobeDe = new Map<number, Set<string>>()
   const caiDe = new Map<number, Set<string>>()
   const sorteadosSobe = new Map<number, Set<string>>()
   const sorteadosCai = new Map<number, Set<string>>()
+  const sobeporChave = new Map<number, Set<string>>()
+  const caiPorChave = new Map<number, Set<string>>()
 
-  // (1) REBAIXAMENTOS primeiro: para cada fronteira, os ÚLTIMOS da superior caem.
+  // (1) REBAIXAMENTOS primeiro — FONTE ÚNICA: direto (resolverZonaDeCorte) E
+  // playout (conjunto da chave) populam o MESMO caiDe por nível ANTES do acesso.
   for (const f of fronteiras) {
     const sup = porNivel.get(f.nivelSuperior)
     if (!sup) continue
-    const queda = resolverZonaDeCorte(
-      sup.linhas,
-      f.vagasRebaixamento,
-      "bottom",
-      `${seed}:cai:${f.nivelSuperior}`
-    )
-    caiDe.set(sup.nivel, queda.escolhidos)
-    sorteadosCai.set(sup.nivel, queda.sorteados)
+    if (f.playoff) {
+      // A action já combinou corte direto (extra) + chave; o motor só aplica.
+      caiDe.set(sup.nivel, new Set(f.playoff.caem))
+      caiPorChave.set(sup.nivel, new Set(f.playoff.caemPorChave))
+    } else {
+      const queda = resolverZonaDeCorte(
+        sup.linhas,
+        f.vagasRebaixamento,
+        "bottom",
+        `${seed}:cai:${f.nivelSuperior}`
+      )
+      caiDe.set(sup.nivel, queda.escolhidos)
+      sorteadosCai.set(sup.nivel, queda.sorteados)
+    }
   }
 
   // (2) ACESSOS depois: os PRIMEIROS da inferior sobem, EXCLUINDO quem já caiu.
   // Uma divisão do meio é `sup` de uma fronteira (cai) E `inf` de outra (sobe);
-  // num empate que cobre os dois cortes, sem excluir os já-rebaixados o MESMO
-  // competidor poderia ser escolhido para subir E cair — fisicamente impossível
-  // e corromperia a conservação (a vaga de acesso some no else-if abaixo).
+  // num empate/playout que cobre os dois cortes, sem excluir os já-rebaixados o
+  // MESMO competidor poderia ser escolhido para subir E cair — fisicamente
+  // impossível e corromperia a conservação (a vaga de acesso some no else-if).
   for (const f of fronteiras) {
     const inf = porNivel.get(f.nivelSuperior + 1)
     if (!inf) continue
     const jaCaiu = caiDe.get(inf.nivel) ?? new Set<string>()
-    const elegiveis = inf.linhas.filter((l) => !jaCaiu.has(l.competitorId))
-    const acesso = resolverZonaDeCorte(
-      elegiveis,
-      f.vagasAcesso,
-      "top",
-      `${seed}:sobe:${f.nivelSuperior}`
-    )
-    sobeDe.set(inf.nivel, acesso.escolhidos)
-    sorteadosSobe.set(inf.nivel, acesso.sorteados)
+    if (f.playoff) {
+      const sobem = new Set(
+        [...f.playoff.sobem].filter((id) => !jaCaiu.has(id))
+      )
+      sobeDe.set(inf.nivel, sobem)
+      sobeporChave.set(
+        inf.nivel,
+        new Set([...f.playoff.sobemPorChave].filter((id) => !jaCaiu.has(id)))
+      )
+    } else {
+      const elegiveis = inf.linhas.filter((l) => !jaCaiu.has(l.competitorId))
+      const acesso = resolverZonaDeCorte(
+        elegiveis,
+        f.vagasAcesso,
+        "top",
+        `${seed}:sobe:${f.nivelSuperior}`
+      )
+      sobeDe.set(inf.nivel, acesso.escolhidos)
+      sorteadosSobe.set(inf.nivel, acesso.sorteados)
+    }
   }
 
   const itens: ItemPlanoFluxo[] = []
@@ -277,6 +320,8 @@ export function calcularPlanoFluxo(
     const cai = caiDe.get(div.nivel) ?? new Set<string>()
     const sSobe = sorteadosSobe.get(div.nivel) ?? new Set<string>()
     const sCai = sorteadosCai.get(div.nivel) ?? new Set<string>()
+    const cSobe = sobeporChave.get(div.nivel) ?? new Set<string>()
+    const cCai = caiPorChave.get(div.nivel) ?? new Set<string>()
     for (const linha of div.linhas) {
       let destino: Destino = "permanece"
       let nivelDestino = div.nivel
@@ -287,22 +332,38 @@ export function calcularPlanoFluxo(
         destino = "sobe"
         nivelDestino = div.nivel - 1
       }
+      // Decidido pela CHAVE (Fase 2) tem prioridade de MOTIVO sobre sorteio (a
+      // chave decide por jogo, não há sorteio numa fronteira de playoff).
+      const porChave =
+        (destino === "cai" && cCai.has(linha.competitorId)) ||
+        (destino === "sobe" && cSobe.has(linha.competitorId))
       // Corte de sorteio segue o DESTINO realizado: quem subiu pertence ao corte
       // de acesso, quem caiu ao de rebaixamento — senão a UI agruparia o vencedor
       // no corte errado e emitiria um "Ajuste fantasma" (dead-end no confirm). Só
-      // o 'permanece'-sorteado (disputou e ficou) usa os conjuntos; no straddle a
-      // prioridade cai>sobe é arbitrária mas determinística e NÃO rouba o grupo de
-      // quem ganhou a vaga (já fixado pelo destino).
+      // o 'permanece'-sorteado (disputou e ficou) usa os conjuntos.
       let cortePonta: "sobe" | "cai" | undefined
-      if (destino === "sobe") {
-        cortePonta = "sobe"
-      } else if (destino === "cai") {
-        cortePonta = "cai"
-      } else if (sCai.has(linha.competitorId)) {
-        cortePonta = "cai"
-      } else if (sSobe.has(linha.competitorId)) {
-        cortePonta = "sobe"
+      if (!porChave) {
+        if (destino === "sobe") {
+          cortePonta = "sobe"
+        } else if (destino === "cai") {
+          cortePonta = "cai"
+        } else if (sCai.has(linha.competitorId)) {
+          cortePonta = "cai"
+        } else if (sSobe.has(linha.competitorId)) {
+          cortePonta = "sobe"
+        }
       }
+      // cortePonta só vira 'sorteio' quando o competidor REALMENTE foi sorteado
+      // (está em sCai/sSobe). 'sobe'/'cai' por classificação direta não é sorteio.
+      const sorteado =
+        !porChave &&
+        cortePonta !== undefined &&
+        (sCai.has(linha.competitorId) || sSobe.has(linha.competitorId))
+      const resolvidoPor: ResolvidoPor = porChave
+        ? "playoff"
+        : sorteado
+          ? "sorteio"
+          : "classificacao"
       itens.push({
         competitorId: linha.competitorId,
         nivelOrigem: div.nivel,
@@ -311,8 +372,8 @@ export function calcularPlanoFluxo(
         pontos: linha.pontos,
         jogos: linha.jogos,
         destino,
-        resolvidoPor: cortePonta ? "sorteio" : "classificacao",
-        ...(cortePonta ? { cortePonta } : {}),
+        resolvidoPor,
+        ...(sorteado && cortePonta ? { cortePonta } : {}),
       })
     }
   }
@@ -347,4 +408,103 @@ export function validarFechamentoTamanho(itens: readonly ItemPlanoFluxo[]):
     }
   }
   return { ok: true, tamanhos }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Playoff (Fase 2): resolução da ZONA e combinação com a chave                 */
+/* -------------------------------------------------------------------------- */
+
+export type PlayoffModoFronteira = "playoff_acesso" | "playout"
+export type PlayoffEstiloFronteira = "vagas" | "extra"
+
+/** Uma linha de classificação no mínimo que a zona/combinação precisa (1=topo). */
+export interface LinhaClassificada {
+  competitorId: string
+  posicao: number
+}
+
+/**
+ * Quais competidores entram na CHAVE de uma fronteira de playoff, em ORDEM DE
+ * SEEDING (melhor classificado = seed 1). PURO. `ordenada` é a divisão-FONTE
+ * classificada (best-first): inferior no `playoff_acesso`, superior no `playout`.
+ * - playoff_acesso `vagas`: os `playoff_vagas` PRIMEIROS da inferior.
+ * - playoff_acesso `extra`: os `playoff_vagas` LOGO ABAIXO dos `vagasAcesso` diretos.
+ * - playout `vagas`: os `playoff_vagas` ÚLTIMOS da superior (best-first dentro da zona).
+ * - playout `extra`: os `playoff_vagas` LOGO ACIMA dos `vagasRebaixamento` diretos.
+ */
+export function zonaPlayoffPorPosicao(opts: {
+  modo: PlayoffModoFronteira
+  estilo: PlayoffEstiloFronteira
+  vagasAcesso: number
+  vagasRebaixamento: number
+  playoffVagas: number
+  ordenada: readonly LinhaClassificada[]
+}): string[] {
+  const ord = [...opts.ordenada].sort((a, b) => a.posicao - b.posicao) // best-first
+  // Defensivo: chave maior que a divisão ⇒ zona vazia (a action exige
+  // length === playoffVagas e rejeita). Nunca devolve uma fatia truncada silenciosa.
+  if (opts.playoffVagas < 2 || opts.playoffVagas > ord.length) return []
+  if (opts.modo === "playoff_acesso") {
+    const start = opts.estilo === "extra" ? opts.vagasAcesso : 0
+    if (start + opts.playoffVagas > ord.length) return []
+    return ord.slice(start, start + opts.playoffVagas).map((x) => x.competitorId)
+  }
+  // playout: zona no FUNDO da superior; pula o rebaixamento direto no 'extra'.
+  const skipBottom = opts.estilo === "extra" ? opts.vagasRebaixamento : 0
+  const end = ord.length - skipBottom
+  const start = end - opts.playoffVagas
+  if (start < 0) return []
+  return ord.slice(start, end).map((x) => x.competitorId)
+}
+
+/**
+ * Constrói os conjuntos `PlayoffFronteira` de uma fronteira combinando o
+ * resultado da CHAVE (já mapeado a competitorIds) com os cortes DIRETOS (estilo
+ * `extra` e o lado não-bracketado). PURO. `chaveSobem`/`chaveCaem` são os
+ * conjuntos de `resultadoDaChave` mapeados slot→competidor.
+ */
+export function combinarFronteiraPlayoff(opts: {
+  modo: PlayoffModoFronteira
+  estilo: PlayoffEstiloFronteira
+  vagasAcesso: number
+  vagasRebaixamento: number
+  superiorOrdenada: readonly LinhaClassificada[]
+  inferiorOrdenada: readonly LinhaClassificada[]
+  chaveSobem: ReadonlySet<string>
+  chaveCaem: ReadonlySet<string>
+}): PlayoffFronteira {
+  const sobem = new Set<string>()
+  const caem = new Set<string>()
+  const sobemPorChave = new Set<string>()
+  const caemPorChave = new Set<string>()
+
+  const sup = [...opts.superiorOrdenada].sort((a, b) => a.posicao - b.posicao)
+  const inf = [...opts.inferiorOrdenada].sort((a, b) => a.posicao - b.posicao)
+  const topo = (n: number) => inf.slice(0, n).map((x) => x.competitorId)
+  const fundo = (n: number) =>
+    n > 0 ? sup.slice(sup.length - n).map((x) => x.competitorId) : []
+
+  if (opts.modo === "playoff_acesso") {
+    // ACESSO pela chave; QUEDA direta por posição (fundo da superior).
+    for (const c of fundo(opts.vagasRebaixamento)) caem.add(c)
+    if (opts.estilo === "extra") {
+      for (const c of topo(opts.vagasAcesso)) sobem.add(c) // diretos
+    }
+    for (const c of opts.chaveSobem) {
+      sobem.add(c)
+      sobemPorChave.add(c)
+    }
+  } else {
+    // QUEDA pela chave; ACESSO direto por posição (topo da inferior).
+    for (const c of topo(opts.vagasAcesso)) sobem.add(c)
+    if (opts.estilo === "extra") {
+      for (const c of fundo(opts.vagasRebaixamento)) caem.add(c) // diretos
+    }
+    for (const c of opts.chaveCaem) {
+      caem.add(c)
+      caemPorChave.add(c)
+    }
+  }
+
+  return { sobem, caem, sobemPorChave, caemPorChave }
 }

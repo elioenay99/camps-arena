@@ -97,3 +97,65 @@ Quando dois ou mais competidores ficarem empatados (sem desempate objetivo do mo
 
 - **WHEN** o dono discorda do sorteio e ajusta manualmente quem sobe/cai
 - **THEN** a confirmação aplica o ajuste do dono sobre o plano (`resolvido_por='override'`) e a próxima temporada reflete a decisão manual
+
+### Requirement: Fronteira por playoff de acesso ou playout (Fase 2)
+
+Uma fronteira SHALL poder ser configurada (`league_boundaries.modo`) como `playoff_acesso` (o lado do ACESSO é decidido por uma chave eliminatória entre os primeiros da divisão inferior; o rebaixamento da superior continua DIRETO por posição) ou `playout` (o lado da QUEDA é decidido por uma chave entre os últimos da divisão superior; o acesso da inferior continua DIRETO). Cada fronteira de playoff SHALL escolher independentemente um `playoff_estilo` e um leg format (`playoff_ida_e_volta`):
+
+- **Estilo `vagas`** ("a chave decide as vagas"): uma chave COMPLETA de `playoff_vagas` participantes (∈ {4,8,16,32}, sem byes) joga até sobrar o nº de sobreviventes que recebem o desfecho favorável — no `playoff_acesso`, os `vagas_acesso` sobreviventes (vencedores) SOBEM e os demais permanecem; no `playout`, os `vagas_rebaixamento` ELIMINADOS caem e os sobreviventes (`playoff_vagas - vagas_rebaixamento`) permanecem. O nº favorável SHALL corresponder a uma rodada exata da chave (`playoff_vagas / 2^f`), portanto potência de 2.
+- **Estilo `extra`** ("direto + 1 na chave"): as vagas diretas são decididas por posição (como `direto`) e a chave entre os PRÓXIMOS `playoff_vagas` (2..32, byes permitidos) decide UMA vaga extra — no `playoff_acesso`, o CAMPEÃO da chave sobe; no `playout`, o PERDEDOR da final da chave cai. Os demais participantes da chave permanecem.
+
+A configuração SHALL preservar a CONSERVAÇÃO de tamanho usando o movimento EFETIVO de cada fronteira, onde o `+1` do estilo `extra` entra SOMENTE no lado da CHAVE: `playoff_acesso` `extra` ⇒ acesso efetivo = `vagas_acesso + 1`, queda efetiva = `vagas_rebaixamento` (toda direta); `playout` `extra` ⇒ queda efetiva = `vagas_rebaixamento + 1`, acesso efetivo = `vagas_acesso`; estilo `vagas`/`direto` ⇒ efetivos = brutos. A conservação exige `acesso_efetivo == queda_efetivo` por fronteira (logo `playoff_acesso extra` ⇒ `vagas_rebaixamento = vagas_acesso + 1`). A montagem REJEITA (não apenas avisa) qualquer config cujo movimento efetivo deixe uma divisão fora de `[2,20]` ou cuja zona da chave não caiba na divisão de origem. A chave de cada fronteira SHALL ter no máximo `MATA_MATA_MAX_PARTICIPANTES` (32) participantes. As pontas continuam válidas (a divisão 1 nunca recebe acesso por playoff de cima; a última nunca sofre playout para baixo).
+
+#### Scenario: Playoff de acesso estilo vagas
+
+- **WHEN** o dono configura uma fronteira `playoff_acesso` estilo `vagas` com `playoff_vagas=8` e `vagas_acesso=4` (jogo único), inicia a temporada e encerra as divisões
+- **THEN** uma chave de 8 entre os 8 primeiros da divisão inferior é montada e jogada; os 4 vencedores da 1ª rodada SOBEM e os 4 perdedores permanecem; o rebaixamento da divisão superior segue direto por posição
+
+#### Scenario: Playoff de acesso estilo extra (Championship)
+
+- **WHEN** o dono configura `playoff_acesso` estilo `extra` com `vagas_acesso=2` e `playoff_vagas=4` (ida-e-volta nas semifinais, final em jogo único)
+- **THEN** os 2 primeiros da divisão inferior sobem direto e uma chave de 4 entre os 3º–6º decide a 3ª vaga (campeão sobe), com a divisão superior rebaixando `vagas_acesso+1 = 3` direto, conservando o tamanho
+
+#### Scenario: Playout estilo extra rebaixa o perdedor da final
+
+- **WHEN** o dono configura `playout` estilo `extra` e a chave entre os times logo acima da zona de queda direta é decidida
+- **THEN** o campeão da chave se salva (permanece) e o PERDEDOR DA FINAL cai, somando-se às quedas diretas, conservando o tamanho
+
+#### Scenario: Config de playoff que viola potência de 2 ou conservação é rejeitada
+
+- **WHEN** o dono define um estilo `vagas` cujo nº de vagas não corresponde a uma rodada exata da chave (ex.: `playoff_vagas=8`, `vagas_acesso=3`), ou um movimento efetivo que deixaria uma divisão fora de `[2,20]`
+- **THEN** o schema REJEITA a configuração antes de qualquer escrita, com erro explícito, e o wizard impede o avanço
+
+### Requirement: Montar e jogar as chaves de playoff/playout (Fase 2)
+
+Quando TODAS as divisões da temporada encerrarem, o sistema SHALL permitir montar as chaves de playoff/playout via uma ação que, para cada fronteira não-`direto`, resolve a ZONA pela classificação das divisões e chama a RPC `SECURITY DEFINER` `montar_playoff(p_boundary_id uuid)` — que cria um `tournaments` de `formato='mata_mata'` em rascunho (herdando `por_nome`, `desempate_criterio` e `is_public`), insere os `tournament_slots` JÁ preenchidos dos competidores da zona (com a MESMA degradação de `user_id` da montagem de temporada) e vincula o torneio à fronteira (`league_boundaries.playoff_tournament_id`, sentinela de idempotência). A chave SHALL ser SEMEADA por posição na liga (determinística — melhor classificado contra pior), gerada pelo motor de mata-mata existente (`gerarFaseInicial`) com o leg format da fronteira. O dono SHALL jogar a chave reusando o ciclo de torneio existente (lançar placar, avançar fase). A montagem SHALL ser idempotente (não duplica chaves em retry) e SHALL exigir que ambas as divisões da fronteira tenham o mesmo `por_nome`. As chaves SHALL ficar CONGELADAS após o fluxo confirmar a temporada (guard em `reabrirTorneio` + trigger `lock_division_tournament_reopen` estendido a `playoff_tournament_id`).
+
+#### Scenario: Montar e jogar a chave de uma fronteira
+
+- **WHEN** o dono monta os playoffs de uma temporada com as divisões encerradas
+- **THEN** cada fronteira de playoff ganha um torneio `mata_mata` semeado por posição com as vagas dos competidores da zona, e o dono pode jogá-lo pelo ciclo de torneio existente
+
+#### Scenario: Montagem de playoff idempotente
+
+- **WHEN** a montagem dos playoffs é re-executada (retry/corrida entre abas)
+- **THEN** as chaves já criadas não são duplicadas (sentinela `playoff_tournament_id`) e a montagem completa só o que faltava
+
+#### Scenario: Chave de playoff congelada após o fluxo
+
+- **WHEN** a temporada já consolidou o sobe/cai e alguém tenta reabrir a chave de uma fronteira
+- **THEN** o lock barra a reabertura e a chave permanece congelada
+
+### Requirement: Integrar o resultado das chaves ao fluxo (Fase 2)
+
+O fluxo de fim de temporada (`calcularFluxoTemporada`) SHALL incorporar o resultado das chaves de playoff/playout: para fronteiras não-`direto`, o conjunto de quem sobe/cai vem do RESULTADO da chave (lido de forma pura das partidas persistidas via `decidirConfronto`), não da zona de corte por posição. O cálculo SHALL exigir que TODAS as chaves de playoff da temporada estejam DECIDIDAS (final resolvida) antes de produzir o plano; enquanto houver chave pendente, o fluxo NÃO avança. As entradas resolvidas por chave SHALL registrar `resolvido_por = 'playoff'`. A DISJUNÇÃO de cortes (um competidor nunca sobe E cai) e a CONSERVAÇÃO de tamanho SHALL continuar garantidas, agora misturando fronteiras `direto` e de playoff na mesma temporada.
+
+#### Scenario: Plano reflete o vencedor do playoff
+
+- **WHEN** todas as divisões e todas as chaves de playoff da temporada estão encerradas e o dono calcula o fluxo
+- **THEN** o plano sobe/cai usa o resultado das chaves (vencedores/sobreviventes sobem ou se salvam; eliminados/perdedores caem) com `resolvido_por='playoff'`, e a próxima temporada reflete isso conservando o tamanho
+
+#### Scenario: Fluxo bloqueado com playoff pendente
+
+- **WHEN** as divisões encerraram mas uma chave de playoff ainda não foi decidida
+- **THEN** o cálculo do fluxo é bloqueado com erro explícito até a chave ser concluída

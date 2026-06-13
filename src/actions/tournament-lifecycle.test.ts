@@ -29,6 +29,9 @@ interface Cenario {
   /** FREEZE: o torneio é divisão de pirâmide com temporada congelada? */
   divisaoCongelada?: boolean
   divisaoError?: boolean
+  /** FREEZE: o torneio é a CHAVE de playoff de uma fronteira congelada? */
+  chaveCongelada?: boolean
+  chaveError?: boolean
 }
 
 /**
@@ -99,6 +102,24 @@ function montarClient(c: Cenario) {
     })),
   }
 
+  // FREEZE camada (a) da CHAVE de playoff (Fase 2): league_boundaries.select()
+  // .eq("playoff_tournament_id").in("league_seasons.status").limit().
+  const filtroChaveSpy = vi.fn()
+  const cadeiaChaveFreeze = {
+    eq: vi.fn((col: string, val: unknown) => {
+      filtroChaveSpy("eq", col, val)
+      return cadeiaChaveFreeze
+    }),
+    in: vi.fn((col: string, val: unknown) => {
+      filtroChaveSpy("in", col, val)
+      return cadeiaChaveFreeze
+    }),
+    limit: vi.fn(async () => ({
+      data: c.chaveError ? null : c.chaveCongelada ? [{ id: "b1" }] : [],
+      error: c.chaveError ? { message: "down" } : null,
+    })),
+  }
+
   const client = {
     auth: {
       getUser: vi.fn(async () => ({
@@ -111,6 +132,8 @@ function montarClient(c: Cenario) {
         return { update: updateSpy, select: vi.fn(() => cadeiaTorneioSelect) }
       if (tabela === "league_division_seasons")
         return { select: vi.fn(() => cadeiaFreeze) }
+      if (tabela === "league_boundaries")
+        return { select: vi.fn(() => cadeiaChaveFreeze) }
       return { select: vi.fn(() => cadeiaMatches) }
     }),
   }
@@ -121,6 +144,7 @@ function montarClient(c: Cenario) {
     filtroUpdateSpy,
     filtroTorneioSpy,
     filtroFreezeSpy,
+    filtroChaveSpy,
   }
 }
 
@@ -284,6 +308,31 @@ describe("reabrirTorneio", () => {
     // Consulta por tournament_id + status congelado da season.
     expect(filtroFreezeSpy).toHaveBeenCalledWith("eq", "tournament_id", TORNEIO)
     expect(filtroFreezeSpy).toHaveBeenCalledWith("in", "league_seasons.status", [
+      "em_fluxo",
+      "encerrada",
+    ])
+  })
+
+  it("FREEZE: CHAVE de playoff de temporada congelada é BARRADA (Fase 2)", async () => {
+    const { updateSpy, filtroChaveSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, formato: "mata_mata" },
+      jaGeradas: true,
+      divisaoCongelada: false, // não é divisão...
+      chaveCongelada: true, // ...mas é a chave de uma fronteira congelada
+    })
+    const r = await reabrirTorneio(TORNEIO)
+    expect(r).toEqual({
+      ok: false,
+      error: "Torneio não encontrado, não encerrado ou você não é o dono dele.",
+    })
+    expect(updateSpy).not.toHaveBeenCalled()
+    expect(filtroChaveSpy).toHaveBeenCalledWith(
+      "eq",
+      "playoff_tournament_id",
+      TORNEIO
+    )
+    expect(filtroChaveSpy).toHaveBeenCalledWith("in", "league_seasons.status", [
       "em_fluxo",
       "encerrada",
     ])

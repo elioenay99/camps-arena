@@ -533,6 +533,23 @@ export async function reabrirTorneio(
     return { ok: false, error: erroPropriedade }
   }
 
+  // FREEZE — camada (a) também para a CHAVE de playoff (Fase 2): se este torneio
+  // é a chave de uma fronteira cuja temporada está congelada, reabrir mudaria o
+  // resultado que já gerou a N+1. Mesmo motivo/mensagem da divisão; o trigger
+  // `lock_division_tournament_reopen` (2º ramo) é a defesa real.
+  const { data: chaveCongelada, error: chaveError } = await supabase
+    .from("league_boundaries")
+    .select("id, league_seasons!inner(status)")
+    .eq("playoff_tournament_id", parsed.data)
+    .in("league_seasons.status", ["em_fluxo", "encerrada"])
+    .limit(1)
+  if (chaveError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (chaveCongelada && chaveCongelada.length > 0) {
+    return { ok: false, error: erroPropriedade }
+  }
+
   let novoStatus: "ativo" | "rascunho" = "ativo"
   if (torneio.formato !== "avulso") {
     const { data: geradas, error: geradasError } = await supabase

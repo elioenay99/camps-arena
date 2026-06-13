@@ -11,10 +11,12 @@ vi.mock("@/features/standings/data/getTournamentClassificacao", () => ({
 import { createCompetition, montarTemporada } from "@/actions/leaguePyramid"
 import {
   calcularPlanoFluxo,
+  combinarFronteiraPlayoff,
   ordemSorteada,
   prngDeSemente,
   resolverZonaDeCorte,
   validarFechamentoTamanho,
+  zonaPlayoffPorPosicao,
   type DivisaoFluxo,
   type FronteiraFluxo,
   type ItemPlanoFluxo,
@@ -687,5 +689,275 @@ describe("createCompetition (validação)", () => {
     } as never)
     expect(r.error).toBeDefined()
     expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+})
+
+/* -------------------------------------------------------------------------- */
+/* Fase 2 — fronteiras de PLAYOFF no motor de fluxo                             */
+/* -------------------------------------------------------------------------- */
+
+describe("calcularPlanoFluxo (mover DIRETO limpo = classificacao)", () => {
+  it("swap simétrico sem empate: movers são 'classificacao', sem cortePonta", () => {
+    const fronteiras: FronteiraFluxo[] = [
+      { nivelSuperior: 1, vagasAcesso: 2, vagasRebaixamento: 2 },
+    ]
+    const plano = calcularPlanoFluxo(
+      [divisaoLimpa(1, 4), divisaoLimpa(2, 4)],
+      fronteiras,
+      "limpo"
+    )
+    const movers = plano.itens.filter((i) => i.destino !== "permanece")
+    expect(movers.length).toBe(4) // 2 sobem + 2 caem
+    expect(movers.every((i) => i.resolvidoPor === "classificacao")).toBe(true)
+    expect(movers.every((i) => i.cortePonta === undefined)).toBe(true)
+  })
+})
+
+describe("calcularPlanoFluxo (fronteira de playoff)", () => {
+  it("playoff_acesso: chave decide o acesso (resolvido='playoff'); queda direta='classificacao'", () => {
+    // div1 size 6 (rebaixa 4 diretos), div2 size 8 (4 sobem pela chave).
+    const div1 = divisaoLimpa(1, 6)
+    const div2 = divisaoLimpa(2, 8)
+    const sobePelaChave = new Set([
+      cid("d2-1"),
+      cid("d2-2"),
+      cid("d2-3"),
+      cid("d2-4"),
+    ])
+    const quedaDireta = new Set([
+      cid("d1-3"),
+      cid("d1-4"),
+      cid("d1-5"),
+      cid("d1-6"),
+    ])
+    const fronteiras: FronteiraFluxo[] = [
+      {
+        nivelSuperior: 1,
+        vagasAcesso: 4,
+        vagasRebaixamento: 4,
+        playoff: {
+          sobem: sobePelaChave,
+          caem: quedaDireta,
+          sobemPorChave: sobePelaChave,
+          caemPorChave: new Set(), // queda foi DIRETA por posição
+        },
+      },
+    ]
+    const plano = calcularPlanoFluxo([div1, div2], fronteiras, "po-acesso")
+    const sobem = plano.itens.filter((i) => i.destino === "sobe")
+    expect(sobem.map((i) => i.competitorId).sort()).toEqual(
+      [...sobePelaChave].sort()
+    )
+    expect(sobem.every((i) => i.resolvidoPor === "playoff")).toBe(true)
+    const caem = plano.itens.filter((i) => i.destino === "cai")
+    expect(caem.map((i) => i.competitorId).sort()).toEqual([...quedaDireta].sort())
+    // Queda direta = classificacao (não jogou playoff).
+    expect(caem.every((i) => i.resolvidoPor === "classificacao")).toBe(true)
+    // Cobertura total + conservação.
+    expect(plano.itens.length).toBe(14)
+    const f = validarFechamentoTamanho(plano.itens)
+    expect(f.ok).toBe(true)
+    if (f.ok) {
+      expect(f.tamanhos.get(1)).toBe(6)
+      expect(f.tamanhos.get(2)).toBe(8)
+    }
+  })
+
+  it("playout extra: 1 queda direta + 1 perdedor da chave; acesso direto da inferior", () => {
+    const div1 = divisaoLimpa(1, 6)
+    const div2 = divisaoLimpa(2, 6)
+    const quedaChave = new Set([cid("d1-3")]) // perdedor da final
+    const caemTotal = new Set([cid("d1-6"), cid("d1-3")]) // 1 direto + 1 chave
+    const sobeDireto = new Set([cid("d2-1"), cid("d2-2")]) // acesso direto (vr+1=2)
+    const fronteiras: FronteiraFluxo[] = [
+      {
+        nivelSuperior: 1,
+        vagasAcesso: 2,
+        vagasRebaixamento: 1,
+        playoff: {
+          sobem: sobeDireto,
+          caem: caemTotal,
+          sobemPorChave: new Set(), // acesso da inferior é DIRETO num playout
+          caemPorChave: quedaChave,
+        },
+      },
+    ]
+    const plano = calcularPlanoFluxo([div1, div2], fronteiras, "po-out")
+    const item = (id: string) => plano.itens.find((i) => i.competitorId === cid(id))!
+    expect(item("d1-6").destino).toBe("cai")
+    expect(item("d1-6").resolvidoPor).toBe("classificacao") // direto
+    expect(item("d1-3").destino).toBe("cai")
+    expect(item("d1-3").resolvidoPor).toBe("playoff") // perdeu a chave
+    expect(item("d2-1").destino).toBe("sobe")
+    expect(item("d2-1").resolvidoPor).toBe("classificacao") // acesso direto
+    // Conservação 6→6 em ambas.
+    const f = validarFechamentoTamanho(plano.itens)
+    expect(f.ok).toBe(true)
+    if (f.ok) {
+      expect(f.tamanhos.get(1)).toBe(6)
+      expect(f.tamanhos.get(2)).toBe(6)
+    }
+  })
+
+  it("DISJUNÇÃO misto direto+playout: quem cai pela chave NÃO pode subir pelo direto", () => {
+    // div2 (meio) é INFERIOR da fronteira 1↔2 (direto, acesso 1) e SUPERIOR da
+    // 2↔3 (playout). O top de div2 cai pela chave do playout → não pode subir.
+    const div1 = divisaoLimpa(1, 4)
+    const div2 = divisaoLimpa(2, 4)
+    const div3 = divisaoLimpa(3, 4)
+    const caiPelaChave = new Set([cid("d2-1")]) // o 1º de div2 perdeu o playout
+    const fronteiras: FronteiraFluxo[] = [
+      // 1↔2 direto: 1 sobe de div2 / 1 cai de div1.
+      { nivelSuperior: 1, vagasAcesso: 1, vagasRebaixamento: 1 },
+      // 2↔3 playout: 1 cai de div2 pela chave / 1 sobe de div3 direto.
+      {
+        nivelSuperior: 2,
+        vagasAcesso: 1,
+        vagasRebaixamento: 1,
+        playoff: {
+          sobem: new Set([cid("d3-1")]),
+          caem: caiPelaChave,
+          sobemPorChave: new Set(),
+          caemPorChave: caiPelaChave,
+        },
+      },
+    ]
+    const plano = calcularPlanoFluxo([div1, div2, div3], fronteiras, "misto")
+    const d2_1 = plano.itens.find((i) => i.competitorId === cid("d2-1"))!
+    // d2-1 CAI pela chave; NÃO sobe (disjunção: rebaixa primeiro).
+    expect(d2_1.destino).toBe("cai")
+    expect(d2_1.resolvidoPor).toBe("playoff")
+    // A vaga de acesso da 1↔2 foi para o PRÓXIMO elegível (d2-2), não sumiu.
+    const sobeDeMeio = plano.itens.filter(
+      (i) => i.nivelOrigem === 2 && i.destino === "sobe"
+    )
+    expect(sobeDeMeio).toHaveLength(1)
+    expect(sobeDeMeio[0].competitorId).toBe(cid("d2-2"))
+    // Ninguém sobe E cai; cobertura total preservada.
+    expect(plano.itens.length).toBe(12)
+    expect(validarFechamentoTamanho(plano.itens).ok).toBe(true)
+  })
+})
+
+/* -------------------------------------------------------------------------- */
+/* Fase 2 — zona da chave + combinação (helpers puros)                          */
+/* -------------------------------------------------------------------------- */
+
+describe("zonaPlayoffPorPosicao", () => {
+  // Classificação best-first: posicao 1..n.
+  const ord = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ competitorId: cid(`p${i + 1}`), posicao: i + 1 }))
+
+  it("playoff_acesso 'vagas': os playoffVagas PRIMEIROS da inferior", () => {
+    const z = zonaPlayoffPorPosicao({
+      modo: "playoff_acesso",
+      estilo: "vagas",
+      vagasAcesso: 4,
+      vagasRebaixamento: 4,
+      playoffVagas: 8,
+      ordenada: ord(8),
+    })
+    expect(z).toEqual([1, 2, 3, 4, 5, 6, 7, 8].map((i) => cid(`p${i}`)))
+  })
+
+  it("playoff_acesso 'extra': pula os diretos, pega os playoffVagas seguintes", () => {
+    const z = zonaPlayoffPorPosicao({
+      modo: "playoff_acesso",
+      estilo: "extra",
+      vagasAcesso: 2,
+      vagasRebaixamento: 3,
+      playoffVagas: 4,
+      ordenada: ord(8),
+    })
+    // posições 3,4,5,6 (0-indexed 2..5).
+    expect(z).toEqual([3, 4, 5, 6].map((i) => cid(`p${i}`)))
+  })
+
+  it("playout 'vagas': os playoffVagas ÚLTIMOS da superior, best-first", () => {
+    const z = zonaPlayoffPorPosicao({
+      modo: "playout",
+      estilo: "vagas",
+      vagasAcesso: 4,
+      vagasRebaixamento: 4,
+      playoffVagas: 8,
+      ordenada: ord(8),
+    })
+    expect(z).toEqual([1, 2, 3, 4, 5, 6, 7, 8].map((i) => cid(`p${i}`)))
+  })
+
+  it("playout 'extra': pula o rebaixamento direto do fundo, pega os playoffVagas acima", () => {
+    const z = zonaPlayoffPorPosicao({
+      modo: "playout",
+      estilo: "extra",
+      vagasAcesso: 2,
+      vagasRebaixamento: 1,
+      playoffVagas: 4,
+      ordenada: ord(8),
+    })
+    // end = 8 - 1 = 7; start = 7 - 4 = 3 ⇒ posições 4,5,6,7.
+    expect(z).toEqual([4, 5, 6, 7].map((i) => cid(`p${i}`)))
+  })
+})
+
+describe("combinarFronteiraPlayoff", () => {
+  const ord = (prefixo: string, n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      competitorId: cid(`${prefixo}${i + 1}`),
+      posicao: i + 1,
+    }))
+
+  it("playoff_acesso 'vagas': sobem=chave, caem=fundo direto da superior", () => {
+    const chaveSobem = new Set([cid("inf1"), cid("inf2")])
+    const r = combinarFronteiraPlayoff({
+      modo: "playoff_acesso",
+      estilo: "vagas",
+      vagasAcesso: 2,
+      vagasRebaixamento: 2,
+      superiorOrdenada: ord("sup", 6),
+      inferiorOrdenada: ord("inf", 8),
+      chaveSobem,
+      chaveCaem: new Set(),
+    })
+    expect([...r.sobem].sort()).toEqual([cid("inf1"), cid("inf2")].sort())
+    expect([...r.sobemPorChave].sort()).toEqual([cid("inf1"), cid("inf2")].sort())
+    // queda direta = 2 últimos da superior (pos 5,6).
+    expect([...r.caem].sort()).toEqual([cid("sup5"), cid("sup6")].sort())
+    expect(r.caemPorChave.size).toBe(0)
+  })
+
+  it("playoff_acesso 'extra': sobem=2 diretos + campeão (porChave só o campeão)", () => {
+    const r = combinarFronteiraPlayoff({
+      modo: "playoff_acesso",
+      estilo: "extra",
+      vagasAcesso: 2,
+      vagasRebaixamento: 3,
+      superiorOrdenada: ord("sup", 8),
+      inferiorOrdenada: ord("inf", 8),
+      chaveSobem: new Set([cid("inf5")]), // campeão da chave (zona 3..6)
+      chaveCaem: new Set(),
+    })
+    expect([...r.sobem].sort()).toEqual([cid("inf1"), cid("inf2"), cid("inf5")].sort())
+    expect([...r.sobemPorChave]).toEqual([cid("inf5")]) // só o campeão é 'playoff'
+    expect([...r.caem].sort()).toEqual(
+      [cid("sup6"), cid("sup7"), cid("sup8")].sort()
+    ) // 3 diretos
+    expect(r.caemPorChave.size).toBe(0)
+  })
+
+  it("playout 'extra': caem=1 direto + perdedor da final; acesso direto da inferior", () => {
+    const r = combinarFronteiraPlayoff({
+      modo: "playout",
+      estilo: "extra",
+      vagasAcesso: 2,
+      vagasRebaixamento: 1,
+      superiorOrdenada: ord("sup", 8),
+      inferiorOrdenada: ord("inf", 8),
+      chaveSobem: new Set(),
+      chaveCaem: new Set([cid("sup4")]), // perdedor da final (zona 4..7)
+    })
+    expect([...r.caem].sort()).toEqual([cid("sup8"), cid("sup4")].sort())
+    expect([...r.caemPorChave]).toEqual([cid("sup4")]) // só o perdedor é 'playoff'
+    expect([...r.sobem].sort()).toEqual([cid("inf1"), cid("inf2")].sort())
+    expect(r.sobemPorChave.size).toBe(0)
   })
 })

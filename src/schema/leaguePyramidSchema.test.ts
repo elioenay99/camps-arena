@@ -440,3 +440,127 @@ describe("createCompetitionSchema", () => {
     })
   })
 })
+
+/* -------------------------------------------------------------------------- */
+/* Fase 2 — fronteiras de playoff/playout                                       */
+/* -------------------------------------------------------------------------- */
+
+describe("createCompetitionSchema (playoff/playout — Fase 2)", () => {
+  /** Pirâmide de 2 divisões de tamanho `tam` com 1 fronteira de playoff. */
+  const piramidePlayoff = (tam: number, fronteira: Record<string, unknown>) =>
+    createCompetitionSchema.safeParse({
+      nome: "Pirâmide Playoff",
+      divisoes: [divisao(1, tam), divisao(2, tam)],
+      fronteiras: [{ nivelSuperior: 1, ...fronteira }],
+    })
+
+  it("aceita playoff_acesso 'vagas' simétrico (chave 8, 4 sobem / 4 caem)", () => {
+    const r = piramidePlayoff(8, {
+      modo: "playoff_acesso",
+      playoffEstilo: "vagas",
+      playoffVagas: 8,
+      vagasAcesso: 4,
+      vagasRebaixamento: 4,
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it("aceita playoff_acesso 'extra' (2 diretos + 1 na chave de 4; rebaixa 3 diretos)", () => {
+    const r = piramidePlayoff(8, {
+      modo: "playoff_acesso",
+      playoffEstilo: "extra",
+      playoffVagas: 4,
+      playoffIdaEVolta: true,
+      vagasAcesso: 2, // efetivo = 3 (com o campeão)
+      vagasRebaixamento: 3, // direto = 3 (simetria sobre efetivos)
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it("aceita playout 'extra' (1 queda direta + 1 perdedor; sobe 2 diretos)", () => {
+    const r = piramidePlayoff(8, {
+      modo: "playout",
+      playoffEstilo: "extra",
+      playoffVagas: 4,
+      vagasRebaixamento: 1, // efetivo = 2 (com o perdedor da final)
+      vagasAcesso: 2, // direto = 2 (simetria sobre efetivos)
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it("REJEITA 'vagas' com nº de acesso não-potência-de-2 (chave 8, 3 sobem)", () => {
+    const r = piramidePlayoff(8, {
+      modo: "playoff_acesso",
+      playoffEstilo: "vagas",
+      playoffVagas: 8,
+      vagasAcesso: 3,
+      vagasRebaixamento: 3,
+    })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(z.treeifyError(r.error).errors.length + JSON.stringify(r.error.issues)).toMatch(
+        /potência de 2|direto \+ 1/i
+      )
+    }
+  })
+
+  it("REJEITA playout 'vagas' impossível (8 jogam, 3 caem ⇒ sobram 5)", () => {
+    const r = piramidePlayoff(8, {
+      modo: "playout",
+      playoffEstilo: "vagas",
+      playoffVagas: 8,
+      vagasRebaixamento: 3,
+      vagasAcesso: 3,
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("REJEITA 'extra' simétrico nos brutos (quebra a simetria dos efetivos)", () => {
+    const r = piramidePlayoff(8, {
+      modo: "playoff_acesso",
+      playoffEstilo: "extra",
+      playoffVagas: 4,
+      vagasAcesso: 3,
+      vagasRebaixamento: 3, // efetivo acesso=4 ≠ queda=3
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("REJEITA chave que não cabe na divisão-fonte (chave 8, inferior tem 6)", () => {
+    const r = createCompetitionSchema.safeParse({
+      nome: "Zona grande demais",
+      divisoes: [divisao(1, 8), divisao(2, 6)],
+      fronteiras: [
+        {
+          nivelSuperior: 1,
+          modo: "playoff_acesso",
+          playoffEstilo: "vagas",
+          playoffVagas: 8, // zona 8 > 6
+          vagasAcesso: 4,
+          vagasRebaixamento: 4,
+        },
+      ],
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("REJEITA estilo de playoff numa fronteira 'direto'", () => {
+    const r = piramidePlayoff(8, {
+      modo: "direto",
+      playoffEstilo: "vagas",
+      vagasAcesso: 4,
+      vagasRebaixamento: 4,
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("REJEITA fronteira de playoff sem estilo", () => {
+    const r = piramidePlayoff(8, {
+      modo: "playoff_acesso",
+      playoffVagas: 8,
+      vagasAcesso: 4,
+      vagasRebaixamento: 4,
+    })
+    expect(r.success).toBe(false)
+  })
+})

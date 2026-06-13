@@ -26,8 +26,11 @@ import {
   DESEMPATES_DISPONIVEIS,
   DIVISAO_MAX_TAMANHO,
   DIVISAO_MIN_TAMANHO,
+  ehPotenciaDe2,
   MAX_DIVISOES,
+  movimentoEfetivo,
   PIRAMIDE_PRESETS,
+  PLAYOFF_VAGAS_COMPLETAS,
   PRESET_PERSONALIZADO,
   type CreateCompetitionInput,
   type PiramidePresetId,
@@ -64,11 +67,28 @@ interface DivisaoRascunho {
   competidores: CompetidorRascunho[]
 }
 
-/** Uma fronteira entre `nivelSuperior` (d) e d+1. */
+/** Modo de uma fronteira (espelha MODOS_FRONTEIRA do schema). */
+type ModoFronteira = "direto" | "playoff_acesso" | "playout"
+/** Estilo de resolução de um playoff (espelha PLAYOFF_ESTILOS do schema). */
+type EstiloPlayoff = "vagas" | "extra"
+
+/**
+ * Uma fronteira entre `nivelSuperior` (d) e d+1. Na Fase 2 a fronteira pode
+ * resolver o sobe/cai por uma CHAVE de mata-mata (`playoff_acesso`/`playout`),
+ * além do corte direto pela tabela (`direto`). Os campos de playoff só importam
+ * quando `modo !== "direto"`; em "direto" ficam `undefined`/default.
+ */
 interface FronteiraRascunho {
   nivelSuperior: number
   vagasAcesso: number
   vagasRebaixamento: number
+  modo: ModoFronteira
+  /** Estilo do playoff — só definido quando modo !== "direto". */
+  playoffEstilo?: EstiloPlayoff
+  /** Chave em ida-e-volta (final sempre jogo único). Default false. */
+  playoffIdaEVolta: boolean
+  /** Tamanho da chave (2..32) — só definido quando modo !== "direto". */
+  playoffVagas?: number
 }
 
 const PASSOS = ["preset", "divisoes", "fronteiras", "competidores"] as const
@@ -84,6 +104,16 @@ const ROTULO_PASSO: Record<Passo, string> = {
 const DESEMPATE_ROTULO: Record<(typeof DESEMPATES_DISPONIVEIS)[number], string> = {
   cbf: "CBF (vitórias, saldo, gols pró)",
   ingles: "Inglês (saldo, gols pró, vitórias)",
+}
+
+/** Classe compartilhada dos <select> nativos do wizard (espelha o de desempate). */
+const SELECT_CLASSE =
+  "border-input bg-transparent focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm outline-none focus-visible:ring-3"
+
+const MODO_ROTULO: Record<ModoFronteira, string> = {
+  direto: "Direto (pela tabela)",
+  playoff_acesso: "Playoff de acesso",
+  playout: "Playout (queda)",
 }
 
 /** Nome amigável de uma divisão por nível, quando o dono não nomeou. */
@@ -115,11 +145,7 @@ function hidratarPreset(preset: PiramidePresetId): {
   const meta = PIRAMIDE_PRESETS[preset]
   const divisoes = [novaDivisao(1, meta.desempate), novaDivisao(2, meta.desempate)]
   const fronteiras: FronteiraRascunho[] = [
-    {
-      nivelSuperior: 1,
-      vagasAcesso: meta.vagasPorFronteira,
-      vagasRebaixamento: meta.vagasPorFronteira,
-    },
+    novaFronteira(1, meta.vagasPorFronteira),
   ]
   return { divisoes, fronteiras }
 }
@@ -136,6 +162,120 @@ function novaDivisao(
     tamanho: 20,
     competidores: [],
   }
+}
+
+/**
+ * Fronteira nova com defaults explícitos da Fase 2: modo "direto" (sem playoff),
+ * leg jogo único. `playoffEstilo`/`playoffVagas` ficam `undefined` enquanto o
+ * modo for "direto" (o schema rejeita estilo/vagas numa fronteira direta).
+ */
+function novaFronteira(nivelSuperior: number, vagas: number): FronteiraRascunho {
+  return {
+    nivelSuperior,
+    vagasAcesso: vagas,
+    vagasRebaixamento: vagas,
+    modo: "direto",
+    playoffEstilo: undefined,
+    playoffIdaEVolta: false,
+    playoffVagas: undefined,
+  }
+}
+
+/**
+ * Patch de uma fronteira ao TROCAR de modo/estilo, mantendo o resto coerente.
+ * "direto" zera os campos de playoff (o schema os rejeita aí). Ao virar playoff,
+ * semeia estilo "vagas" + chave 4 (combinação completa válida) se ainda não havia.
+ * "extra" DERIVA o lado dependente (acesso ⇒ rebaix=acesso+1; playout ⇒
+ * acesso=rebaix+1); "vagas" volta à simetria bruta.
+ */
+function patchModoFronteira(
+  f: FronteiraRascunho,
+  modo: ModoFronteira
+): Partial<FronteiraRascunho> {
+  if (modo === "direto") {
+    return {
+      modo,
+      playoffEstilo: undefined,
+      playoffVagas: undefined,
+      // Volta à simetria bruta sem o derivado do 'extra'.
+      vagasRebaixamento: f.vagasAcesso,
+    }
+  }
+  // Vira playoff: SEMEAR uma combinação VÁLIDA (sem beco-sem-saída). Preserva o
+  // movimento N do lado favorável (acesso no acesso; queda no playout): se N é
+  // potência de 2, usa 'vagas' com chave 2N (a chave decide as N vagas); senão
+  // 'extra' com N-1 diretos + 1 campeão (mesmo movimento N).
+  const N = modo === "playout" ? f.vagasRebaixamento : f.vagasAcesso
+  const chave2N = N * 2
+  if (
+    ehPotenciaDe2(N) &&
+    N >= 1 &&
+    (PLAYOFF_VAGAS_COMPLETAS as readonly number[]).includes(chave2N)
+  ) {
+    return {
+      modo,
+      playoffEstilo: "vagas",
+      playoffVagas: chave2N,
+      vagasAcesso: N,
+      vagasRebaixamento: N,
+    }
+  }
+  // 'extra' preservando o movimento N: N-1 diretos + 1 pela chave (sobeEf/caiEf = N).
+  const direto = Math.max(0, N - 1)
+  if (modo === "playoff_acesso") {
+    return {
+      modo,
+      playoffEstilo: "extra",
+      playoffVagas: 4,
+      vagasAcesso: direto,
+      vagasRebaixamento: direto + 1,
+    }
+  }
+  return {
+    modo,
+    playoffEstilo: "extra",
+    playoffVagas: 4,
+    vagasAcesso: direto + 1,
+    vagasRebaixamento: direto,
+  }
+}
+
+/**
+ * Recalcula vagas brutas conforme o estilo escolhido, mantendo o lado que o
+ * usuário controla e DERIVANDO o dependente (regra do 'extra', design §8.3).
+ * No 'vagas' GARANTE uma combinação válida (chave completa + nº favorável
+ * potência de 2 < chave) — clampa em vez de produzir config inválida.
+ */
+function aplicarEstiloFronteira(
+  f: FronteiraRascunho,
+  estilo: EstiloPlayoff
+): Partial<FronteiraRascunho> {
+  const base: Partial<FronteiraRascunho> = { playoffEstilo: estilo, modo: f.modo }
+  if (estilo === "vagas") {
+    // 'vagas' exige chave COMPLETA (4/8/16/32). Se vinha de 'extra' com chave 2,
+    // normaliza para a menor completa que mostre uma opção válida.
+    const playoffVagas = (PLAYOFF_VAGAS_COMPLETAS as readonly number[]).includes(
+      f.playoffVagas ?? 0
+    )
+      ? (f.playoffVagas as number)
+      : 8
+    // Nº favorável VÁLIDO: potência de 2 ESTRITAMENTE < chave. Acesso usa
+    // vagasAcesso direto; playout usa o nº de quedas (sobreviventes = chave - v).
+    // O default chave/2 vale para AMBOS (acesso: chave/2 pot2 < chave; playout:
+    // sobreviventes = chave/2 pot2). Preserva o lado atual se já válido.
+    const atual = f.modo === "playout" ? f.vagasRebaixamento : f.vagasAcesso
+    const v =
+      ehPotenciaDe2(atual) && atual > 0 && atual < playoffVagas
+        ? atual
+        : playoffVagas / 2
+    return { ...base, playoffVagas, vagasAcesso: v, vagasRebaixamento: v }
+  }
+  // extra: o +1 é de UM lado; deriva o dependente. Garante chave válida [2,32].
+  const playoffVagas = f.playoffVagas && f.playoffVagas >= 2 ? f.playoffVagas : 4
+  if (f.modo === "playoff_acesso") {
+    return { ...base, playoffVagas, vagasRebaixamento: f.vagasAcesso + 1 }
+  }
+  return { ...base, playoffVagas, vagasAcesso: f.vagasRebaixamento + 1 }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -155,10 +295,13 @@ function tamanhoFinal(
   for (const f of fronteiras) {
     const sup = f.nivelSuperior
     const inf = sup + 1
-    cai.set(sup, (cai.get(sup) ?? 0) + f.vagasRebaixamento)
-    recebeDeCima.set(inf, (recebeDeCima.get(inf) ?? 0) + f.vagasRebaixamento)
-    sobe.set(inf, (sobe.get(inf) ?? 0) + f.vagasAcesso)
-    recebeDeBaixo.set(sup, (recebeDeBaixo.get(sup) ?? 0) + f.vagasAcesso)
+    // Conservação sobre os EFETIVOS (o +1 do estilo 'extra' é de UM lado só).
+    // Fonte única: movimentoEfetivo do schema — NÃO recalcular aqui.
+    const { sobeEf, caiEf } = movimentoEfetivo(f)
+    cai.set(sup, (cai.get(sup) ?? 0) + caiEf)
+    recebeDeCima.set(inf, (recebeDeCima.get(inf) ?? 0) + caiEf)
+    sobe.set(inf, (sobe.get(inf) ?? 0) + sobeEf)
+    recebeDeBaixo.set(sup, (recebeDeBaixo.get(sup) ?? 0) + sobeEf)
   }
 
   const final = new Map<number, number>()
@@ -175,19 +318,73 @@ function tamanhoFinal(
   return final
 }
 
+/**
+ * Sobreviventes (potências de 2 < pv) válidos numa chave COMPLETA de `pv`. Usado
+ * pelo modo 'vagas' para oferecer só combinações que o schema aceita: a chave
+ * para numa rodada exata que deixa esse nº de vencedores. Ex.: pv=8 ⇒ [1,2,4].
+ */
+function sobreviventesValidos(pv: number): number[] {
+  const out: number[] = []
+  for (let v = 1; v < pv; v *= 2) out.push(v)
+  return out
+}
+
 /** Mensagem de bloqueio do passo de fronteiras (null = ok para avançar). */
 function erroConservacao(
   divisoes: DivisaoRascunho[],
   fronteiras: FronteiraRascunho[]
 ): string | null {
-  // SIMETRIA (espelha o servidor): sobem e caem o mesmo número por fronteira —
-  // no modo direto a assimetria faria os tamanhos oscilarem entre temporadas.
-  // O campo único do passo já garante isto; esta checagem é defesa.
+  const porNivel = new Map(divisoes.map((d) => [d.nivel, d]))
+  const nomeDe = (nivel: number) =>
+    porNivel.get(nivel)?.nome || nomePadraoDivisao(nivel)
+
+  // (0) COERÊNCIA DO PLAYOFF por fronteira (espelha o superRefine do schema).
+  // Bloqueia antes da conservação porque uma chave incompleta nem tem efetivos.
   for (const f of fronteiras) {
-    if (f.vagasAcesso !== f.vagasRebaixamento) {
-      const sup = divisoes.find((d) => d.nivel === f.nivelSuperior)
-      const inf = divisoes.find((d) => d.nivel === f.nivelSuperior + 1)
-      return `Entre ${sup?.nome || nomePadraoDivisao(f.nivelSuperior)} e ${inf?.nome || nomePadraoDivisao(f.nivelSuperior + 1)}: devem subir e cair o mesmo número de competidores.`
+    if (f.modo === "direto") continue
+    if (f.playoffEstilo === undefined || f.playoffVagas === undefined) {
+      return `${nomeDe(f.nivelSuperior)} ⇄ ${nomeDe(f.nivelSuperior + 1)}: complete a configuração do playoff (estilo e tamanho da chave).`
+    }
+    const pv = f.playoffVagas
+    if (f.playoffEstilo === "vagas") {
+      if (!(PLAYOFF_VAGAS_COMPLETAS as readonly number[]).includes(pv)) {
+        return `${nomeDe(f.nivelSuperior)} ⇄ ${nomeDe(f.nivelSuperior + 1)}: "a chave decide as vagas" exige uma chave completa (${PLAYOFF_VAGAS_COMPLETAS.join(", ")}).`
+      }
+      if (f.modo === "playoff_acesso") {
+        // Sobreviventes que sobem = vagasAcesso ⇒ potência de 2 < pv.
+        if (!ehPotenciaDe2(f.vagasAcesso) || f.vagasAcesso >= pv) {
+          return `${nomeDe(f.nivelSuperior)} ⇄ ${nomeDe(f.nivelSuperior + 1)}: numa chave de ${pv} que decide as vagas, o nº que sobe deve ser potência de 2 e menor que ${pv} (${sobreviventesValidos(pv).join(", ")}).`
+        }
+      } else {
+        // playout: sobreviventes salvos = pv - rebaixados ⇒ potência de 2 < pv.
+        const sobreviventes = pv - f.vagasRebaixamento
+        if (!ehPotenciaDe2(sobreviventes) || sobreviventes >= pv) {
+          return `${nomeDe(f.nivelSuperior)} ⇄ ${nomeDe(f.nivelSuperior + 1)}: num playout de ${pv} que decide as vagas, devem sobrar (salvar) uma potência de 2 — caem ${f.vagasRebaixamento} ⇒ sobram ${sobreviventes}.`
+        }
+      }
+    }
+
+    // ZONA da chave cabe na divisão-FONTE (acesso ⇒ inferior; playout ⇒ superior).
+    const fonteNivel = f.modo === "playout" ? f.nivelSuperior : f.nivelSuperior + 1
+    const fonte = porNivel.get(fonteNivel)
+    if (fonte) {
+      const zona =
+        f.playoffEstilo === "vagas"
+          ? pv
+          : (f.modo === "playoff_acesso" ? f.vagasAcesso : f.vagasRebaixamento) + pv
+      if (zona > fonte.tamanho) {
+        return `A chave de ${nomeDe(f.nivelSuperior)} ⇄ ${nomeDe(f.nivelSuperior + 1)} precisa de ${zona} competidores de ${fonte.nome || nomePadraoDivisao(fonte.nivel)}, que só tem ${fonte.tamanho}. Reduza a chave ou as vagas diretas.`
+      }
+    }
+  }
+
+  // SIMETRIA sobre os EFETIVOS (espelha o servidor): sobeEf == caiEf por
+  // fronteira — mantém o tamanho de cada divisão estável entre temporadas. Para
+  // 'extra' isso já é derivado na UI; esta checagem é defesa via fonte única.
+  for (const f of fronteiras) {
+    const { sobeEf, caiEf } = movimentoEfetivo(f)
+    if (sobeEf !== caiEf) {
+      return `${nomeDe(f.nivelSuperior)} ⇄ ${nomeDe(f.nivelSuperior + 1)}: promoveria ${sobeEf} e rebaixaria ${caiEf} — precisa subir e cair o mesmo número.`
     }
   }
 
@@ -198,11 +395,9 @@ function erroConservacao(
   const sobe = new Map<number, number>()
   const cai = new Map<number, number>()
   for (const f of fronteiras) {
-    cai.set(f.nivelSuperior, (cai.get(f.nivelSuperior) ?? 0) + f.vagasRebaixamento)
-    sobe.set(
-      f.nivelSuperior + 1,
-      (sobe.get(f.nivelSuperior + 1) ?? 0) + f.vagasAcesso
-    )
+    const { sobeEf, caiEf } = movimentoEfetivo(f)
+    cai.set(f.nivelSuperior, (cai.get(f.nivelSuperior) ?? 0) + caiEf)
+    sobe.set(f.nivelSuperior + 1, (sobe.get(f.nivelSuperior + 1) ?? 0) + sobeEf)
   }
   for (const d of divisoes) {
     const saem = (sobe.get(d.nivel) ?? 0) + (cai.get(d.nivel) ?? 0)
@@ -277,12 +472,9 @@ export function LeagueWizard() {
       const desempate = atual[atual.length - 1]?.desempate ?? "cbf"
       const nova = novaDivisao(nivel, desempate)
       // Toda nova divisão (>1) ganha uma fronteira "direto" 0/0 com a de cima;
-      // o dono ajusta as vagas no passo de fronteiras.
+      // o dono ajusta as vagas/modo no passo de fronteiras.
       if (nivel > 1) {
-        setFronteiras((fAtual) => [
-          ...fAtual,
-          { nivelSuperior: nivel - 1, vagasAcesso: 0, vagasRebaixamento: 0 },
-        ])
+        setFronteiras((fAtual) => [...fAtual, novaFronteira(nivel - 1, 0)])
       }
       return [...atual, nova]
     })
@@ -301,11 +493,14 @@ export function LeagueWizard() {
         const novas: FronteiraRascunho[] = []
         for (let nivel = 1; nivel < restantes.length; nivel++) {
           const antiga = fAtual[nivel - 1]
-          novas.push({
-            nivelSuperior: nivel,
-            vagasAcesso: antiga?.vagasAcesso ?? 0,
-            vagasRebaixamento: antiga?.vagasRebaixamento ?? 0,
-          })
+          // ARMADILHA: preservar TODOS os campos da fronteira antiga (modo,
+          // estilo, leg, vagas de chave) ao renumerar — só `nivelSuperior` muda.
+          // Sem isto, remover uma divisão apagaria a config de playoff das demais.
+          novas.push(
+            antiga
+              ? { ...antiga, nivelSuperior: nivel }
+              : novaFronteira(nivel, 0)
+          )
         }
         return novas
       })
@@ -392,7 +587,16 @@ export function LeagueWizard() {
         nivelSuperior: f.nivelSuperior,
         vagasAcesso: f.vagasAcesso,
         vagasRebaixamento: f.vagasRebaixamento,
-        modo: "direto" as const,
+        modo: f.modo,
+        // Campos de playoff só viajam quando há chave (modo !== "direto"); o
+        // schema rejeita estilo/vagas numa fronteira direta.
+        ...(f.modo !== "direto"
+          ? {
+              playoffEstilo: f.playoffEstilo,
+              playoffVagas: f.playoffVagas,
+            }
+          : {}),
+        playoffIdaEVolta: f.playoffIdaEVolta,
       })),
     }
   }
@@ -880,51 +1084,21 @@ function PassoFronteiras({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-muted-foreground text-sm">
-        Quantos competidores sobem e caem em cada fronteira — o mesmo número dos
-        dois lados, para os tamanhos das divisões ficarem estáveis entre
-        temporadas. Na Fase 1 o corte é direto pela tabela.
+        Em cada fronteira, quantos sobem e caem — e como o corte é decidido: direto
+        pela tabela, ou por uma chave de playoff. Sobem e caem o mesmo número, para
+        os tamanhos das divisões ficarem estáveis entre temporadas.
       </p>
 
       <ul className="grid list-none gap-2.5 p-0">
-        {fronteiras.map((f) => {
-          const sup = porNivel.get(f.nivelSuperior)
-          const inf = porNivel.get(f.nivelSuperior + 1)
-          return (
-            <li
-              key={f.nivelSuperior}
-              className="bg-card/60 flex flex-col gap-3 rounded-xl border p-3.5"
-            >
-              <p className="text-sm font-medium">
-                {sup?.nome || nomePadraoDivisao(f.nivelSuperior)}
-                <span className="text-muted-foreground"> ⇄ </span>
-                {inf?.nome || nomePadraoDivisao(f.nivelSuperior + 1)}
-              </p>
-
-              {/* Fase 1: simetria obrigatória → um único campo define quantos
-                  sobem E caem (mantém os tamanhos das divisões estáveis). */}
-              <div className="grid gap-1.5">
-                <Label htmlFor={`vagas-${f.nivelSuperior}`} className="text-xs">
-                  Sobem e caem (mesmo número)
-                </Label>
-                <Input
-                  id={`vagas-${f.nivelSuperior}`}
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  step={1}
-                  value={f.vagasAcesso}
-                  onChange={(e) => {
-                    const v = Math.max(0, Math.round(Number(e.target.value) || 0))
-                    onAtualizar(f.nivelSuperior, {
-                      vagasAcesso: v,
-                      vagasRebaixamento: v,
-                    })
-                  }}
-                />
-              </div>
-            </li>
-          )
-        })}
+        {fronteiras.map((f) => (
+          <CartaoFronteira
+            key={f.nivelSuperior}
+            f={f}
+            sup={porNivel.get(f.nivelSuperior)}
+            inf={porNivel.get(f.nivelSuperior + 1)}
+            onAtualizar={onAtualizar}
+          />
+        ))}
       </ul>
 
       <div className="bg-muted/20 grid gap-1 rounded-lg border p-3 text-xs">
@@ -952,6 +1126,248 @@ function PassoFronteiras({
         </p>
       )}
     </div>
+  )
+}
+
+/** Tamanhos de chave (potências de 2, 2..32) oferecidos no estilo 'extra'. */
+const CHAVE_TAMANHOS_EXTRA = [2, 4, 8, 16, 32] as const
+
+/** Cartão de configuração de UMA fronteira: modo + (se playoff) estilo/leg/chave. */
+function CartaoFronteira({
+  f,
+  sup,
+  inf,
+  onAtualizar,
+}: {
+  f: FronteiraRascunho
+  sup?: DivisaoRascunho
+  inf?: DivisaoRascunho
+  onAtualizar: (nivelSuperior: number, patch: Partial<FronteiraRascunho>) => void
+}) {
+  const ns = f.nivelSuperior
+  const nomeSup = sup?.nome || nomePadraoDivisao(ns)
+  const nomeInf = inf?.nome || nomePadraoDivisao(ns + 1)
+  const ehPlayoff = f.modo !== "direto"
+  const ehExtra = f.playoffEstilo === "extra"
+
+  // Lado que o usuário controla no 'extra' (o outro é derivado).
+  const ladoControla = f.modo === "playout" ? "rebaixamento" : "acesso"
+  const valorControla =
+    f.modo === "playout" ? f.vagasRebaixamento : f.vagasAcesso
+  const valorDerivado = valorControla + 1
+  const labelControla =
+    f.modo === "playout" ? "Caem diretos (queda direta)" : "Sobem diretos (acesso direto)"
+
+  function setVagasSimetrico(v: number) {
+    onAtualizar(ns, { vagasAcesso: v, vagasRebaixamento: v })
+  }
+  function setVagasControla(v: number) {
+    // 'extra': escreve o lado controlado e DERIVA o dependente (+1).
+    if (f.modo === "playout") {
+      onAtualizar(ns, { vagasRebaixamento: v, vagasAcesso: v + 1 })
+    } else {
+      onAtualizar(ns, { vagasAcesso: v, vagasRebaixamento: v + 1 })
+    }
+  }
+
+  return (
+    <li className="bg-card/60 flex flex-col gap-3 rounded-xl border p-3.5">
+      <p className="text-sm font-medium">
+        {nomeSup}
+        <span className="text-muted-foreground"> ⇄ </span>
+        {nomeInf}
+      </p>
+
+      {/* Modo do corte — padrão visual do <select> de desempate. */}
+      <div className="grid gap-1.5">
+        <Label htmlFor={`modo-${ns}`} className="text-xs">
+          Como decide o sobe/cai
+        </Label>
+        <select
+          id={`modo-${ns}`}
+          value={f.modo}
+          onChange={(e) =>
+            onAtualizar(ns, patchModoFronteira(f, e.target.value as ModoFronteira))
+          }
+          className={SELECT_CLASSE}
+        >
+          {(Object.keys(MODO_ROTULO) as ModoFronteira[]).map((m) => (
+            <option key={m} value={m}>
+              {MODO_ROTULO[m]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {!ehPlayoff && (
+        /* direto: simetria obrigatória → um único campo (sobem == caem). */
+        <div className="grid gap-1.5">
+          <Label htmlFor={`vagas-${ns}`} className="text-xs">
+            Sobem e caem (mesmo número)
+          </Label>
+          <Input
+            id={`vagas-${ns}`}
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            value={f.vagasAcesso}
+            onChange={(e) =>
+              setVagasSimetrico(Math.max(0, Math.round(Number(e.target.value) || 0)))
+            }
+          />
+        </div>
+      )}
+
+      {ehPlayoff && (
+        <>
+          {/* Estilo do playoff. */}
+          <fieldset className="m-0 grid gap-1.5 border-0 p-0">
+            <legend className="text-xs font-medium">Estilo da chave</legend>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              <label
+                className={cn(
+                  "flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 text-xs transition-colors",
+                  f.playoffEstilo === "vagas"
+                    ? "border-primary bg-primary/8"
+                    : "border-border hover:border-primary/40"
+                )}
+              >
+                <input
+                  type="radio"
+                  name={`estilo-${ns}`}
+                  checked={f.playoffEstilo === "vagas"}
+                  onChange={() => onAtualizar(ns, aplicarEstiloFronteira(f, "vagas"))}
+                  className="accent-primary mt-0.5 size-3.5"
+                />
+                <span>
+                  A chave decide as vagas
+                  <span className="text-muted-foreground block font-normal">
+                    Toda a zona disputa; os vencedores ocupam as vagas.
+                  </span>
+                </span>
+              </label>
+              <label
+                className={cn(
+                  "flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 text-xs transition-colors",
+                  ehExtra
+                    ? "border-primary bg-primary/8"
+                    : "border-border hover:border-primary/40"
+                )}
+              >
+                <input
+                  type="radio"
+                  name={`estilo-${ns}`}
+                  checked={ehExtra}
+                  onChange={() => onAtualizar(ns, aplicarEstiloFronteira(f, "extra"))}
+                  className="accent-primary mt-0.5 size-3.5"
+                />
+                <span>
+                  Direto + 1 na chave
+                  <span className="text-muted-foreground block font-normal">
+                    Vagas diretas pela tabela e mais 1 decidida na chave.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          {/* Vagas: 'vagas' = simétrico; 'extra' = lado controlado + derivado. */}
+          {!ehExtra ? (
+            <div className="grid gap-1.5">
+              <Label htmlFor={`vagas-${ns}`} className="text-xs">
+                Sobem e caem (mesmo número)
+              </Label>
+              <Input
+                id={`vagas-${ns}`}
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={f.modo === "playout" ? f.vagasRebaixamento : f.vagasAcesso}
+                onChange={(e) =>
+                  setVagasSimetrico(Math.max(0, Math.round(Number(e.target.value) || 0)))
+                }
+              />
+              <p className="text-muted-foreground text-[0.7rem]">
+                A chave para na rodada que deixa esse nº de vencedores — use uma
+                potência de 2 menor que o tamanho da chave.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-end sm:gap-2">
+              <div className="grid flex-1 gap-1.5">
+                <Label htmlFor={`vagas-${ns}`} className="text-xs">
+                  {labelControla}
+                </Label>
+                <Input
+                  id={`vagas-${ns}`}
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
+                  value={valorControla}
+                  onChange={(e) =>
+                    setVagasControla(Math.max(0, Math.round(Number(e.target.value) || 0)))
+                  }
+                />
+              </div>
+              <div className="grid flex-1 gap-1.5">
+                <Label className="text-xs">
+                  {ladoControla === "acesso" ? "Caem (derivado)" : "Sobem (derivado)"}
+                </Label>
+                {/* O +1 do 'extra' é de um lado só → o outro é acesso/cai+1, derivado. */}
+                <div
+                  className="border-input bg-muted/30 text-muted-foreground flex h-8 items-center rounded-lg border px-2.5 text-sm tabular-nums"
+                  aria-live="polite"
+                >
+                  {valorDerivado}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tamanho da chave. */}
+          <div className="grid gap-1.5">
+            <Label htmlFor={`chave-${ns}`} className="text-xs">
+              Tamanho da chave
+            </Label>
+            <select
+              id={`chave-${ns}`}
+              value={f.playoffVagas ?? 4}
+              onChange={(e) =>
+                onAtualizar(ns, { playoffVagas: Number(e.target.value) })
+              }
+              className={SELECT_CLASSE}
+            >
+              {(ehExtra ? CHAVE_TAMANHOS_EXTRA : PLAYOFF_VAGAS_COMPLETAS).map(
+                (n) => (
+                  <option key={n} value={n}>
+                    {n} competidores
+                  </option>
+                )
+              )}
+            </select>
+          </div>
+
+          {/* Leg format. */}
+          <label className="bg-card/40 hover:border-primary/40 has-[:focus-visible]:ring-ring flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors has-[:focus-visible]:ring-2">
+            <input
+              type="checkbox"
+              checked={f.playoffIdaEVolta}
+              onChange={(e) => onAtualizar(ns, { playoffIdaEVolta: e.target.checked })}
+              className="border-input accent-primary size-4 rounded"
+            />
+            <span className="text-sm">
+              Ida e volta
+              <span className="text-muted-foreground block text-xs font-normal">
+                Cada confronto em dois jogos (a final é sempre jogo único).
+              </span>
+            </span>
+          </label>
+        </>
+      )}
+    </li>
   )
 }
 

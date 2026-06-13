@@ -10,10 +10,13 @@ import {
   montarConfrontosManual,
   montarConfrontosPotes,
   montarConfrontosSorteio,
+  ordemDeSeed,
   POSICAO_TERCEIRO_LUGAR,
   previaMataMata,
+  resultadoDaChave,
   rodadaBaseDaChave,
   rotuloFase,
+  semearPlayoffPorPosicao,
   tamanhoChave,
   tamanhoChaveDasPartidas,
   totalFases,
@@ -718,5 +721,276 @@ describe("rodada-base (chave após fase de grupos)", () => {
     }
 
     expect(simular(7)).toEqual(simular(1))
+  })
+})
+
+/* -------------------------------------------------------------------------- */
+/* Playoff de liga (Fase 2): seeding por posição + leitura do resultado        */
+/* -------------------------------------------------------------------------- */
+
+describe("ordemDeSeed", () => {
+  it("espalhamento padrão (seed 1 e 2 em metades opostas)", () => {
+    expect(ordemDeSeed(2)).toEqual([1, 2])
+    expect(ordemDeSeed(4)).toEqual([1, 4, 2, 3])
+    expect(ordemDeSeed(8)).toEqual([1, 8, 4, 5, 2, 7, 3, 6])
+    expect(ordemDeSeed(16)).toEqual([
+      1, 16, 8, 9, 4, 13, 5, 12, 2, 15, 7, 10, 3, 14, 6, 11,
+    ])
+  })
+
+  it("cada par tem o melhor seed à esquerda", () => {
+    for (const s of [4, 8, 16, 32]) {
+      const o = ordemDeSeed(s)
+      for (let i = 0; i < s / 2; i++) {
+        expect(o[2 * i]).toBeLessThan(o[2 * i + 1])
+      }
+    }
+  })
+})
+
+describe("semearPlayoffPorPosicao", () => {
+  it("chave de 8 completa: melhor x pior, espalhado", () => {
+    const c = semearPlayoffPorPosicao(ids(8))
+    expect(c).toEqual([
+      { posicao: 1, participante_1: "p01", participante_2: "p08" },
+      { posicao: 2, participante_1: "p04", participante_2: "p05" },
+      { posicao: 3, participante_1: "p02", participante_2: "p07" },
+      { posicao: 4, participante_1: "p03", participante_2: "p06" },
+    ])
+  })
+
+  it("byes vão para os melhores seeds (lado 2 fantasma)", () => {
+    // N=6, chave de 8 → seeds 7,8 são fantasmas; seeds 1,2 ganham bye.
+    const c = semearPlayoffPorPosicao(ids(6))
+    expect(c).toEqual([
+      { posicao: 1, participante_1: "p01", participante_2: null }, // seed 8 fantasma
+      { posicao: 2, participante_1: "p04", participante_2: "p05" },
+      { posicao: 3, participante_1: "p02", participante_2: null }, // seed 7 fantasma
+      { posicao: 4, participante_1: "p03", participante_2: "p06" },
+    ])
+  })
+
+  it("é determinístico (sem aleatoriedade) e cobre todos os participantes", () => {
+    const a = semearPlayoffPorPosicao(ids(5))
+    const b = semearPlayoffPorPosicao(ids(5))
+    expect(a).toEqual(b)
+    const usados = a.flatMap((c) =>
+      [c.participante_1, c.participante_2].filter((p): p is string => p !== null)
+    )
+    expect([...usados].sort()).toEqual(ids(5))
+  })
+})
+
+describe("resultadoDaChave", () => {
+  /** Jogo encerrado de chave (perna null = jogo único). */
+  const jogo = (
+    rodada: number,
+    posicao: number,
+    p1: string,
+    p2: string | null,
+    placar1: number,
+    placar2: number,
+    perna: number | null = null
+  ): PartidaJogada => ({
+    rodada,
+    posicao,
+    perna,
+    participante_1: p1,
+    participante_2: p2,
+    placar_1: placar1,
+    placar_2: placar2,
+    status: "encerrada",
+    woVencedor: null,
+  })
+
+  // Round 1 de uma chave de 8 onde o MELHOR seed sempre vence (1-0).
+  // Confrontos: 1×8, 4×5, 2×7, 3×6 (semearPlayoffPorPosicao).
+  const round1de8 = [
+    jogo(1, 1, "p01", "p08", 1, 0),
+    jogo(1, 2, "p04", "p05", 1, 0),
+    jogo(1, 3, "p02", "p07", 1, 0),
+    jogo(1, 4, "p03", "p06", 1, 0),
+  ]
+
+  it("vagas / playoff_acesso: os 4 vencedores da 1ª rodada SOBEM (8→4)", () => {
+    const r = resultadoDaChave(round1de8, {
+      modo: "playoff_acesso",
+      estilo: "vagas",
+      vagas: 4,
+      playoffVagas: 8,
+    })
+    expect(r.decidida).toBe(true)
+    expect([...r.sobem].sort()).toEqual(["p01", "p02", "p03", "p04"])
+    expect([...r.permanecem].sort()).toEqual(["p05", "p06", "p07", "p08"])
+    expect(r.caem.size).toBe(0)
+    // cobertura total
+    expect(r.sobem.size + r.caem.size + r.permanecem.size).toBe(8)
+  })
+
+  it("vagas / playout: os 4 perdedores da 1ª rodada CAEM, sobreviventes salvam", () => {
+    const r = resultadoDaChave(round1de8, {
+      modo: "playout",
+      estilo: "vagas",
+      vagas: 4, // vagas_rebaixamento
+      playoffVagas: 8, // sobreviventes = 4 (potência de 2)
+    })
+    expect(r.decidida).toBe(true)
+    expect([...r.caem].sort()).toEqual(["p05", "p06", "p07", "p08"])
+    expect([...r.permanecem].sort()).toEqual(["p01", "p02", "p03", "p04"])
+    expect(r.sobem.size).toBe(0)
+  })
+
+  it("vagas: 8→2 exige DUAS rodadas (f=2); 1 rodada não decide", () => {
+    const opts = {
+      modo: "playoff_acesso" as const,
+      estilo: "vagas" as const,
+      vagas: 2,
+      playoffVagas: 8,
+    }
+    // só round 1 → ainda não decidida (precisa da rodada 2).
+    expect(resultadoDaChave(round1de8, opts).decidida).toBe(false)
+    // round 2 (semis): vencedores de 1×4 e 2×3 → finalistas.
+    const round2 = [jogo(2, 1, "p01", "p04", 1, 0), jogo(2, 2, "p02", "p03", 1, 0)]
+    const r = resultadoDaChave([...round1de8, ...round2], opts)
+    expect(r.decidida).toBe(true)
+    expect([...r.sobem].sort()).toEqual(["p01", "p02"])
+    expect(r.permanecem.size).toBe(6)
+  })
+
+  it("extra / playoff_acesso: só o CAMPEÃO sobe; resto permanece", () => {
+    // chave de 4 (1×4, 2×3) → final 1×2 → campeão p01.
+    const partidas = [
+      jogo(1, 1, "p01", "p04", 2, 0),
+      jogo(1, 2, "p02", "p03", 2, 0),
+      jogo(2, 1, "p01", "p02", 1, 0), // final
+    ]
+    const r = resultadoDaChave(partidas, {
+      modo: "playoff_acesso",
+      estilo: "extra",
+      vagas: 0,
+      playoffVagas: 4,
+    })
+    expect(r.decidida).toBe(true)
+    expect([...r.sobem]).toEqual(["p01"])
+    expect([...r.permanecem].sort()).toEqual(["p02", "p03", "p04"])
+  })
+
+  it("extra / playout: o PERDEDOR DA FINAL cai; campeão se salva", () => {
+    const partidas = [
+      jogo(1, 1, "p01", "p04", 2, 0),
+      jogo(1, 2, "p02", "p03", 2, 0),
+      jogo(2, 1, "p01", "p02", 1, 0), // final: p02 perde
+    ]
+    const r = resultadoDaChave(partidas, {
+      modo: "playout",
+      estilo: "extra",
+      vagas: 0,
+      playoffVagas: 4,
+    })
+    expect(r.decidida).toBe(true)
+    expect([...r.caem]).toEqual(["p02"])
+    expect([...r.permanecem].sort()).toEqual(["p01", "p03", "p04"])
+  })
+
+  it("extra: final em aberto ⇒ não decidida", () => {
+    const partidas = [
+      jogo(1, 1, "p01", "p04", 2, 0),
+      jogo(1, 2, "p02", "p03", 2, 0),
+      // sem a final
+    ]
+    expect(
+      resultadoDaChave(partidas, {
+        modo: "playoff_acesso",
+        estilo: "extra",
+        vagas: 0,
+        playoffVagas: 4,
+      }).decidida
+    ).toBe(false)
+  })
+
+  it("extra ida-e-volta: agregado decide o confronto (sem gol fora)", () => {
+    // chave de 2 (final direta, jogo único pelo motor) — testa agregado numa semi
+    // de chave de 4 ida-e-volta: 1×4 agregado 3x2 → p01 avança.
+    const partidas = [
+      jogo(1, 1, "p01", "p04", 1, 2, 1), // ida
+      jogo(1, 1, "p04", "p01", 0, 2, 2), // volta (lados invertidos): agg p01 = 1+2=3, p04 = 2+0=2
+      jogo(1, 2, "p02", "p03", 2, 0, 1),
+      jogo(1, 2, "p03", "p02", 0, 1, 2), // agg p02 = 2+1=3, p03 = 0+0=0
+      jogo(2, 1, "p01", "p02", 1, 0), // final jogo único
+    ]
+    const r = resultadoDaChave(partidas, {
+      modo: "playoff_acesso",
+      estilo: "extra",
+      vagas: 0,
+      playoffVagas: 4,
+    })
+    expect(r.decidida).toBe(true)
+    expect([...r.sobem]).toEqual(["p01"])
+  })
+
+  it("sem partidas ⇒ indecisa, conjuntos vazios", () => {
+    const r = resultadoDaChave([], {
+      modo: "playoff_acesso",
+      estilo: "vagas",
+      vagas: 4,
+      playoffVagas: 8,
+    })
+    expect(r.decidida).toBe(false)
+    expect(r.sobem.size + r.caem.size + r.permanecem.size).toBe(0)
+  })
+})
+
+describe("resultadoDaChave (defensivo contra config inválida)", () => {
+  const jogo2 = (
+    rodada: number,
+    posicao: number,
+    p1: string,
+    p2: string,
+    pl1: number,
+    pl2: number
+  ): PartidaJogada => ({
+    rodada,
+    posicao,
+    perna: null,
+    participante_1: p1,
+    participante_2: p2,
+    placar_1: pl1,
+    placar_2: pl2,
+    status: "encerrada",
+    woVencedor: null,
+  })
+
+  it("playout 'vagas' com vagas==playoffVagas (alvo=0) ⇒ INDECISA (não decide errado)", () => {
+    // 8 jogam, "8 caem" ⇒ sobreviventes=0: configuração impossível no 'vagas'.
+    const round1 = [
+      jogo2(1, 1, "a", "b", 1, 0),
+      jogo2(1, 2, "c", "d", 1, 0),
+      jogo2(1, 3, "e", "f", 1, 0),
+      jogo2(1, 4, "g", "h", 1, 0),
+    ]
+    const r = resultadoDaChave(round1, {
+      modo: "playout",
+      estilo: "vagas",
+      vagas: 8,
+      playoffVagas: 8,
+    })
+    expect(r.decidida).toBe(false)
+    expect(r.caem.size).toBe(0)
+  })
+
+  it("acesso 'vagas' com nº não-potência-de-2 (3 de 8) ⇒ INDECISA", () => {
+    const round1 = [
+      jogo2(1, 1, "a", "b", 1, 0),
+      jogo2(1, 2, "c", "d", 1, 0),
+      jogo2(1, 3, "e", "f", 1, 0),
+      jogo2(1, 4, "g", "h", 1, 0),
+    ]
+    const r = resultadoDaChave(round1, {
+      modo: "playoff_acesso",
+      estilo: "vagas",
+      vagas: 3,
+      playoffVagas: 8,
+    })
+    expect(r.decidida).toBe(false)
   })
 })

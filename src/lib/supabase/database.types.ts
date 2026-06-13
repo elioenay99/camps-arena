@@ -590,6 +590,9 @@ export interface Database {
           vagas_acesso: number
           modo: LeagueBoundaryMode
           playoff_vagas: number | null
+          playoff_estilo: string | null
+          playoff_ida_e_volta: boolean
+          playoff_tournament_id: string | null
           created_at: string
         }
         Insert: {
@@ -600,6 +603,9 @@ export interface Database {
           vagas_acesso?: number
           modo?: LeagueBoundaryMode
           playoff_vagas?: number | null
+          playoff_estilo?: string | null
+          playoff_ida_e_volta?: boolean
+          playoff_tournament_id?: string | null
           created_at?: string
         }
         Update: {
@@ -610,6 +616,9 @@ export interface Database {
           vagas_acesso?: number
           modo?: LeagueBoundaryMode
           playoff_vagas?: number | null
+          playoff_estilo?: string | null
+          playoff_ida_e_volta?: boolean
+          playoff_tournament_id?: string | null
           created_at?: string
         }
         Relationships: [
@@ -618,6 +627,13 @@ export interface Database {
             columns: ["season_id"]
             isOneToOne: false
             referencedRelation: "league_seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_boundaries_playoff_tournament_id_fkey"
+            columns: ["playoff_tournament_id"]
+            isOneToOne: true
+            referencedRelation: "tournaments"
             referencedColumns: ["id"]
           },
         ]
@@ -785,6 +801,10 @@ export interface Database {
       montar_temporada: {
         Args: { p_season_id: string }
         Returns: undefined
+      }
+      montar_playoff: {
+        Args: { p_boundary_id: string; p_competitor_ids: string[] }
+        Returns: string
       }
     }
     Enums: {

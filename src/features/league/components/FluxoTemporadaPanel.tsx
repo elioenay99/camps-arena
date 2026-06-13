@@ -10,6 +10,7 @@ import {
   GitBranch,
   Loader2,
   Minus,
+  Swords,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -599,7 +600,18 @@ function LinhaCompetidor({
         {DESTINO_LABEL[destino]}
       </span>
 
-      {resolvidoPor === "sorteio" || resolvidoPor === "override" ? (
+      {resolvidoPor === "playoff" ? (
+        // Decidido na CHAVE de playoff/playout — motivo distinto do sorteio
+        // (accent): gold (cor de chave/campeão, ver BracketView). Não há o que
+        // reordenar (a chave decidiu por jogo), então sem affordance de empate.
+        <span
+          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-xs font-medium text-gold-ink"
+          title="Decidido na chave de playoff"
+        >
+          <Swords className="size-3" aria-hidden="true" />
+          Playoff
+        </span>
+      ) : resolvidoPor === "sorteio" || resolvidoPor === "override" ? (
         <span
           className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent-foreground"
           title={resolvidoPor === "override" ? "Ajustado manualmente" : "Decidido por sorteio"}
