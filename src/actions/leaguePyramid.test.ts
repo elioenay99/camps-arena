@@ -8,10 +8,9 @@ vi.mock("@/features/standings/data/getTournamentClassificacao", () => ({
   getTournamentClassificacao: vi.fn(),
 }))
 
+import { createCompetition, montarTemporada } from "@/actions/leaguePyramid"
 import {
   calcularPlanoFluxo,
-  createCompetition,
-  montarTemporada,
   ordemSorteada,
   prngDeSemente,
   resolverZonaDeCorte,
@@ -20,7 +19,7 @@ import {
   type FronteiraFluxo,
   type ItemPlanoFluxo,
   type LinhaFluxo,
-} from "@/actions/leaguePyramid"
+} from "@/features/league/flowEngine"
 import { createClient } from "@/lib/supabase/server"
 
 const mockCreateClient = vi.mocked(createClient)
@@ -137,15 +136,47 @@ describe("resolverZonaDeCorte", () => {
     expect(r.escolhidos.has(cid("A"))).toBe(true)
     // Exatamente 2 escolhidos no total.
     expect(r.escolhidos.size).toBe(2)
-    // Exatamente 1 sorteado (a vaga restante entre B/C/D).
-    expect(r.sorteados.size).toBe(1)
-    const sorteado = [...r.sorteados][0]
-    expect([cid("B"), cid("C"), cid("D")]).toContain(sorteado)
+    // TODOS os 3 empatados na posição de corte foram DECIDIDOS pelo sorteio
+    // (1 levou a vaga, 2 perderam) — o grupo inteiro é marcado para habilitar o
+    // override manual na UI.
+    expect(r.sorteados.size).toBe(3)
+    expect([...r.sorteados].sort()).toEqual([cid("B"), cid("C"), cid("D")])
+    // Exatamente 1 dos empatados (além de A) ocupou a vaga restante.
+    const escolhidoEmpate = [...r.escolhidos].filter((x) => x !== cid("A"))
+    expect(escolhidoEmpate).toHaveLength(1)
+    expect([cid("B"), cid("C"), cid("D")]).toContain(escolhidoEmpate[0])
 
     // Determinismo: a mesma semente reproduz a MESMA escolha.
     const r2 = resolverZonaDeCorte(linhas, 2, "top", "fixo")
     expect([...r2.escolhidos].sort()).toEqual([...r.escolhidos].sort())
-    expect([...r2.sorteados]).toEqual([...r.sorteados])
+    expect([...r2.sorteados].sort()).toEqual([...r.sorteados].sort())
+  })
+
+  it("NÃO marca 'sorteio' quando o grupo de empatados cabe EXATO nas vagas", () => {
+    // bottom: posições 1,2,2,4,4 com 2 rebaixamentos — os dois pos-4 caem os
+    // DOIS (cabem exatamente nas 2 vagas) → escolha por classificação, sem sorteio.
+    const linhas: LinhaFluxo[] = [
+      { competitorId: cid("A"), posicao: 1, pontos: 30, jogos: 8 },
+      { competitorId: cid("B"), posicao: 2, pontos: 20, jogos: 8 },
+      { competitorId: cid("C"), posicao: 2, pontos: 20, jogos: 8 },
+      { competitorId: cid("D"), posicao: 4, pontos: 5, jogos: 8 },
+      { competitorId: cid("E"), posicao: 4, pontos: 5, jogos: 8 },
+    ]
+    const fundo = resolverZonaDeCorte(linhas, 2, "bottom", "s")
+    expect([...fundo.escolhidos].sort()).toEqual([cid("D"), cid("E")])
+    expect(fundo.sorteados.size).toBe(0)
+
+    // top: 1,1,3,4,5 com 2 acessos — os dois pos-1 sobem ambos, sem sorteio.
+    const topoLinhas: LinhaFluxo[] = [
+      { competitorId: cid("A"), posicao: 1, pontos: 30, jogos: 8 },
+      { competitorId: cid("B"), posicao: 1, pontos: 30, jogos: 8 },
+      { competitorId: cid("C"), posicao: 3, pontos: 10, jogos: 8 },
+      { competitorId: cid("D"), posicao: 4, pontos: 5, jogos: 8 },
+      { competitorId: cid("E"), posicao: 5, pontos: 1, jogos: 8 },
+    ]
+    const topo = resolverZonaDeCorte(topoLinhas, 2, "top", "s")
+    expect([...topo.escolhidos].sort()).toEqual([cid("A"), cid("B")])
+    expect(topo.sorteados.size).toBe(0)
   })
 })
 
@@ -331,14 +362,28 @@ describe("calcularPlanoFluxo (sorteio na fronteira, determinístico)", () => {
     const plano = calcularPlanoFluxo([div1, div2], fronteiras, "seed-fixa")
     const caem = plano.itens.filter((i) => i.nivelOrigem === 1 && i.destino === "cai")
     expect(caem).toHaveLength(1)
-    // Quem caiu foi por SORTEIO (empate na linha de corte).
+    // Quem caiu foi por SORTEIO (empate na linha de corte) — corte de rebaixamento.
     expect(caem[0].resolvidoPor).toBe("sorteio")
+    expect(caem[0].cortePonta).toBe("cai")
     expect([cid("C"), cid("D")]).toContain(caem[0].competitorId)
-    // A vitória da divisão 1 (A) e o vice (B) permanecem por classificação.
-    const permanece = plano.itens.filter(
-      (i) => i.nivelOrigem === 1 && i.destino === "permanece"
+    // O co-empatado que SOBREVIVEU à queda também é 'sorteio' (disputou e ficou)
+    // — é ele que o dono pode promover a 'cai' no override.
+    const sobrevivente = plano.itens.find(
+      (i) =>
+        i.nivelOrigem === 1 &&
+        i.destino === "permanece" &&
+        (i.competitorId === cid("C") || i.competitorId === cid("D"))
     )
-    expect(permanece.every((i) => i.resolvidoPor === "classificacao")).toBe(true)
+    expect(sobrevivente?.resolvidoPor).toBe("sorteio")
+    expect(sobrevivente?.cortePonta).toBe("cai")
+    // A vitória da divisão 1 (A) e o vice (B), fora do empate, permanecem por
+    // classificação.
+    const naoEmpatados = plano.itens.filter(
+      (i) =>
+        i.nivelOrigem === 1 &&
+        (i.competitorId === cid("A") || i.competitorId === cid("B"))
+    )
+    expect(naoEmpatados.every((i) => i.resolvidoPor === "classificacao")).toBe(true)
 
     // Determinismo: mesma semente ⇒ mesmo competidor rebaixado.
     const plano2 = calcularPlanoFluxo([div1, div2], fronteiras, "seed-fixa")
@@ -349,6 +394,144 @@ describe("calcularPlanoFluxo (sorteio na fronteira, determinístico)", () => {
 
     // Conservação preservada mesmo com sorteio.
     expect(validarFechamentoTamanho(plano.itens).ok).toBe(true)
+  })
+
+  it("(B2) divisão do meio com sorteio no acesso E no rebaixamento: cortePonta distingue", () => {
+    const div1 = divisaoLimpa(1, 4)
+    const div2: DivisaoFluxo = {
+      nivel: 2,
+      linhas: [
+        { competitorId: cid("M1"), posicao: 1, pontos: 30, jogos: 10 },
+        { competitorId: cid("M2"), posicao: 1, pontos: 30, jogos: 10 },
+        { competitorId: cid("M3"), posicao: 3, pontos: 20, jogos: 10 },
+        { competitorId: cid("M4"), posicao: 4, pontos: 15, jogos: 10 },
+        { competitorId: cid("M5"), posicao: 5, pontos: 5, jogos: 10 },
+        { competitorId: cid("M6"), posicao: 5, pontos: 5, jogos: 10 },
+      ],
+    }
+    const div3 = divisaoLimpa(3, 4)
+    const fronteiras: FronteiraFluxo[] = [
+      { nivelSuperior: 1, vagasAcesso: 1, vagasRebaixamento: 0 },
+      { nivelSuperior: 2, vagasAcesso: 0, vagasRebaixamento: 1 },
+    ]
+    const plano = calcularPlanoFluxo([div1, div2, div3], fronteiras, "seed-b2")
+    const item = (id: string) =>
+      plano.itens.find((i) => i.competitorId === cid(id))!
+
+    // Corte de ACESSO (M1/M2): um sobe, um permanece — ambos cortePonta 'sobe'.
+    const acesso = [item("M1"), item("M2")]
+    expect(
+      acesso.every((i) => i.resolvidoPor === "sorteio" && i.cortePonta === "sobe")
+    ).toBe(true)
+    expect(acesso.filter((i) => i.destino === "sobe")).toHaveLength(1)
+    expect(acesso.filter((i) => i.destino === "permanece")).toHaveLength(1)
+
+    // Corte de REBAIXAMENTO (M5/M6): um cai, um permanece — ambos cortePonta 'cai'.
+    const rebaix = [item("M5"), item("M6")]
+    expect(
+      rebaix.every((i) => i.resolvidoPor === "sorteio" && i.cortePonta === "cai")
+    ).toBe(true)
+    expect(rebaix.filter((i) => i.destino === "cai")).toHaveLength(1)
+    expect(rebaix.filter((i) => i.destino === "permanece")).toHaveLength(1)
+
+    // O miolo (M3, M4) permanece por classificação, sem corte.
+    expect(item("M3").resolvidoPor).toBe("classificacao")
+    expect(item("M3").cortePonta).toBeUndefined()
+    expect(item("M4").resolvidoPor).toBe("classificacao")
+  })
+
+  it("(straddle) meio com 3 empatados e fronteiras 1/1: 1 sobe + 1 cai + 1 permanece; cortePonta segue o destino", () => {
+    const div2: DivisaoFluxo = {
+      nivel: 2,
+      linhas: [
+        { competitorId: cid("M1"), posicao: 1, pontos: 10, jogos: 4 },
+        { competitorId: cid("M2"), posicao: 1, pontos: 10, jogos: 4 },
+        { competitorId: cid("M3"), posicao: 1, pontos: 10, jogos: 4 },
+      ],
+    }
+    const fronteiras: FronteiraFluxo[] = [
+      { nivelSuperior: 1, vagasAcesso: 1, vagasRebaixamento: 1 },
+      { nivelSuperior: 2, vagasAcesso: 1, vagasRebaixamento: 1 },
+    ]
+    const plano = calcularPlanoFluxo(
+      [divisaoLimpa(1, 4), div2, divisaoLimpa(3, 4)],
+      fronteiras,
+      "seed-straddle"
+    )
+    const meio = plano.itens.filter((i) => i.nivelOrigem === 2)
+    // DISJUNTOS: exatamente 1 sobe, 1 cai, 1 permanece (ninguém sobe E cai).
+    expect(meio.filter((i) => i.destino === "sobe")).toHaveLength(1)
+    expect(meio.filter((i) => i.destino === "cai")).toHaveLength(1)
+    expect(meio.filter((i) => i.destino === "permanece")).toHaveLength(1)
+    // cortePonta segue o destino realizado (não o conjunto de sorteados).
+    expect(meio.find((i) => i.destino === "sobe")?.cortePonta).toBe("sobe")
+    expect(meio.find((i) => i.destino === "cai")?.cortePonta).toBe("cai")
+    // Conservação intacta (o backstop [2,20] não rejeitaria, mas confirmamos).
+    expect(validarFechamentoTamanho(plano.itens).ok).toBe(true)
+  })
+
+  it("(disjunção) meio de tamanho 2 empatado com fronteiras 1/1: 1 sobe + 1 cai, sem colapso da vaga de acesso", () => {
+    const div2: DivisaoFluxo = {
+      nivel: 2,
+      linhas: [
+        { competitorId: cid("N1"), posicao: 1, pontos: 10, jogos: 2 },
+        { competitorId: cid("N2"), posicao: 1, pontos: 10, jogos: 2 },
+      ],
+    }
+    const fronteiras: FronteiraFluxo[] = [
+      { nivelSuperior: 1, vagasAcesso: 1, vagasRebaixamento: 1 },
+      { nivelSuperior: 2, vagasAcesso: 1, vagasRebaixamento: 1 },
+    ]
+    // Varre 80 sementes: a disjunção é ESTRUTURAL (o caído é excluído do acesso),
+    // então NENHUMA semente pode produzir sobreposição/colapso — antes do fix,
+    // ~52% das sementes corrompiam (1 sobe virava 0).
+    for (let i = 0; i < 80; i++) {
+      const plano = calcularPlanoFluxo(
+        [divisaoLimpa(1, 4), div2, divisaoLimpa(3, 4)],
+        fronteiras,
+        `seed-size2-${i}`
+      )
+      const meio = plano.itens.filter((it) => it.nivelOrigem === 2)
+      expect(meio.filter((it) => it.destino === "sobe")).toHaveLength(1)
+      expect(meio.filter((it) => it.destino === "cai")).toHaveLength(1)
+      const f = validarFechamentoTamanho(plano.itens)
+      expect(f.ok).toBe(true)
+      // Nenhum competidor sobe E cai (destinos mutuamente exclusivos por item).
+      const subiu = new Set(meio.filter((it) => it.destino === "sobe").map((it) => it.competitorId))
+      const caiu = meio.filter((it) => it.destino === "cai").map((it) => it.competitorId)
+      expect(caiu.some((id) => subiu.has(id))).toBe(false)
+    }
+  })
+
+  it("(straddle, varredura) meio com 3 empatados e fronteiras 1/1 nunca gera cortePonta incoerente com o destino", () => {
+    const div2: DivisaoFluxo = {
+      nivel: 2,
+      linhas: [
+        { competitorId: cid("M1"), posicao: 1, pontos: 10, jogos: 4 },
+        { competitorId: cid("M2"), posicao: 1, pontos: 10, jogos: 4 },
+        { competitorId: cid("M3"), posicao: 1, pontos: 10, jogos: 4 },
+      ],
+    }
+    const fronteiras: FronteiraFluxo[] = [
+      { nivelSuperior: 1, vagasAcesso: 1, vagasRebaixamento: 1 },
+      { nivelSuperior: 2, vagasAcesso: 1, vagasRebaixamento: 1 },
+    ]
+    for (let i = 0; i < 80; i++) {
+      const plano = calcularPlanoFluxo(
+        [divisaoLimpa(1, 4), div2, divisaoLimpa(3, 4)],
+        fronteiras,
+        `seed-straddle-${i}`
+      )
+      const meio = plano.itens.filter((it) => it.nivelOrigem === 2)
+      expect(meio.filter((it) => it.destino === "sobe")).toHaveLength(1)
+      expect(meio.filter((it) => it.destino === "cai")).toHaveLength(1)
+      // cortePonta NUNCA contradiz o destino de quem ganhou a vaga (raiz do
+      // dead-end): quem sobe é 'sobe', quem cai é 'cai'.
+      for (const it of meio) {
+        if (it.destino === "sobe") expect(it.cortePonta).toBe("sobe")
+        if (it.destino === "cai") expect(it.cortePonta).toBe("cai")
+      }
+    }
   })
 })
 

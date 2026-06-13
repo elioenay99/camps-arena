@@ -1,0 +1,187 @@
+import "server-only"
+
+import { cache } from "react"
+
+import { createClient } from "@/lib/supabase/server"
+import type { LeagueSeasonStatus } from "@/features/league/leagueStatus"
+
+/** Identidade exibível de um competidor persistente (clube OU rótulo livre). */
+export interface CompetidorIdentidade {
+  id: string
+  nome: string
+  escudoUrl: string | null
+  avatarUrl: string | null
+}
+
+/** Uma divisão da temporada (= um torneio de liga). */
+export interface DivisaoTemporada {
+  id: string
+  nivel: number
+  nome: string
+  porNome: boolean
+  desempate: string
+  tamanho: number
+  /** Torneio da divisão — null enquanto a temporada é rascunho (não montada). */
+  tournamentId: string | null
+}
+
+/** Fronteira sobe/cai entre `nivelSuperior` (d) e a divisão de baixo (d+1). */
+export interface FronteiraTemporada {
+  nivelSuperior: number
+  vagasAcesso: number
+  vagasRebaixamento: number
+}
+
+/** Temporada completa para a página /dashboard/ligas/[id]. */
+export interface TemporadaCompleta {
+  /** Id da temporada (= o `[id]` da rota). */
+  seasonId: string
+  numero: number
+  status: LeagueSeasonStatus
+  competicao: {
+    id: string
+    nome: string
+  }
+  /** Divisões ordenadas por nível ascendente (1 = topo). */
+  divisoes: DivisaoTemporada[]
+  fronteiras: FronteiraTemporada[]
+  /** Identidade por id de competidor (resolvida no servidor) — alimenta o
+   * FluxoTemporadaPanel e a página. */
+  competidores: Record<string, CompetidorIdentidade>
+}
+
+interface DivisaoEmbed {
+  id: string
+  nivel: number
+  nome: string
+  por_nome: boolean
+  desempate: string
+  tamanho: number
+  tournament_id: string | null
+}
+
+interface FronteiraEmbed {
+  nivel_superior: number
+  vagas_acesso: number
+  vagas_rebaixamento: number
+}
+
+interface CompetidorEmbed {
+  id: string
+  rotulo: string | null
+  team: { nome: string | null; escudo_url: string | null } | null
+  holder: { nome: string | null; avatar: string | null } | null
+}
+
+/** Nome exibível de um competidor: clube tem prioridade, senão o rótulo livre. */
+function nomeDoCompetidor(c: CompetidorEmbed): string {
+  const nome = c.team?.nome ?? c.rotulo
+  return nome?.trim() || "Sem nome"
+}
+
+/**
+ * Carrega a temporada de uma pirâmide (config + divisões + fronteiras +
+ * identidade dos competidores) para a página da temporada. Posse por FILTRO
+ * transitivo (`league_competitions.created_by = user`) + RLS como 2ª barreira:
+ * temporada de liga alheia (ou inexistente) → `null` (a página converte em
+ * notFound; resposta única, sem oráculo de existência).
+ *
+ * Resolve a identidade dos competidores DA PIRÂMIDE (clube → nome/escudo; rótulo
+ * livre; técnico → avatar) num único embed — o FluxoTemporadaPanel e a tabela
+ * recebem os rótulos já prontos, sem buscar dados no cliente.
+ *
+ * `cache()` (React): generateMetadata e a page compartilham o resultado na
+ * MESMA requisição — uma viagem ao banco, não duas.
+ */
+export const getSeason = cache(async function getSeason(
+  seasonId: string,
+  userId: string
+): Promise<TemporadaCompleta | null> {
+  const supabase = await createClient()
+
+  // Temporada + pirâmide (posse por filtro) + divisões + fronteiras num só hop.
+  const { data: season, error: seasonError } = await supabase
+    .from("league_seasons")
+    .select(
+      `id, numero, status,
+       competition:league_competitions!inner ( id, nome, created_by ),
+       league_division_seasons ( id, nivel, nome, por_nome, desempate, tamanho, tournament_id ),
+       league_boundaries ( nivel_superior, vagas_acesso, vagas_rebaixamento )`
+    )
+    .eq("id", seasonId)
+    // Embed aliasado: o filtro usa o ALIAS (`competition`), não o nome da tabela
+    // (PostgREST resolve a relação pelo apelido — ver getVagasDoTorneio).
+    .eq("competition.created_by", userId)
+    .maybeSingle()
+
+  if (seasonError) {
+    throw new Error(`Falha ao carregar a temporada: ${seasonError.message}`)
+  }
+  if (!season) {
+    return null
+  }
+
+  const linha = season as unknown as {
+    id: string
+    numero: number
+    status: LeagueSeasonStatus
+    competition: { id: string; nome: string; created_by: string | null }
+    league_division_seasons: DivisaoEmbed[]
+    league_boundaries: FronteiraEmbed[]
+  }
+
+  // Identidade dos competidores da PIRÂMIDE (uma query separada — o competidor
+  // pertence à competição, não à temporada; alcança todas as divisões).
+  const { data: competidoresRaw, error: compsError } = await supabase
+    .from("league_competitors")
+    .select(
+      `id, rotulo,
+       team:teams ( nome, escudo_url ),
+       holder:users!league_competitors_holder_user_id_fkey ( nome, avatar )`
+    )
+    .eq("competition_id", linha.competition.id)
+
+  if (compsError) {
+    throw new Error(`Falha ao carregar os competidores: ${compsError.message}`)
+  }
+
+  const competidores: Record<string, CompetidorIdentidade> = {}
+  for (const c of (competidoresRaw ?? []) as unknown as CompetidorEmbed[]) {
+    competidores[c.id] = {
+      id: c.id,
+      nome: nomeDoCompetidor(c),
+      escudoUrl: c.team?.escudo_url ?? null,
+      avatarUrl: c.holder?.avatar ?? null,
+    }
+  }
+
+  const divisoes: DivisaoTemporada[] = [...linha.league_division_seasons]
+    .sort((a, b) => a.nivel - b.nivel)
+    .map((d) => ({
+      id: d.id,
+      nivel: d.nivel,
+      nome: d.nome,
+      porNome: d.por_nome,
+      desempate: d.desempate,
+      tamanho: d.tamanho,
+      tournamentId: d.tournament_id,
+    }))
+
+  const fronteiras: FronteiraTemporada[] = [...linha.league_boundaries]
+    .sort((a, b) => a.nivel_superior - b.nivel_superior)
+    .map((f) => ({
+      nivelSuperior: f.nivel_superior,
+      vagasAcesso: f.vagas_acesso,
+      vagasRebaixamento: f.vagas_rebaixamento,
+    }))
+
+  return {
+    seasonId: linha.id,
+    numero: linha.numero,
+    status: linha.status,
+    competicao: { id: linha.competition.id, nome: linha.competition.nome },
+    divisoes,
+    fronteiras,
+    competidores,
+  }
+})

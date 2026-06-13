@@ -37,21 +37,22 @@ export const PRESET_PERSONALIZADO = "personalizado" as const
 
 /**
  * Competidor no modo CLUBE: id do cache `teams` + nome/escudo já resolvidos
- * (o form passa via hidden fields tipados). `holderUserId` opcional = técnico
- * humano que ACOMPANHA o competidor entre temporadas (null = vaga gerida pelo
- * dono). Espelha `league_competitors` (modo clube).
+ * (o form passa via hidden fields tipados). Espelha `league_competitors` (modo
+ * clube). Na Fase 1 a vaga é SEMPRE gerida pelo dono (`holder_user_id = null`):
+ * delegar a vaga a um técnico de TERCEIRO exige consentimento e virá por um
+ * fluxo de convite/aceite (espelhando `aceitar_convite_vaga`), não pré-atribuído
+ * aqui — anexar um usuário sem aceite vazaria as partidas de divisão privada.
  */
 const competidorClube = z.object({
   teamId: z.uuid({ error: "Clube inválido." }),
   nome: z.string().trim().min(1, "Nome do clube vazio."),
   escudo: z.string().trim().min(1).optional(),
-  holderUserId: z.uuid({ error: "Técnico inválido." }).optional(),
 })
 
 /**
- * Competidor no modo POR NOME: rótulo livre persistente. `holderUserId`
- * opcional (mesmo papel do modo clube). Espelha `league_competitors` (modo
- * rótulo).
+ * Competidor no modo POR NOME: rótulo livre persistente. Espelha
+ * `league_competitors` (modo rótulo). Vaga sempre gerida pelo dono na Fase 1
+ * (ver nota de `competidorClube` sobre delegação por aceite).
  */
 const competidorNome = z.object({
   rotulo: z
@@ -59,7 +60,6 @@ const competidorNome = z.object({
     .trim()
     .min(1, "Nome vazio.")
     .max(NOME_MAX, `Nome muito longo (máx. ${NOME_MAX}).`),
-  holderUserId: z.uuid({ error: "Técnico inválido." }).optional(),
 })
 
 /**
@@ -94,24 +94,36 @@ export type DivisaoInput = z.infer<typeof divisaoSchema>
  * Uma fronteira entre a divisão de nível `nivelSuperior` (d) e a de baixo
  * (d+1). `vagasAcesso` = quantos SOBEM da inferior; `vagasRebaixamento` =
  * quantos CAEM da superior. Fase 1 só entrega `modo: 'direto'`.
+ *
+ * SIMETRIA obrigatória na Fase 1: sobem e caem o MESMO número por fronteira.
+ * No modo 'direto' a assimetria faria o tamanho das divisões oscilar a cada
+ * temporada (a de cima recebe X de baixo e perde Y; se X≠Y ela cresce/encolhe),
+ * até estourar [2,20] e travar a pirâmide imortal sem recuperação. Acesso
+ * assimétrico real exige playoff/barragem (Fases 2-3).
  */
-const fronteiraSchema = z.object({
-  nivelSuperior: z
-    .number({ error: "Nível da fronteira inválido." })
-    .int("O nível deve ser inteiro.")
-    .min(1, "O nível da fronteira começa em 1."),
-  vagasAcesso: z
-    .number({ error: "Vagas de acesso inválidas." })
-    .int("As vagas devem ser inteiras.")
-    .min(0, "As vagas de acesso não podem ser negativas."),
-  vagasRebaixamento: z
-    .number({ error: "Vagas de rebaixamento inválidas." })
-    .int("As vagas devem ser inteiras.")
-    .min(0, "As vagas de rebaixamento não podem ser negativas."),
-  // Fase 1 só entrega 'direto' (extremos da tabela). Os demais modos
-  // (playoff/playout/barragem) entram nas Fases 2-3.
-  modo: z.literal("direto", { error: "Modo de fronteira inválido (Fase 1 só aceita 'direto')." }),
-})
+const fronteiraSchema = z
+  .object({
+    nivelSuperior: z
+      .number({ error: "Nível da fronteira inválido." })
+      .int("O nível deve ser inteiro.")
+      .min(1, "O nível da fronteira começa em 1."),
+    vagasAcesso: z
+      .number({ error: "Vagas de acesso inválidas." })
+      .int("As vagas devem ser inteiras.")
+      .min(0, "As vagas de acesso não podem ser negativas."),
+    vagasRebaixamento: z
+      .number({ error: "Vagas de rebaixamento inválidas." })
+      .int("As vagas devem ser inteiras.")
+      .min(0, "As vagas de rebaixamento não podem ser negativas."),
+    // Fase 1 só entrega 'direto' (extremos da tabela). Os demais modos
+    // (playoff/playout/barragem) entram nas Fases 2-3.
+    modo: z.literal("direto", { error: "Modo de fronteira inválido (Fase 1 só aceita 'direto')." }),
+  })
+  .refine((f) => f.vagasAcesso === f.vagasRebaixamento, {
+    error:
+      "Na Fase 1, devem subir e cair o mesmo número de competidores em cada fronteira (mantém o tamanho das divisões estável entre temporadas).",
+    path: ["vagasAcesso"],
+  })
 
 export type FronteiraInput = z.infer<typeof fronteiraSchema>
 
@@ -294,6 +306,23 @@ export const createCompetitionSchema = z
       const div = porNivel.get(nivel)
       if (!div) continue
       const idx = divisoes.indexOf(div)
+
+      // (5a) MOVIMENTO FÍSICO: a divisão não pode promover E rebaixar mais
+      // competidores do que ela contém. Sem isto, o fechamento `pos` pode até
+      // cair em [2,20] (ex.: tamanho 2 com 2 sobem + 2 caem + 2/2 recebidos = 2),
+      // mas o plano de fluxo seria lixo (os 2 marcados sobem E caem; o motor
+      // resolve para 'cai' e descarta o 'sobe' silenciosamente).
+      const saem = (sobe.get(nivel) ?? 0) + (cai.get(nivel) ?? 0)
+      if (saem > div.tamanho) {
+        ctx.addIssue({
+          code: "custom",
+          message: `A divisão "${div.nome}" não pode promover e rebaixar ${saem} competidores: ela só tem ${div.tamanho}. Reduza as vagas das fronteiras vizinhas.`,
+          path: ["divisoes", idx, "tamanho"],
+        })
+        continue
+      }
+
+      // (5b) FECHAMENTO de tamanho em [2,20].
       const pos =
         div.tamanho -
         (sobe.get(nivel) ?? 0) -

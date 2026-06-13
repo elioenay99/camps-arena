@@ -409,9 +409,11 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
 
   // Preset de desempate da divisão/torneio. Sem repassar aos 3 call-sites do
   // motor o preset seria silenciosamente ignorado (a coluna existiria mas o
-  // motor rodaria sempre CBF). Override é insumo de teste.
+  // motor rodaria sempre CBF). Override é insumo de teste. A coluna é NOT NULL
+  // com CHECK no banco; `obterTiebreakerSpec` degrada qualquer valor inesperado
+  // para CBF (default do switch) — sem necessidade de fallback aqui.
   const desempate: TiebreakerPreset =
-    tiebreakerOverride ?? ((torneio.desempate_criterio as TiebreakerPreset) ?? "cbf")
+    tiebreakerOverride ?? (torneio.desempate_criterio as TiebreakerPreset)
 
   const linhas = computeStandings(regras, linhasMotor, desempate).map((linha) => ({
     ...linha,

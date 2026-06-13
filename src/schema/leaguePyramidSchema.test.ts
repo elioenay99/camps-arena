@@ -163,6 +163,33 @@ describe("createCompetitionSchema", () => {
       })
       expect(r.success).toBe(false)
     })
+
+    it("rejeita fronteira ASSIMÉTRICA (sobe != cai) na Fase 1", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Assimétrica",
+        divisoes: [divisao(1, 20), divisao(2, 20)],
+        fronteiras: [
+          { nivelSuperior: 1, vagasAcesso: 4, vagasRebaixamento: 2, modo: "direto" },
+        ],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(
+          r.error.issues.some((i) => /mesmo número/.test(i.message))
+        ).toBe(true)
+      }
+    })
+
+    it("aceita fronteira simétrica (sobe == cai)", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Simétrica",
+        divisoes: [divisao(1, 20), divisao(2, 20)],
+        fronteiras: [
+          { nivelSuperior: 1, vagasAcesso: 3, vagasRebaixamento: 3, modo: "direto" },
+        ],
+      })
+      expect(r.success).toBe(true)
+    })
   })
 
   describe("conservação de tamanho (pirâmide de 3 divisões)", () => {
@@ -223,6 +250,25 @@ describe("createCompetitionSchema", () => {
         expect(
           r.error.issues.some(
             (i) => i.path.includes("tamanho") && /mínimo é 2/.test(i.message)
+          )
+        ).toBe(true)
+      }
+    })
+
+    it("REJEITA movimento físico impossível (sobe + cai > tamanho da divisão)", () => {
+      // d2 tem 2 competidores mas 2 sobem (f12) E 2 caem (f23) = 4 movimentos
+      // sobre 2 entidades. O FECHAMENTO ainda daria 2 (2-2-2+2+2), enganando a
+      // checagem [2,20]; a regra física barra antes.
+      const r = createCompetitionSchema.safeParse(
+        piramide3([4, 2, 4], { acesso: 2, rebaixa: 2 }, { acesso: 2, rebaixa: 2 })
+      )
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(
+          r.error.issues.some(
+            (i) =>
+              i.path.includes("tamanho") &&
+              /não pode promover e rebaixar/.test(i.message)
           )
         ).toBe(true)
       }

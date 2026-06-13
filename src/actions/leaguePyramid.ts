@@ -13,6 +13,17 @@ import {
   DIVISAO_MIN_TAMANHO,
   type CreateCompetitionInput,
 } from "@/schema/leaguePyramidSchema"
+// Motor PURO de fluxo (helpers síncronos + tipos) vive fora deste módulo
+// `"use server"` — aqui toda export precisa ser async function (ver flowEngine).
+import {
+  calcularPlanoFluxo,
+  validarFechamentoTamanho,
+  type AjusteFluxo,
+  type DivisaoFluxo,
+  type ItemPlanoFluxo,
+  type LinhaFluxo,
+  type PlanoFluxoTemporada,
+} from "@/features/league/flowEngine"
 
 /* -------------------------------------------------------------------------- */
 /* Tipos de retorno (padrão do projeto)                                       */
@@ -29,283 +40,13 @@ export type LeaguePyramidFormState = {
 export type LeaguePyramidResult = { ok: true } | { ok: false; error: string }
 
 /* -------------------------------------------------------------------------- */
-/* LÓGICA PURA (testável sem banco) — sobe/cai, sorteio, conservação           */
-/* -------------------------------------------------------------------------- */
-
-/** Destino de um competidor após o fluxo de uma temporada. */
-export type Destino = "sobe" | "cai" | "permanece"
-
-/** Como o destino foi decidido (motivo, NÃO um quarto destino). */
-export type ResolvidoPor = "classificacao" | "playoff" | "sorteio" | "override"
-
-/**
- * Uma linha já classificada de uma divisão, no formato mínimo que o cálculo de
- * fluxo precisa. `ppg` é derivado (pontos por jogo) — desempata divisões de
- * tamanhos diferentes na base 'ppg'. `posicao` vem do motor (empatados dividem).
- */
-export interface LinhaFluxo {
-  competitorId: string
-  posicao: number
-  pontos: number
-  jogos: number
-}
-
-/** Resultado por competidor no PLANO de fluxo (sem escrita). */
-export interface ItemPlanoFluxo {
-  competitorId: string
-  /** Nível em que jogou nesta temporada (1 = topo). */
-  nivelOrigem: number
-  /** Nível para onde vai na próxima temporada. */
-  nivelDestino: number
-  posicaoFinal: number
-  pontos: number
-  jogos: number
-  destino: Destino
-  resolvidoPor: ResolvidoPor
-}
-
-/** Fronteira entre a divisão `nivelSuperior` (d) e a de baixo (d+1). */
-export interface FronteiraFluxo {
-  nivelSuperior: number
-  vagasAcesso: number
-  vagasRebaixamento: number
-}
-
-/** Uma divisão pronta para o cálculo: nível + suas linhas classificadas. */
-export interface DivisaoFluxo {
-  nivel: number
-  /** Já ordenadas por posição ascendente (1º primeiro). */
-  linhas: LinhaFluxo[]
-}
-
-/** PLANO completo (read-only) de um fluxo de temporada. */
-export interface PlanoFluxoTemporada {
-  /** Itens por competidor (todos os de todas as divisões). */
-  itens: ItemPlanoFluxo[]
-  /** Semente crypto usada nos sorteios (auditável/reproduzível). */
-  seed: string
-}
-
-/**
- * PRNG determinístico semeado por uma string (mulberry32 sobre um hash FNV-1a
- * da semente). Mesma semente ⇒ mesma sequência ⇒ mesma ordem sorteada. Crypto
- * NÃO serve aqui (não é reproduzível); a semente em si É gerada por crypto
- * (`crypto.randomUUID`) e gravada para auditoria — a aleatoriedade é
- * criptográfica na ESCOLHA da semente, e o sorteio a partir dela é
- * determinístico (auditável/reexecutável).
- */
-export function prngDeSemente(seed: string): () => number {
-  // FNV-1a 32 bits da semente → estado inicial do mulberry32.
-  let h = 0x811c9dc5
-  for (let i = 0; i < seed.length; i++) {
-    h ^= seed.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  let estado = h >>> 0
-  return function () {
-    estado |= 0
-    estado = (estado + 0x6d2b79f5) | 0
-    let t = Math.imul(estado ^ (estado >>> 15), 1 | estado)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-/**
- * Embaralha (Fisher-Yates) uma cópia de `itens` com um PRNG determinístico
- * semeado por `seed`. Mesma semente + mesma entrada ⇒ mesma saída.
- */
-export function ordemSorteada<T>(itens: readonly T[], seed: string): T[] {
-  const arr = [...itens]
-  const rng = prngDeSemente(seed)
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1))
-    ;[arr[i], arr[j]] = [arr[j], arr[i]]
-  }
-  return arr
-}
-
-/**
- * Resolve QUAIS linhas ocupam as `vagas` da ponta indicada (`top` = primeiras
- * posições = quem SOBE; `bottom` = últimas = quem CAI), tratando o empate EXATO
- * na zona de corte por sorteio determinístico.
- *
- * Retorna os `competitorId` escolhidos + o conjunto dos que foram decididos por
- * sorteio (corte caiu no meio de um grupo de empatados pela `posicao`).
- *
- * `linhas` deve vir ordenada por posição ascendente. `seedBase` semeia o PRNG
- * (combinado com o nível+ponta para sorteios independentes por fronteira).
- */
-export function resolverZonaDeCorte(
-  linhas: readonly LinhaFluxo[],
-  vagas: number,
-  ponta: "top" | "bottom",
-  seedBase: string
-): { escolhidos: Set<string>; sorteados: Set<string> } {
-  const escolhidos = new Set<string>()
-  const sorteados = new Set<string>()
-  if (vagas <= 0 || linhas.length === 0) return { escolhidos, sorteados }
-  if (vagas >= linhas.length) {
-    // A zona engole a divisão inteira — todos entram, nada a sortear.
-    for (const l of linhas) escolhidos.add(l.competitorId)
-    return { escolhidos, sorteados }
-  }
-
-  // Ordena pela "distância da ponta": top usa posição ascendente; bottom usa a
-  // posição DESCENDENTE (os últimos primeiro). O sorteio só age no grupo que
-  // CRUZA a linha de corte.
-  const ordenadas =
-    ponta === "top"
-      ? [...linhas].sort((a, b) => a.posicao - b.posicao)
-      : [...linhas].sort((a, b) => b.posicao - a.posicao)
-
-  // Os que estão claramente DENTRO (antes do grupo de corte) e o grupo de corte.
-  const dentro: LinhaFluxo[] = []
-  for (let i = 0; i < vagas; i++) dentro.push(ordenadas[i])
-
-  // Posição na fronteira (a do último que entra direto). Todos os empatados nessa
-  // posição (de ambos os lados do corte) disputam as vagas restantes por sorteio.
-  const posCorte = ordenadas[vagas - 1].posicao
-  const grupoCorte = ordenadas.filter((l) => l.posicao === posCorte)
-
-  if (grupoCorte.length <= 1) {
-    // Sem empate na linha de corte: os `vagas` primeiros entram, sem sorteio.
-    for (const l of dentro) escolhidos.add(l.competitorId)
-    return { escolhidos, sorteados }
-  }
-
-  // Empate na zona de corte: os que estão ANTES do grupo entram direto; o grupo
-  // de empatados é sorteado para preencher as vagas restantes.
-  const antesDoGrupo = ordenadas
-    .slice(0, vagas)
-    .filter((l) => l.posicao !== posCorte)
-  for (const l of antesDoGrupo) escolhidos.add(l.competitorId)
-
-  const vagasRestantes = vagas - antesDoGrupo.length
-  // Semente independente por fronteira+ponta (sorteios não se contaminam).
-  const seed = `${seedBase}:${ponta}:${posCorte}`
-  const sorteada = ordemSorteada(grupoCorte, seed)
-  for (let i = 0; i < vagasRestantes; i++) {
-    escolhidos.add(sorteada[i].competitorId)
-    sorteados.add(sorteada[i].competitorId)
-  }
-  return { escolhidos, sorteados }
-}
-
-/**
- * Calcula o PLANO de fluxo (read-only) a partir das divisões classificadas e
- * das fronteiras `direto`. Para cada fronteira d↔d+1:
- *   - os `vagasRebaixamento` ÚLTIMOS da divisão d CAEM;
- *   - os `vagasAcesso` PRIMEIROS da divisão d+1 SOBEM.
- * Empate exato na linha de corte → sorteio determinístico (`seed`). Função PURA
- * (sem banco) — o coração testável de `calcularFluxoTemporada`.
- */
-export function calcularPlanoFluxo(
-  divisoes: readonly DivisaoFluxo[],
-  fronteiras: readonly FronteiraFluxo[],
-  seed: string
-): PlanoFluxoTemporada {
-  const porNivel = new Map<number, DivisaoFluxo>()
-  for (const d of divisoes) porNivel.set(d.nivel, d)
-
-  // Conjuntos de quem sobe/cai (e quem por sorteio), por nível.
-  const sobeDe = new Map<number, Set<string>>()
-  const caiDe = new Map<number, Set<string>>()
-  const sorteadosGlobal = new Set<string>()
-
-  for (const f of fronteiras) {
-    const sup = porNivel.get(f.nivelSuperior)
-    const inf = porNivel.get(f.nivelSuperior + 1)
-    if (!sup || !inf) continue
-
-    // CAEM da superior: as últimas `vagasRebaixamento` posições.
-    const queda = resolverZonaDeCorte(
-      sup.linhas,
-      f.vagasRebaixamento,
-      "bottom",
-      `${seed}:cai:${f.nivelSuperior}`
-    )
-    caiDe.set(sup.nivel, queda.escolhidos)
-    for (const id of queda.sorteados) sorteadosGlobal.add(id)
-
-    // SOBEM da inferior: as primeiras `vagasAcesso` posições.
-    const acesso = resolverZonaDeCorte(
-      inf.linhas,
-      f.vagasAcesso,
-      "top",
-      `${seed}:sobe:${f.nivelSuperior}`
-    )
-    sobeDe.set(inf.nivel, acesso.escolhidos)
-    for (const id of acesso.sorteados) sorteadosGlobal.add(id)
-  }
-
-  const itens: ItemPlanoFluxo[] = []
-  for (const div of divisoes) {
-    const sobe = sobeDe.get(div.nivel) ?? new Set<string>()
-    const cai = caiDe.get(div.nivel) ?? new Set<string>()
-    for (const linha of div.linhas) {
-      let destino: Destino = "permanece"
-      let nivelDestino = div.nivel
-      if (cai.has(linha.competitorId)) {
-        destino = "cai"
-        nivelDestino = div.nivel + 1
-      } else if (sobe.has(linha.competitorId)) {
-        destino = "sobe"
-        nivelDestino = div.nivel - 1
-      }
-      itens.push({
-        competitorId: linha.competitorId,
-        nivelOrigem: div.nivel,
-        nivelDestino,
-        posicaoFinal: linha.posicao,
-        pontos: linha.pontos,
-        jogos: linha.jogos,
-        destino,
-        resolvidoPor: sorteadosGlobal.has(linha.competitorId)
-          ? "sorteio"
-          : "classificacao",
-      })
-    }
-  }
-
-  return { itens, seed }
-}
-
-/**
- * Valida a CONSERVAÇÃO de tamanho ao montar a próxima temporada a partir do
- * plano: para cada divisão, o tamanho resultante = entrantes (permanece +
- * recebidos de cima + recebidos de baixo). REJEITA (retorna o nível ofensor) se
- * alguma divisão sair de [2,20]. Função PURA — espelha o CHECK de fechamento do
- * banco (design §7.1) e roda ANTES de qualquer escrita.
- */
-export function validarFechamentoTamanho(itens: readonly ItemPlanoFluxo[]): {
-  ok: true
-  tamanhos: Map<number, number>
-} | {
-  ok: false
-  nivel: number
-  tamanho: number
-} {
-  const tamanhos = new Map<number, number>()
-  for (const it of itens) {
-    tamanhos.set(it.nivelDestino, (tamanhos.get(it.nivelDestino) ?? 0) + 1)
-  }
-  for (const [nivel, tamanho] of [...tamanhos.entries()].sort((a, b) => a[0] - b[0])) {
-    if (tamanho < DIVISAO_MIN_TAMANHO || tamanho > DIVISAO_MAX_TAMANHO) {
-      return { ok: false, nivel, tamanho }
-    }
-  }
-  return { ok: true, tamanhos }
-}
-
-/* -------------------------------------------------------------------------- */
 /* createCompetition — cria a pirâmide + temporada 1 (rascunho) + competidores */
 /* -------------------------------------------------------------------------- */
 
 /** Discrimina competidor por nome (tem `rotulo`) vs. clube (tem `teamId`). */
 function temRotulo(
   c: CreateCompetitionInput["divisoes"][number]["competidores"][number]
-): c is { rotulo: string; holderUserId?: string } {
+): c is { rotulo: string } {
   return "rotulo" in c
 }
 
@@ -450,12 +191,14 @@ export async function createCompetition(
   const linhasCompetidores: CompetidorLinha[] = []
   for (const div of dados.divisoes) {
     for (const c of div.competidores) {
+      // Fase 1: a vaga é sempre gerida pelo dono (holder_user_id = null).
+      // Delegar a técnico de terceiro exige aceite (fluxo futuro) — não aqui.
       if (temRotulo(c)) {
         linhasCompetidores.push({
           competition_id: competitionId,
           team_id: null,
           rotulo: c.rotulo,
-          holder_user_id: c.holderUserId ?? null,
+          holder_user_id: null,
           _nivel: div.nivel,
         })
       } else {
@@ -463,7 +206,7 @@ export async function createCompetition(
           competition_id: competitionId,
           team_id: c.teamId,
           rotulo: null,
-          holder_user_id: c.holderUserId ?? null,
+          holder_user_id: null,
           _nivel: div.nivel,
         })
       }
@@ -522,6 +265,23 @@ export async function createCompetition(
 
 const seasonIdSchema = z.uuid({ error: "Temporada inválida." })
 const divisionSeasonIdSchema = z.uuid({ error: "Divisão inválida." })
+
+/**
+ * Schema dos ajustes do dono (override do empate). `confirmarFluxoTemporada` é
+ * uma Server Action (endpoint chamável direto) — os ajustes NÃO podem entrar
+ * crus: além deste parse, a action valida que cada ajuste recai sobre um
+ * competidor SORTEADO e PRESERVA quantos sobem/caem por divisão (só troca quem
+ * ocupa as vagas — conservação por fronteira). `nivelDestino` é positivo.
+ */
+const ajustesFluxoSchema = z
+  .array(
+    z.object({
+      competitorId: z.uuid(),
+      destino: z.enum(["sobe", "cai", "permanece"]),
+      nivelDestino: z.number().int().min(1),
+    })
+  )
+  .max(400, { error: "Ajustes em excesso." })
 
 /**
  * Mapeia as exceções da RPC `montar_temporada` (mensagens-código curtas) para
@@ -683,11 +443,17 @@ export type CalcularFluxoResult =
 
 /**
  * Calcula (sem escrever) o PLANO de fluxo de uma temporada: lê a classificação
- * de cada divisão via `getTournamentClassificacao`, mapeia slot → competidor,
- * deriva posição/PPG e aplica as fronteiras `direto` (N últimos caem / N
- * primeiros sobem), sorteando o empate exato na zona de corte com semente crypto
- * (auditável). Retorna o plano para a tela de fluxo (2 cliques: calcular →
- * confirmar). Posse por FILTRO transitivo + RLS.
+ * de cada divisão via `getTournamentClassificacao`, mapeia slot → competidor e
+ * aplica as fronteiras `direto` (N últimos caem / N primeiros sobem). O corte é
+ * decidido pela `posicao` dentro de cada divisão; o empate EXATO na linha de
+ * corte é resolvido por sorteio DETERMINÍSTICO semeado pelo id da temporada —
+ * estável e reproduzível (calcular e confirmar produzem o MESMO plano em todo
+ * retry; o id da temporada É a semente auditável). Retorna o plano para a tela
+ * de fluxo (2 cliques: calcular → confirmar). Posse por FILTRO transitivo + RLS.
+ *
+ * EXIGE que TODAS as divisões estejam ENCERRADAS — 'ativa' significa apenas que
+ * as divisões foram iniciadas, não concluídas; congelar a classificação parcial
+ * decidiria o sobe/cai com jogos faltando (irreversível).
  */
 export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFluxoResult> {
   const parsed = seasonIdSchema.safeParse(input)
@@ -724,7 +490,7 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
 
   const { data: divisoes, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("id, nivel, tournament_id")
+    .select("id, nivel, tournament_id, tournament:tournaments(status)")
     .eq("season_id", parsed.data)
     .order("nivel")
   if (divsError || !divisoes || divisoes.length === 0) {
@@ -745,6 +511,17 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
   for (const div of divisoes) {
     if (!div.tournament_id) {
       return { ok: false, error: "Há divisão ainda não montada. Monte a temporada antes." }
+    }
+
+    // GATE: todas as divisões precisam estar ENCERRADAS. O embed `tournament` é
+    // to-one (FK division.tournament_id); 'ativo'/'rascunho' = jogos pendentes.
+    const statusTorneio = (div.tournament as { status: string } | null)?.status
+    if (statusTorneio !== "encerrado") {
+      return {
+        ok: false,
+        error:
+          "Há divisão ainda em andamento. Encerre todas as divisões antes de calcular o fluxo.",
+      }
     }
 
     // slot_id → competitor_id (via entries da divisão).
@@ -789,9 +566,10 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
     divisoesFluxo.push({ nivel: div.nivel, linhas })
   }
 
-  // Semente crypto: a ESCOLHA é criptográfica (auditável/gravável); o sorteio a
-  // partir dela é determinístico (reexecutável com a mesma semente).
-  const seed = crypto.randomUUID()
+  // Semente = id da temporada: ESTÁVEL e auditável. Calcular e confirmar (e todo
+  // retry) recomputam o MESMO plano — o sorteio de empate é reproduzível e a
+  // confirmação é idempotente mesmo quando há empate exato na linha de corte.
+  const seed = parsed.data
   const plano = calcularPlanoFluxo(
     divisoesFluxo,
     (fronteiras ?? []).map((f) => ({
@@ -808,13 +586,6 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
 /* -------------------------------------------------------------------------- */
 /* confirmarFluxoTemporada — ESCRITA idempotente: persiste entries + monta N+1  */
 /* -------------------------------------------------------------------------- */
-
-/** Ajuste manual do dono sobre o plano sorteado (override do empate). */
-export interface AjusteFluxo {
-  competitorId: string
-  destino: Destino
-  nivelDestino: number
-}
 
 export type ConfirmarFluxoResult =
   | { ok: true; proximaSeasonId: string }
@@ -851,17 +622,84 @@ export async function confirmarFluxoTemporada(
   }
 
   const erroGenerico = "Não foi possível confirmar o fluxo agora. Tente novamente."
+  const erroPropriedade = "Temporada não encontrada ou você não é o dono da liga."
 
-  // Recalcula o plano (posse já conferida lá dentro por FILTRO).
+  // Valida os ajustes — Server Action é endpoint direto, não confiar no cliente.
+  const ajustesParsed = ajustesFluxoSchema.safeParse(ajustes ?? [])
+  if (!ajustesParsed.success) {
+    return { ok: false, error: "Ajustes inválidos." }
+  }
+
+  // PORTA DE STATUS (posse + ciclo de vida). rascunho = não pronta; ativa = 1ª
+  // confirmação; em_fluxo = retomar após falha parcial (idempotente, pois a
+  // semente = id da temporada); encerrada = já concluída (retorna a N+1).
+  const { data: season, error: seasonError } = await supabase
+    .from("league_seasons")
+    .select("status, league_competitions!inner(created_by)")
+    .eq("id", parsed.data)
+    .eq("league_competitions.created_by", user.id)
+    .maybeSingle()
+  if (seasonError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (!season) {
+    return { ok: false, error: erroPropriedade }
+  }
+  if (season.status === "rascunho") {
+    return {
+      ok: false,
+      error: "A temporada ainda não está em disputa. Inicie as divisões primeiro.",
+    }
+  }
+  if (season.status === "encerrada") {
+    // Já concluída: devolve a N+1 existente, sem reescrever nada (idempotente).
+    const { data: prox } = await supabase
+      .from("league_seasons")
+      .select("id")
+      .eq("previous_season_id", parsed.data)
+      .maybeSingle()
+    if (prox) {
+      return { ok: true, proximaSeasonId: prox.id }
+    }
+    return { ok: false, error: "Esta temporada já foi encerrada." }
+  }
+
+  // Recalcula o plano (posse + gate de divisões encerradas conferidos lá dentro).
   const calc = await calcularFluxoTemporada(parsed.data)
   if (!calc.ok) {
     return { ok: false, error: calc.error }
   }
 
-  // Aplica os ajustes do dono (override do empate) sobre o plano recalculado.
-  const ajustePorCompetidor = new Map<string, AjusteFluxo>()
-  for (const a of ajustes ?? []) ajustePorCompetidor.set(a.competitorId, a)
+  // Override do dono: SÓ permutação dentro dos grupos de sorteio. Cada ajuste
+  // precisa recair sobre competidor SORTEADO, com destino/nível coerentes.
+  const planoPorCompetidor = new Map(
+    calc.plano.itens.map((it) => [it.competitorId, it])
+  )
+  for (const aj of ajustesParsed.data) {
+    const orig = planoPorCompetidor.get(aj.competitorId)
+    if (!orig) {
+      return { ok: false, error: "Ajuste inválido: competidor fora do plano." }
+    }
+    if (orig.resolvidoPor !== "sorteio") {
+      return {
+        ok: false,
+        error: "Só competidores empatados por sorteio podem ser ajustados.",
+      }
+    }
+    const nivelEsperado =
+      aj.destino === "sobe"
+        ? orig.nivelOrigem - 1
+        : aj.destino === "cai"
+          ? orig.nivelOrigem + 1
+          : orig.nivelOrigem
+    if (aj.nivelDestino !== nivelEsperado) {
+      return { ok: false, error: "Ajuste inválido: destino incoerente com a divisão." }
+    }
+  }
 
+  const ajustePorCompetidor = new Map(
+    ajustesParsed.data.map((a) => [a.competitorId, a])
+  )
   const itens: ItemPlanoFluxo[] = calc.plano.itens.map((it) => {
     const aj = ajustePorCompetidor.get(it.competitorId)
     if (!aj) return it
@@ -873,8 +711,30 @@ export async function confirmarFluxoTemporada(
     }
   })
 
-  // VALIDA o fechamento de tamanho ANTES de qualquer escrita (rejeita config que
-  // deixaria divisão fora de [2,20]).
+  // CONSERVAÇÃO por fronteira: o override não pode mudar QUANTOS sobem/caem em
+  // cada divisão (só quem ocupa as vagas). Compara contadores origem→destino
+  // antes/depois — divergência = ajuste que quebraria a fronteira.
+  const contar = (lista: readonly ItemPlanoFluxo[]) => {
+    const m = new Map<string, number>()
+    for (const it of lista) {
+      const k = `${it.nivelOrigem}:${it.destino}`
+      m.set(k, (m.get(k) ?? 0) + 1)
+    }
+    return m
+  }
+  const antes = contar(calc.plano.itens)
+  const depois = contar(itens)
+  const mesmosContadores =
+    antes.size === depois.size && [...antes].every(([k, v]) => depois.get(k) === v)
+  if (!mesmosContadores) {
+    return {
+      ok: false,
+      error:
+        "O ajuste mudaria quantos sobem ou caem. Só dá para trocar quem ocupa as vagas do empate.",
+    }
+  }
+
+  // VALIDA o fechamento de tamanho ANTES de qualquer escrita (backstop [2,20]).
   const fechamento = validarFechamentoTamanho(itens)
   if (!fechamento.ok) {
     return {
@@ -1040,6 +900,55 @@ export async function montarProximaTemporada(
     }
   } else {
     proximaSeasonId = nova.id
+  }
+
+  // (1.5) FRONTEIRAS da N+1: a pirâmide é imortal, então o acesso/queda se repete
+  // a cada temporada. Sem copiar `league_boundaries`, a N+1 nasceria sem sobe/cai
+  // (todos permaneceriam para sempre). Idempotente: pula as já existentes (UNIQUE
+  // (season_id, nivel_superior)).
+  const { data: fronteirasN, error: frontNError } = await supabase
+    .from("league_boundaries")
+    .select("nivel_superior, vagas_acesso, vagas_rebaixamento, modo, playoff_vagas")
+    .eq("season_id", seasonId)
+  if (frontNError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (fronteirasN && fronteirasN.length > 0) {
+    const { data: fronteirasProx, error: frontProxError } = await supabase
+      .from("league_boundaries")
+      .select("nivel_superior")
+      .eq("season_id", proximaSeasonId)
+    if (frontProxError) {
+      return { ok: false, error: erroGenerico }
+    }
+    const niveisFronteira = new Set(
+      (fronteirasProx ?? []).map((f) => f.nivel_superior)
+    )
+    const fronteirasParaCriar = fronteirasN
+      .filter((f) => !niveisFronteira.has(f.nivel_superior))
+      .map((f) => ({
+        season_id: proximaSeasonId,
+        nivel_superior: f.nivel_superior,
+        vagas_acesso: f.vagas_acesso,
+        vagas_rebaixamento: f.vagas_rebaixamento,
+        modo: f.modo,
+        playoff_vagas: f.playoff_vagas,
+      }))
+    if (fronteirasParaCriar.length > 0) {
+      const { error } = await supabase
+        .from("league_boundaries")
+        .insert(fronteirasParaCriar)
+      // 23505 = corrida de confirmação concorrente (duas abas) já inseriu esta
+      // fronteira; o estado fica correto (UNIQUE garante), então é no-op — mesmo
+      // espírito do retry da própria season N+1.
+      if (error && error.code !== "23505") {
+        console.error(
+          "montarProximaTemporada: fronteiras N+1",
+          error.code ?? error.message
+        )
+        return { ok: false, error: erroGenerico }
+      }
+    }
   }
 
   // (2) Divisões da N+1 (geometria copiada, tamanho = fechamento). Cria ANTES dos
