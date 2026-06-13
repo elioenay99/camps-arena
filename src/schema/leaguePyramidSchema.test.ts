@@ -1,0 +1,396 @@
+import { describe, expect, it } from "vitest"
+import { z } from "zod"
+
+import {
+  createCompetitionSchema,
+  PRESET_BRASILEIRAO,
+  PRESET_PREMIER,
+  PRESET_PERSONALIZADO,
+} from "@/schema/leaguePyramidSchema"
+
+/** Gera uuids v4 distintos e válidos para times. */
+const uuid = (i: number) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`
+
+let contadorClube = 0
+/** Competidor modo clube com id único (evita falso-positivo de "clube repetido"). */
+const clube = (nome = "Clube") => ({ teamId: uuid(contadorClube++), nome })
+
+/** Lista de N clubes únicos. */
+const clubes = (n: number) => Array.from({ length: n }, (_, i) => clube(`Clube ${i}`))
+
+/** Competidor modo nome. */
+const nome = (rotulo: string) => ({ rotulo })
+
+/** Lista de N nomes únicos. */
+const nomes = (n: number) => Array.from({ length: n }, (_, i) => nome(`Time ${i}`))
+
+/**
+ * Monta uma divisão por clube já com `competidores` no tamanho exato (default
+ * que satisfaz a invariante "exatamente `tamanho` competidores").
+ */
+const divisao = (
+  nivel: number,
+  tamanho: number,
+  extra: Partial<{ porNome: boolean; desempate: "cbf" | "ingles"; nome: string }> = {}
+) => {
+  const porNome = extra.porNome ?? false
+  return {
+    nivel,
+    nome: extra.nome ?? `Divisão ${nivel}`,
+    porNome,
+    desempate: extra.desempate ?? "cbf",
+    tamanho,
+    competidores: porNome ? nomes(tamanho) : clubes(tamanho),
+  }
+}
+
+describe("createCompetitionSchema", () => {
+  it("aceita uma pirâmide válida no esqueleto Brasileirão (2 divisões, 4 sobem/4 caem)", () => {
+    const v = PRESET_BRASILEIRAO.vagasPorFronteira
+    const r = createCompetitionSchema.safeParse({
+      nome: "Brasileirão Fantasy",
+      divisoes: [
+        divisao(1, 20, { desempate: PRESET_BRASILEIRAO.desempate }),
+        divisao(2, 20, { desempate: PRESET_BRASILEIRAO.desempate }),
+      ],
+      fronteiras: [
+        { nivelSuperior: 1, vagasAcesso: v, vagasRebaixamento: v, modo: "direto" },
+      ],
+    })
+    expect(r.success).toBe(true)
+    if (r.success) {
+      expect(r.data.isPublic).toBe(true) // default
+      expect(r.data.divisoes).toHaveLength(2)
+    }
+  })
+
+  it("aceita o esqueleto Premier (3 sobem/3 caem, desempate inglês)", () => {
+    const v = PRESET_PREMIER.vagasPorFronteira
+    const r = createCompetitionSchema.safeParse({
+      nome: "Premier Fantasy",
+      divisoes: [
+        divisao(1, 20, { desempate: PRESET_PREMIER.desempate }),
+        divisao(2, 18, { desempate: PRESET_PREMIER.desempate }),
+      ],
+      fronteiras: [
+        { nivelSuperior: 1, vagasAcesso: v, vagasRebaixamento: v, modo: "direto" },
+      ],
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it("expõe os presets esperados (Brasileirão 4/4, Premier 3/3, personalizado)", () => {
+    expect(PRESET_BRASILEIRAO.vagasPorFronteira).toBe(4)
+    expect(PRESET_PREMIER.vagasPorFronteira).toBe(3)
+    expect(PRESET_PERSONALIZADO).toBe("personalizado")
+  })
+
+  describe("continuidade de níveis (1..N)", () => {
+    it("rejeita nível com buraco (1 e 3, faltando 2)", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Furada",
+        divisoes: [divisao(1, 20), divisao(3, 20)],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        const fe = z.flattenError(r.error).fieldErrors as Record<string, unknown>
+        // O erro de continuidade aponta o campo de nível de alguma divisão.
+        expect(
+          r.error.issues.some(
+            (i) => i.path.includes("nivel") && /contínuos/.test(i.message)
+          )
+        ).toBe(true)
+        expect(fe).toBeTruthy()
+      }
+    })
+
+    it("rejeita nível duplicado", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Dupla",
+        divisoes: [divisao(1, 20), divisao(1, 20)],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(
+          r.error.issues.some((i) => /repetido/.test(i.message))
+        ).toBe(true)
+      }
+    })
+  })
+
+  describe("fronteiras", () => {
+    it("rejeita fronteira entre níveis não adjacentes/inexistentes (nível 2 numa pirâmide N=2)", () => {
+      // nivelSuperior=2 implicaria divisão de nível 3 (inexistente).
+      const r = createCompetitionSchema.safeParse({
+        nome: "Sem vizinha",
+        divisoes: [divisao(1, 20), divisao(2, 20)],
+        fronteiras: [
+          { nivelSuperior: 2, vagasAcesso: 1, vagasRebaixamento: 1, modo: "direto" },
+        ],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(r.error.issues.some((i) => /adjacentes/.test(i.message))).toBe(true)
+      }
+    })
+
+    it("rejeita duas fronteiras para o mesmo par de níveis", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Dupla fronteira",
+        divisoes: [divisao(1, 20), divisao(2, 20)],
+        fronteiras: [
+          { nivelSuperior: 1, vagasAcesso: 1, vagasRebaixamento: 1, modo: "direto" },
+          { nivelSuperior: 1, vagasAcesso: 2, vagasRebaixamento: 2, modo: "direto" },
+        ],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(
+          r.error.issues.some((i) => /Já existe uma fronteira/.test(i.message))
+        ).toBe(true)
+      }
+    })
+
+    it("rejeita modo de fronteira diferente de 'direto' (Fase 1)", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Playoff cedo",
+        divisoes: [divisao(1, 20), divisao(2, 20)],
+        fronteiras: [
+          { nivelSuperior: 1, vagasAcesso: 2, vagasRebaixamento: 2, modo: "playoff_acesso" },
+        ],
+      })
+      expect(r.success).toBe(false)
+    })
+  })
+
+  describe("conservação de tamanho (pirâmide de 3 divisões)", () => {
+    // Topo (d1) recebe de baixo (acesso de d2) e perde para baixo (rebaixa para
+    // d2). Meio (d2) recebe de cima (rebaixados de d1) e de baixo (acesso de d3),
+    // e perde para ambos. Base (d3) recebe de cima e perde para cima.
+    const piramide3 = (
+      tamanhos: [number, number, number],
+      f12: { acesso: number; rebaixa: number },
+      f23: { acesso: number; rebaixa: number }
+    ) => ({
+      nome: "Pirâmide 3",
+      divisoes: [
+        divisao(1, tamanhos[0]),
+        divisao(2, tamanhos[1]),
+        divisao(3, tamanhos[2]),
+      ],
+      fronteiras: [
+        { nivelSuperior: 1, vagasAcesso: f12.acesso, vagasRebaixamento: f12.rebaixa, modo: "direto" as const },
+        { nivelSuperior: 2, vagasAcesso: f23.acesso, vagasRebaixamento: f23.rebaixa, modo: "direto" as const },
+      ],
+    })
+
+    it("aceita fronteiras simétricas (sobe == cai → tamanho conservado em todas)", () => {
+      const r = createCompetitionSchema.safeParse(
+        piramide3([20, 20, 20], { acesso: 4, rebaixa: 4 }, { acesso: 4, rebaixa: 4 })
+      )
+      expect(r.success).toBe(true)
+    })
+
+    it("REJEITA config cuja conservação ESTOURA 20 numa divisão", () => {
+      // d2: pos = 20 - sobe(d2→d1: acesso f12=2) - cai(d2→d3: rebaixa f23=2)
+      //          + recebeDeCima(rebaixados de d1: rebaixa f12=10)
+      //          + recebeDeBaixo(acesso de d3: acesso f23=2)
+      //        = 20 - 2 - 2 + 10 + 2 = 28 > 20 → rejeita
+      const r = createCompetitionSchema.safeParse(
+        piramide3([20, 20, 20], { acesso: 2, rebaixa: 10 }, { acesso: 2, rebaixa: 2 })
+      )
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(
+          r.error.issues.some(
+            (i) => i.path.includes("tamanho") && /máximo é 20/.test(i.message)
+          )
+        ).toBe(true)
+      }
+    })
+
+    it("REJEITA config cuja conservação CAI ABAIXO de 2 numa divisão", () => {
+      // d2 tamanho 4: pos = 4 - sobe(acesso f12=3) - cai(rebaixa f23=0)
+      //                    + recebeDeCima(rebaixa f12=0) + recebeDeBaixo(acesso f23=0)
+      //                  = 4 - 3 - 0 + 0 + 0 = 1 < 2 → rejeita
+      const r = createCompetitionSchema.safeParse(
+        piramide3([20, 4, 20], { acesso: 3, rebaixa: 0 }, { acesso: 0, rebaixa: 0 })
+      )
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(
+          r.error.issues.some(
+            (i) => i.path.includes("tamanho") && /mínimo é 2/.test(i.message)
+          )
+        ).toBe(true)
+      }
+    })
+  })
+
+  describe("N=1 (pirâmide de uma divisão)", () => {
+    it("aceita uma única divisão sem fronteiras", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Liga única",
+        divisoes: [divisao(1, 12)],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(true)
+    })
+
+    it("aceita N=1 com fronteiras default ausentes", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Liga única",
+        divisoes: [divisao(1, 8)],
+      })
+      expect(r.success).toBe(true)
+      if (r.success) expect(r.data.fronteiras).toEqual([])
+    })
+  })
+
+  describe("modo × competidor incompatível", () => {
+    it("rejeita clube numa divisão por nome", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Modo trocado",
+        divisoes: [
+          {
+            nivel: 1,
+            nome: "Série A",
+            porNome: true, // por nome…
+            desempate: "cbf",
+            tamanho: 2,
+            competidores: [clube("Real"), clube("Barça")], // …mas vieram clubes
+          },
+        ],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(r.error.issues.some((i) => /por nome/.test(i.message))).toBe(true)
+      }
+    })
+
+    it("rejeita nome livre numa divisão por clube", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Modo trocado",
+        divisoes: [
+          {
+            nivel: 1,
+            nome: "Série A",
+            porNome: false, // por clube…
+            desempate: "cbf",
+            tamanho: 2,
+            competidores: [nome("João"), nome("Maria")], // …mas vieram nomes
+          },
+        ],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(r.error.issues.some((i) => /por clube/.test(i.message))).toBe(true)
+      }
+    })
+
+    it("aceita divisão por nome com rótulos corretos", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Por nome ok",
+        divisoes: [divisao(1, 6, { porNome: true })],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(true)
+    })
+  })
+
+  describe("tamanho × contagem de competidores", () => {
+    it("rejeita divisão com competidores a menos que o tamanho", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Faltam clubes",
+        divisoes: [
+          { nivel: 1, nome: "A", porNome: false, desempate: "cbf", tamanho: 4, competidores: clubes(3) },
+        ],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(
+          r.error.issues.some((i) => i.path.includes("competidores"))
+        ).toBe(true)
+      }
+    })
+
+    it("rejeita tamanho fora de [2,20]", () => {
+      expect(
+        createCompetitionSchema.safeParse({
+          nome: "Pequena",
+          divisoes: [{ nivel: 1, nome: "A", porNome: false, desempate: "cbf", tamanho: 1, competidores: clubes(1) }],
+          fronteiras: [],
+        }).success
+      ).toBe(false)
+      expect(
+        createCompetitionSchema.safeParse({
+          nome: "Gigante",
+          divisoes: [{ nivel: 1, nome: "A", porNome: false, desempate: "cbf", tamanho: 21, competidores: clubes(21) }],
+          fronteiras: [],
+        }).success
+      ).toBe(false)
+    })
+
+    it("rejeita clubes repetidos na mesma divisão", () => {
+      const mesmo = clube("Igual")
+      const r = createCompetitionSchema.safeParse({
+        nome: "Repetido",
+        divisoes: [
+          { nivel: 1, nome: "A", porNome: false, desempate: "cbf", tamanho: 2, competidores: [mesmo, mesmo] },
+        ],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(r.error.issues.some((i) => /repetidos/.test(i.message))).toBe(true)
+      }
+    })
+  })
+
+  describe("campos básicos", () => {
+    it("rejeita nome curto (< 2 após trim)", () => {
+      expect(
+        createCompetitionSchema.safeParse({
+          nome: " a ",
+          divisoes: [divisao(1, 4)],
+          fronteiras: [],
+        }).success
+      ).toBe(false)
+    })
+
+    it("rejeita pirâmide sem divisões", () => {
+      expect(
+        createCompetitionSchema.safeParse({ nome: "Vazia", divisoes: [], fronteiras: [] })
+          .success
+      ).toBe(false)
+    })
+
+    it("respeita isPublic explícito (false)", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Privada",
+        isPublic: false,
+        divisoes: [divisao(1, 4)],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(true)
+      if (r.success) expect(r.data.isPublic).toBe(false)
+    })
+
+    it("rejeita desempate fora de cbf/ingles (espanhol/custom só na Fase 5)", () => {
+      expect(
+        createCompetitionSchema.safeParse({
+          nome: "Espanha cedo",
+          divisoes: [
+            { nivel: 1, nome: "A", porNome: false, desempate: "espanhol", tamanho: 4, competidores: clubes(4) },
+          ],
+          fronteiras: [],
+        }).success
+      ).toBe(false)
+    })
+  })
+})

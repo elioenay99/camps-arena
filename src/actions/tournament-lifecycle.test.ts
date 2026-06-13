@@ -26,6 +26,9 @@ interface Cenario {
   /** Há partidas geradas (com rodada)? Alimenta a derivação do retorno. */
   jaGeradas?: boolean
   geradasError?: boolean
+  /** FREEZE: o torneio é divisão de pirâmide com temporada congelada? */
+  divisaoCongelada?: boolean
+  divisaoError?: boolean
 }
 
 /**
@@ -78,6 +81,24 @@ function montarClient(c: Cenario) {
     })),
   }
 
+  // FREEZE: league_division_seasons.select().eq().in().limit() — limit() é o
+  // terminal awaitable. 1+ linha = divisão de temporada congelada.
+  const filtroFreezeSpy = vi.fn()
+  const cadeiaFreeze = {
+    eq: vi.fn((col: string, val: unknown) => {
+      filtroFreezeSpy("eq", col, val)
+      return cadeiaFreeze
+    }),
+    in: vi.fn((col: string, val: unknown) => {
+      filtroFreezeSpy("in", col, val)
+      return cadeiaFreeze
+    }),
+    limit: vi.fn(async () => ({
+      data: c.divisaoError ? null : c.divisaoCongelada ? [{ id: "d1" }] : [],
+      error: c.divisaoError ? { message: "down" } : null,
+    })),
+  }
+
   const client = {
     auth: {
       getUser: vi.fn(async () => ({
@@ -88,11 +109,19 @@ function montarClient(c: Cenario) {
     from: vi.fn((tabela: string) => {
       if (tabela === "tournaments")
         return { update: updateSpy, select: vi.fn(() => cadeiaTorneioSelect) }
+      if (tabela === "league_division_seasons")
+        return { select: vi.fn(() => cadeiaFreeze) }
       return { select: vi.fn(() => cadeiaMatches) }
     }),
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
-  return { updateSpy, updatePayloadSpy, filtroUpdateSpy, filtroTorneioSpy }
+  return {
+    updateSpy,
+    updatePayloadSpy,
+    filtroUpdateSpy,
+    filtroTorneioSpy,
+    filtroFreezeSpy,
+  }
 }
 
 beforeEach(() => vi.clearAllMocks())
@@ -235,5 +264,53 @@ describe("reabrirTorneio", () => {
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toMatch(/recarregue/i)
     expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it("FREEZE: divisão de pirâmide com temporada congelada é BARRADA (mesma resposta de propriedade)", async () => {
+    const { updateSpy, filtroFreezeSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, formato: "liga" },
+      jaGeradas: true,
+      divisaoCongelada: true,
+    })
+    const r = await reabrirTorneio(TORNEIO)
+    expect(r).toEqual({
+      ok: false,
+      error: "Torneio não encontrado, não encerrado ou você não é o dono dele.",
+    })
+    // Não reabre: a defesa REAL é o trigger no banco; este guard é a UX.
+    expect(updateSpy).not.toHaveBeenCalled()
+    expect(mockRevalidate).not.toHaveBeenCalled()
+    // Consulta por tournament_id + status congelado da season.
+    expect(filtroFreezeSpy).toHaveBeenCalledWith("eq", "tournament_id", TORNEIO)
+    expect(filtroFreezeSpy).toHaveBeenCalledWith("in", "league_seasons.status", [
+      "em_fluxo",
+      "encerrada",
+    ])
+  })
+
+  it("FREEZE: divisão de temporada NÃO congelada reabre normalmente", async () => {
+    const { updatePayloadSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, formato: "liga" },
+      jaGeradas: true,
+      divisaoCongelada: false,
+    })
+    const r = await reabrirTorneio(TORNEIO)
+    expect(r).toEqual({ ok: true })
+    expect(updatePayloadSpy).toHaveBeenCalledWith({ status: "ativo" })
+  })
+
+  it("FREEZE: erro na consulta do freeze vira mensagem genérica, sem escrever", async () => {
+    const { updateSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, formato: "liga" },
+      jaGeradas: true,
+      divisaoError: true,
+    })
+    const r = await reabrirTorneio(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/não foi possível/i)
+    expect(updateSpy).not.toHaveBeenCalled()
   })
 })

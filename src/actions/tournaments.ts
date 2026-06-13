@@ -513,6 +513,26 @@ export async function reabrirTorneio(
     return { ok: false, error: erroPropriedade }
   }
 
+  // FREEZE — camada (a) de UX: se este torneio é uma DIVISÃO de pirâmide cuja
+  // temporada está congelada (em_fluxo/encerrada), reabrir corromperia o fluxo
+  // de sobe/cai já calculado. A defesa REAL é o trigger
+  // `lock_division_tournament_reopen` no banco (barra o UPDATE encerrado→ativo/
+  // rascunho); este guard apenas devolve a MESMA resposta de propriedade/negação
+  // (sem oráculo) antes de tentar a escrita. `!inner` em league_seasons só casa
+  // quando a season está congelada — 1+ linha = divisão travada.
+  const { data: divisaoCongelada, error: divisaoError } = await supabase
+    .from("league_division_seasons")
+    .select("id, league_seasons!inner(status)")
+    .eq("tournament_id", parsed.data)
+    .in("league_seasons.status", ["em_fluxo", "encerrada"])
+    .limit(1)
+  if (divisaoError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (divisaoCongelada && divisaoCongelada.length > 0) {
+    return { ok: false, error: erroPropriedade }
+  }
+
   let novoStatus: "ativo" | "rascunho" = "ativo"
   if (torneio.formato !== "avulso") {
     const { data: geradas, error: geradasError } = await supabase
