@@ -49,6 +49,59 @@ interface Acumulado {
 }
 
 /**
+ * Preset de desempate. Fase 0: 'cbf' | 'ingles' | 'custom'. 'espanhol'
+ * (mini-tabela entre 3+ empatados) entra na Fase 5 — exige uma mecânica nova
+ * (sub-classificação só com os jogos entre os empatados) que o motor objetivo
+ * desta fase não cobre. 'custom' na Fase 0 ainda NÃO é configurável: cai no
+ * comportamento 'cbf'; a cadeia reordenável vem na Fase 5.
+ */
+export type TiebreakerPreset = "cbf" | "ingles" | "custom"
+
+/**
+ * Receita de desempate: a cadeia de comparadores objetivos (aplicados em
+ * cascata ANTES do confronto direto e do `porId` final) e se o confronto
+ * direto fica restrito a EXATAMENTE 2 empatados (evita o ciclo A>B>C>A).
+ */
+export interface TiebreakerSpec {
+  /** Cada comparador retorna negativo/zero/positivo (estilo `Array.sort`). */
+  comparadores: Array<(a: Acumulado, b: Acumulado) => number>
+  /** CBF: confronto direto só entre EXATAMENTE 2 (3+ pulam, dividindo a posição). */
+  confrontoDiretoApenasEm2: boolean
+}
+
+const saldoDe = (a: Acumulado) => a.golsPro - a.golsContra
+
+/** Comparadores objetivos atômicos (maior é melhor → descendente no sort). */
+const cmpPontos = (a: Acumulado, b: Acumulado) => b.pontos - a.pontos
+const cmpVitorias = (a: Acumulado, b: Acumulado) => b.vitorias - a.vitorias
+const cmpSaldo = (a: Acumulado, b: Acumulado) => saldoDe(b) - saldoDe(a)
+const cmpGolsPro = (a: Acumulado, b: Acumulado) => b.golsPro - a.golsPro
+
+/**
+ * Tabela de presets → spec. 'cbf' é BYTE-IDÊNTICO à cadeia hardcoded legada
+ * (pontos → vitórias → saldo → gols pró, confronto direto só em 2). 'ingles'
+ * reordena a cadeia objetiva (pontos → saldo → gols pró → vitórias). 'custom'
+ * na Fase 0 ainda não é configurável: degrada para 'cbf' (a cadeia reordenável
+ * vem na Fase 5).
+ */
+export function obterTiebreakerSpec(preset: TiebreakerPreset): TiebreakerSpec {
+  switch (preset) {
+    case "ingles":
+      return {
+        comparadores: [cmpPontos, cmpSaldo, cmpGolsPro, cmpVitorias],
+        confrontoDiretoApenasEm2: true,
+      }
+    case "cbf":
+    case "custom":
+    default:
+      return {
+        comparadores: [cmpPontos, cmpVitorias, cmpSaldo, cmpGolsPro],
+        confrontoDiretoApenasEm2: true,
+      }
+  }
+}
+
+/**
  * Partida pontua só quando encerrada E com os dois lados definidos. O
  * descarte de self-match espelha a CHECK `matches_participantes_distintos`
  * (defesa em profundidade: dado corrompido não duplica acumuladores).
@@ -68,16 +121,23 @@ function ehElegivel(
  * Calcula a classificação de um torneio de pontos corridos. Função PURA — sem
  * IO — para ser exaustivamente testável; o Tier 2 liga fetch → motor → render.
  *
- * Cadeia de desempate (decisão de produto, estilo CBF simplificado):
- * pontos → vitórias → saldo de gols → gols pró → confronto direto (SÓ entre
- * exatamente 2 empatados — com 3+ o critério é pulado, evitando o ciclo
- * não-determinístico A>B>C>A) → empate persistente dividindo a posição.
- * A ordem de apresentação entre empatados persistentes é determinística
- * (por id), mas a `posicao` é a mesma.
+ * Cadeia de desempate parametrizável por `tiebreaker` (default 'cbf' preserva
+ * 100% do comportamento legado). A spec do preset define a cadeia de
+ * comparadores objetivos e se o confronto direto fica restrito a EXATAMENTE 2
+ * empatados (com 3+ o critério é pulado, evitando o ciclo não-determinístico
+ * A>B>C>A). O confronto direto e o empate persistente (dividindo a posição)
+ * fecham a cadeia, com `porId` como tiebreaker final determinístico — a ordem
+ * de apresentação entre empatados persistentes é estável (por id), mas a
+ * `posicao` é a mesma.
+ *
+ * Preset 'cbf' (default): pontos → vitórias → saldo de gols → gols pró,
+ * confronto direto só em 2. Preset 'ingles': pontos → saldo → gols pró →
+ * vitórias, confronto direto só em 2.
  */
 export function computeStandings(
   regras: RegrasPontuacao,
-  partidas: PartidaClassificavel[]
+  partidas: PartidaClassificavel[],
+  tiebreaker: TiebreakerPreset = "cbf"
 ): LinhaClassificacao[] {
   const elegiveis = partidas.filter(ehElegivel)
 
@@ -139,27 +199,25 @@ export function computeStandings(
     }
   }
 
-  // 2) Ordena pelos critérios objetivos (id como ordem estável provisória).
-  //    Comparação por code-point (não localeCompare): independe do locale/ICU
-  //    do runtime — determinístico em qualquer ambiente.
-  const saldo = (a: Acumulado) => a.golsPro - a.golsContra
+  // 2) Ordena pela cadeia objetiva do preset (id como ordem estável
+  //    provisória). Comparação por code-point (não localeCompare): independe do
+  //    locale/ICU do runtime — determinístico em qualquer ambiente.
+  const spec = obterTiebreakerSpec(tiebreaker)
+  const saldo = saldoDe
   const porId = (a: Acumulado, b: Acumulado) =>
     a.participanteId < b.participanteId ? -1 : a.participanteId > b.participanteId ? 1 : 0
-  const linhas = [...acumulados.values()].sort(
-    (a, b) =>
-      b.pontos - a.pontos ||
-      b.vitorias - a.vitorias ||
-      saldo(b) - saldo(a) ||
-      b.golsPro - a.golsPro ||
-      porId(a, b)
-  )
+  const linhas = [...acumulados.values()].sort((a, b) => {
+    for (const cmp of spec.comparadores) {
+      const r = cmp(a, b)
+      if (r !== 0) return r
+    }
+    return porId(a, b)
+  })
 
-  // 3) Agrupa empatados nos 4 critérios objetivos.
+  // 3) Agrupa empatados em TODOS os critérios objetivos do preset (dois lados
+  //    são indistinguíveis quando nenhum comparador da cadeia os separa).
   const empatados = (a: Acumulado, b: Acumulado) =>
-    a.pontos === b.pontos &&
-    a.vitorias === b.vitorias &&
-    saldo(a) === saldo(b) &&
-    a.golsPro === b.golsPro
+    spec.comparadores.every((cmp) => cmp(a, b) === 0)
 
   const grupos: Acumulado[][] = []
   for (const linha of linhas) {
@@ -193,9 +251,12 @@ export function computeStandings(
   }
 
   // 5) Resolve cada grupo em "clusters" de indistinguíveis (dividem posição).
+  //    O confronto direto entre EXATAMENTE 2 vale quando o preset o restringe a
+  //    2 (default CBF/inglês). Grupos de 3+ pulam (evita o ciclo A>B>C>A) e
+  //    dividem a posição; grupo de 1 não tem empate.
   const clusters: Acumulado[][] = []
   for (const grupo of grupos) {
-    if (grupo.length === 2) {
+    if (grupo.length === 2 && spec.confrontoDiretoApenasEm2) {
       const [a, b] = grupo
       const pa = pontosConfronto(a.participanteId, b.participanteId)
       const pb = pontosConfronto(b.participanteId, a.participanteId)
@@ -203,7 +264,7 @@ export function computeStandings(
       else if (pb > pa) clusters.push([b], [a])
       else clusters.push(grupo) // persistente: dividem a posição
     } else {
-      // 1 (sem empate) ou 3+ (CBF pula o confronto direto): cluster único.
+      // 1 (sem empate) ou 3+ (pula o confronto direto): cluster único.
       clusters.push(grupo)
     }
   }

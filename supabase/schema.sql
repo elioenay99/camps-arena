@@ -1611,3 +1611,928 @@ begin
     alter publication supabase_realtime add table public.matches;
   end if;
 end $$;
+
+-- ============================================================================
+-- LIGAS EM PIRÂMIDE (change: add-ligas-piramide) — Fase 0
+-- ============================================================================
+-- Camada FINA (6 tabelas + 2 colunas aditivas) que orquestra a pirâmide ACIMA
+-- do motor de torneio existente, SEM alterá-lo: cada divisão de uma temporada É
+-- um `tournaments` de formato 'liga'. As vagas das divisões são pré-preenchidas
+-- pela RPC `montar_temporada` (SECURITY DEFINER) — o único caminho que grava
+-- `tournament_slots.user_id` no INSERT, contornando de forma auditável a policy
+-- `slots_insert_owner_rascunho` (que exige user_id null) e preservando o
+-- invariante "técnico só por aceite" do torneio AVULSO. Tudo aditivo, nullable e
+-- idempotente: zero regressão nos torneios legados/standalone.
+
+-- ---------- Enums da pirâmide ----------
+do $$
+begin
+  -- Estado da pirâmide (competição imortal): 'ativa' (pública/em curso) ou
+  -- 'arquivada' (visível só ao dono).
+  if not exists (select 1 from pg_type where typname = 'league_competition_status') then
+    create type public.league_competition_status as enum ('ativa', 'arquivada');
+  end if;
+  -- Estado da temporada: 'rascunho' (montando), 'ativa' (divisões rodando),
+  -- 'em_fluxo' (todas encerraram, calculando sobe/cai — trava antes de gerar
+  -- N+1), 'encerrada' (próxima temporada gerada — congelada).
+  if not exists (select 1 from pg_type where typname = 'league_season_status') then
+    create type public.league_season_status as enum ('rascunho', 'ativa', 'em_fluxo', 'encerrada');
+  end if;
+  -- Base de cálculo de sobe/cai por divisão (snapshot na temporada): 'posicao'
+  -- (colocação direta), 'ppg' (pontos por jogo — desempata divisões de tamanhos
+  -- diferentes), 'promedios' (média plurianual — Fase 4).
+  if not exists (select 1 from pg_type where typname = 'league_ranking_base') then
+    create type public.league_ranking_base as enum ('posicao', 'ppg', 'promedios');
+  end if;
+  -- Modo de resolução de uma fronteira entre a divisão d e d+1: 'direto' (pelos
+  -- extremos da tabela — Fase 1) ou via chave (Fases 2-3).
+  if not exists (select 1 from pg_type where typname = 'league_boundary_mode') then
+    create type public.league_boundary_mode as enum ('direto', 'playoff_acesso', 'playout', 'barragem_cruzada');
+  end if;
+end$$;
+
+-- ---------- Tabela: league_competitions (a pirâmide imortal — config-mãe) ----------
+-- created_by anulável + ON DELETE SET NULL: espelha tournaments — apagar o dono
+-- não derruba a pirâmide com histórico. is_public default true: HERDADO pelos
+-- tournaments das divisões (montar_temporada copia para tournaments.is_public).
+create table if not exists public.league_competitions (
+  id               uuid primary key default gen_random_uuid(),
+  nome             text not null,
+  created_by       uuid references public.users (id) on delete set null,
+  status           public.league_competition_status not null default 'ativa',
+  -- Snapshot da config CORRENTE (desempate default). A temporada congela a sua
+  -- cópia em league_seasons.config_snapshot ao ser montada.
+  desempate_padrao text not null default 'cbf',
+  is_public        boolean not null default true,
+  created_at       timestamptz not null default now(),
+  constraint league_competitions_nome_nao_vazio check (length(trim(nome)) > 0),
+  -- Fase 0 entrega apenas 'cbf'|'ingles'|'custom'. 'espanhol' (mini-tabela entre
+  -- 3+ empatados) entra na Fase 5 — o CHECK é alargado nessa fase.
+  constraint league_competitions_desempate_valido
+    check (desempate_padrao in ('cbf', 'ingles', 'custom'))
+);
+
+create index if not exists league_competitions_created_by_idx
+  on public.league_competitions (created_by);
+
+-- ---------- Tabela: league_seasons (uma temporada da pirâmide) ----------
+create table if not exists public.league_seasons (
+  id                 uuid primary key default gen_random_uuid(),
+  competition_id     uuid not null references public.league_competitions (id) on delete cascade,
+  numero             integer not null,                 -- 1-based; sequencial na pirâmide
+  status             public.league_season_status not null default 'rascunho',
+  -- Cópia imutável da config no momento da montagem (nº divisões, fronteiras,
+  -- toggles nome/clube, desempate por divisão). jsonb: a config evolui por fase
+  -- sem nova coluna; a temporada já gerada nunca é re-lida da config-mãe.
+  config_snapshot    jsonb not null default '{}'::jsonb,
+  -- Aponta para a temporada anterior (cadeia de proveniência do realocamento).
+  previous_season_id uuid references public.league_seasons (id) on delete set null,
+  created_at         timestamptz not null default now(),
+  encerrada_em       timestamptz,
+  constraint league_seasons_numero_positivo check (numero >= 1)
+);
+
+-- SENTINELA de dupla criação de temporada (23505 em corrida → retry encontra a
+-- já criada).
+create unique index if not exists league_seasons_numero_unico
+  on public.league_seasons (competition_id, numero);
+create index if not exists league_seasons_competition_idx
+  on public.league_seasons (competition_id);
+
+-- ---------- Tabela: league_division_seasons (uma divisão → um tournaments) ----------
+-- A divisão É um torneio de liga. tournament_id RESTRICT explicita a dependência
+-- (apagar o torneio exige desfazer a divisão antes); NULL enquanto a temporada é
+-- rascunho e o torneio ainda não foi criado por montar_temporada. A UNIQUE
+-- (season_id, nivel) é a SENTINELA de idempotência da montagem (criada ANTES dos
+-- tournaments — promote-first).
+create table if not exists public.league_division_seasons (
+  id            uuid primary key default gen_random_uuid(),
+  season_id     uuid not null references public.league_seasons (id) on delete cascade,
+  nivel         integer not null,                  -- 1 = topo (1ª divisão); cresce p/ baixo
+  nome          text not null,                     -- ex.: "Série A", "Premier"
+  tournament_id uuid references public.tournaments (id) on delete restrict,
+  -- Toggle POR DIVISÃO: false = clubes; true = por nome (texto livre OU
+  -- competidor persistente). Espelha tournaments.por_nome.
+  por_nome      boolean not null default false,
+  -- Preset de desempate desta divisão (snapshot). Passa ao computeStandings via
+  -- tournaments.desempate_criterio.
+  desempate     text not null default 'cbf',
+  -- Tamanho-alvo da divisão (nº de competidores). Usado na CONSERVAÇÃO de tamanho
+  -- ao montar a próxima temporada (sobe == desce nas fronteiras simétricas).
+  tamanho       integer not null,
+  created_at    timestamptz not null default now(),
+  constraint league_division_seasons_nivel_positivo check (nivel >= 1),
+  constraint league_division_seasons_tamanho_valido check (tamanho >= 2 and tamanho <= 20),
+  -- Fase 0: 'cbf'|'ingles'|'custom'; 'espanhol' adicionado na Fase 5.
+  constraint league_division_seasons_desempate_valido
+    check (desempate in ('cbf', 'ingles', 'custom'))
+);
+
+create unique index if not exists league_division_seasons_nivel_unico
+  on public.league_division_seasons (season_id, nivel);
+-- Um torneio pertence a no máximo uma divisão (quando atribuído).
+create unique index if not exists league_division_seasons_tournament_unico
+  on public.league_division_seasons (tournament_id) where tournament_id is not null;
+create index if not exists league_division_seasons_season_idx
+  on public.league_division_seasons (season_id);
+
+-- ---------- Tabela: league_boundaries (regra sobe/cai por par adjacente) ----------
+-- Fronteira entre a divisão de nível `nivel_superior` (d) e a de baixo (d+1).
+-- Guardamos o nível superior; a inferior é nivel_superior + 1.
+create table if not exists public.league_boundaries (
+  id             uuid primary key default gen_random_uuid(),
+  season_id      uuid not null references public.league_seasons (id) on delete cascade,
+  nivel_superior integer not null,
+  -- Quantos CAEM da divisão superior e quantos SOBEM da inferior. Fronteira
+  -- SIMÉTRICA por padrão (sobem == descem); assimétrica é permitida (com aviso
+  -- na UI) — a CONSERVAÇÃO de tamanho é garantida no fluxo, não pela CHECK.
+  vagas_rebaixamento integer not null default 0,
+  vagas_acesso       integer not null default 0,
+  -- Modo de resolução. 'direto' = pelos extremos da tabela (Fase 1). Os demais
+  -- (playoff/playout/barragem) usam gerarChaveMataMata (Fases 2-3).
+  modo           public.league_boundary_mode not null default 'direto',
+  -- Quantos entram no playoff/playout/barragem (>= as vagas em disputa).
+  playoff_vagas  integer,
+  created_at     timestamptz not null default now(),
+  constraint league_boundaries_nivel_positivo check (nivel_superior >= 1),
+  constraint league_boundaries_vagas_nao_negativas
+    check (vagas_rebaixamento >= 0 and vagas_acesso >= 0),
+  constraint league_boundaries_playoff_coerente
+    check (
+      (modo = 'direto' and playoff_vagas is null)
+      or (modo <> 'direto' and playoff_vagas is not null and playoff_vagas >= 2)
+    )
+);
+
+create unique index if not exists league_boundaries_nivel_unico
+  on public.league_boundaries (season_id, nivel_superior);
+create index if not exists league_boundaries_season_idx
+  on public.league_boundaries (season_id);
+
+-- ---------- Tabela: league_competitors (competidor PERSISTENTE) ----------
+-- Identidade do competidor: team_id = clube real (modo clube); rotulo = nome
+-- livre persistente (modo por nome). XOR exatamente um, espelhando
+-- tournament_slots. team RESTRICT (cache): o competidor É a entidade-âncora;
+-- apagar o clube do cache não deve sumir com o histórico.
+-- holder_user_id = técnico HUMANO que ACOMPANHA o competidor ao subir/cair
+-- (mantém o elenco entre temporadas). NULLABLE: null = vaga gerida pelo dono da
+-- pirâmide (sem técnico dedicado; o dono lança placares). SET NULL ao apagar a
+-- conta. Propagado ao tournament_slots.user_id por montar_temporada SE presente
+-- e SE não violar o UNIQUE slots_um_clube_por_tecnico (senão degrada para NULL).
+create table if not exists public.league_competitors (
+  id             uuid primary key default gen_random_uuid(),
+  competition_id uuid not null references public.league_competitions (id) on delete cascade,
+  team_id        uuid references public.teams (id) on delete restrict,
+  rotulo         text,
+  holder_user_id uuid references public.users (id) on delete set null,
+  created_at     timestamptz not null default now(),
+  constraint league_competitors_clube_xor_rotulo
+    check ((team_id is null) <> (rotulo is null)),
+  constraint league_competitors_rotulo_nao_vazio
+    check (rotulo is null or length(trim(rotulo)) > 0)
+);
+
+create index if not exists league_competitors_competition_idx
+  on public.league_competitors (competition_id);
+-- Unicidade por pirâmide (direto p/ clube; case-insensitive p/ rótulo).
+create unique index if not exists league_competitors_team_unico
+  on public.league_competitors (competition_id, team_id) where team_id is not null;
+create unique index if not exists league_competitors_rotulo_unico
+  on public.league_competitors (competition_id, lower(trim(rotulo))) where rotulo is not null;
+
+-- ---------- Tabela: league_division_entries (histórico competidor × divisão) ----------
+-- A vaga concreta deste competidor na divisão (= um tournament_slots). slot_id
+-- NULL enquanto a temporada é rascunho e os slots ainda não nasceram; RESTRICT:
+-- o slot é a âncora competitiva; não pode sumir sem desfazer a entry. O resultado
+-- consolidado (posicao_final/destino/resolvido_por/pontos/jogos) é preenchido
+-- APÓS o fluxo. `destino` = O QUE aconteceu (sobe|cai|permanece); `resolvido_por`
+-- = COMO foi decidido (classificacao|playoff|sorteio|override). 'sorteio' é
+-- MOTIVO, não destino — separar evita tratá-lo como um quarto destino.
+create table if not exists public.league_division_entries (
+  id                 uuid primary key default gen_random_uuid(),
+  division_season_id uuid not null references public.league_division_seasons (id) on delete cascade,
+  competitor_id      uuid not null references public.league_competitors (id) on delete cascade,
+  slot_id            uuid references public.tournament_slots (id) on delete restrict,
+  posicao_final      integer,
+  destino            text,            -- 'sobe' | 'cai' | 'permanece' | null (pré-fluxo)
+  resolvido_por      text,            -- 'classificacao' | 'playoff' | 'sorteio' | 'override' | null
+  pontos             integer,
+  jogos              integer,
+  created_at         timestamptz not null default now(),
+  constraint league_division_entries_posicao_positiva
+    check (posicao_final is null or posicao_final >= 1),
+  constraint league_division_entries_destino_valido
+    check (destino is null or destino in ('sobe', 'cai', 'permanece')),
+  constraint league_division_entries_resolvido_por_valido
+    check (resolvido_por is null
+           or resolvido_por in ('classificacao', 'playoff', 'sorteio', 'override'))
+);
+
+-- Um competidor ocupa no máximo uma vaga por divisão-temporada.
+create unique index if not exists league_division_entries_competitor_unico
+  on public.league_division_entries (division_season_id, competitor_id);
+create unique index if not exists league_division_entries_slot_unico
+  on public.league_division_entries (slot_id) where slot_id is not null;
+create index if not exists league_division_entries_competitor_idx
+  on public.league_division_entries (competitor_id);
+create index if not exists league_division_entries_division_idx
+  on public.league_division_entries (division_season_id);
+
+-- ---------- tournament_slots.competitor_id (terceiro lado da vaga) ----------
+-- Liga a vaga ao competidor persistente da pirâmide. NULL em TODO torneio legado
+-- e em torneios avulsos/standalone. on delete set null: apagar o competidor não
+-- derruba a vaga (o histórico de matches sobrevive). NÃO mexe no CHECK
+-- slots_clube_xor_rotulo: a identidade visível continua clube XOR rótulo (motor/
+-- render intactos) e competitor_id é um PONTEIRO ADITIVO de proveniência —
+-- ortogonal, nullable, ignorado pelo motor (como o user_id do técnico). A
+-- coerência (rotulo/team_id do slot espelham o do competidor) é garantida por
+-- montar_temporada server-side, não por CHECK cruzada (Postgres não a permite).
+alter table public.tournament_slots
+  add column if not exists competitor_id uuid
+  references public.league_competitors (id) on delete set null;
+
+create index if not exists tournament_slots_competitor_idx
+  on public.tournament_slots (competitor_id) where competitor_id is not null;
+
+-- ---------- tournaments.desempate_criterio (preset de desempate por torneio) ----------
+-- Aditivo; idempotente. Default 'cbf' = comportamento atual; legados e torneios
+-- standalone preservam a cadeia CBF simplificada. montar_temporada grava o preset
+-- da divisão aqui; getTournamentClassificacao lê. Fase 0 só expõe
+-- 'cbf'|'ingles'|'custom'; 'espanhol' (mini-tabela entre 3+ empatados) é
+-- incompatível com o motor da Fase 0 — entra na Fase 5, que ALARGA este CHECK.
+alter table public.tournaments
+  add column if not exists desempate_criterio text not null default 'cbf';
+
+alter table public.tournaments drop constraint if exists tournaments_desempate_valido;
+alter table public.tournaments
+  add constraint tournaments_desempate_valido
+  check (desempate_criterio in ('cbf', 'ingles', 'custom'));
+
+-- ---------- RPC: montar_temporada (SECURITY DEFINER) ----------
+-- Único caminho que cria os tournaments das divisões e INSERE os tournament_slots
+-- JÁ PREENCHIDOS, contornando de forma AUDITÁVEL e restrita a policy
+-- slots_insert_owner_rascunho (que proíbe user_id no INSERT de cliente). Espelha
+-- o estilo de aceitar_convite_vaga: set search_path = '', valida posse explícita.
+--   (1) Posse: auth.uid() DEVE ser o created_by da pirâmide dona da season,
+--       senão raise 'NAO_DONO' (a RPC roda como definer, mas a checagem é
+--       explícita — é o único motivo de poder pré-preencher user_id).
+--   (2) Idempotência (promote-first): se a division_season já tem tournament_id,
+--       PULA (a sentinela é a UNIQUE (season_id, nivel) criada antes dos
+--       tournaments). Re-rodar após falha parcial completa só o que faltou.
+--   (3) Cria o tournament da divisão (formato 'liga', status 'rascunho',
+--       created_by = dono, por_nome/desempate_criterio da divisão, is_public
+--       herdado da pirâmide). Grava league_division_seasons.tournament_id.
+--   (4) Insere os slots por modo: por NOME = rotulo + competitor_id, user_id
+--       null; por CLUBE = team_id + competitor_id + user_id (regra de degradação
+--       abaixo). O mapeamento competidor → divisão chega pelas
+--       league_division_entries pré-criadas pela action de montagem (com
+--       competitor_id + division_season_id e slot_id null — o único canal
+--       persistente compatível com a assinatura fixa (p_season_id)); a RPC
+--       PREENCHE o slot_id de cada entry com a vaga recém-criada.
+--   (5) Degradação do user_id (modo clube): user_id = holder_user_id SE não null
+--       E inserir não violar o UNIQUE slots_um_clube_por_tecnico (mesmo holder em
+--       2 competidores da MESMA divisão). Senão grava NULL (vaga gerida pelo
+--       dono). A RPC detecta a colisão ANTES de inserir.
+create or replace function public.montar_temporada(p_season_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid          uuid := (select auth.uid());
+  v_competition  uuid;
+  v_is_public    boolean;
+  v_dono         uuid;
+  v_div          record;
+  v_comp         record;
+  v_tournament   uuid;
+  v_slot         uuid;
+  v_user_id      uuid;
+  v_holders_usados uuid[];
+  v_vagas        integer;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  -- (1) Posse: só o dono da pirâmide monta a temporada dela.
+  select ls.competition_id, lc.created_by, lc.is_public
+    into v_competition, v_dono, v_is_public
+    from public.league_seasons ls
+    join public.league_competitions lc on lc.id = ls.competition_id
+   where ls.id = p_season_id;
+
+  if v_competition is null then
+    raise exception 'SEASON_INVALIDA';
+  end if;
+  if v_dono is distinct from v_uid then
+    raise exception 'NAO_DONO';
+  end if;
+
+  -- (1.1) Serializa a montagem por temporada: a sentinela tournament_id só é
+  -- gravada após o INSERT do torneio, então duas chamadas concorrentes (ex.: duas
+  -- abas) leriam tournament_id NULL e ambas criariam torneios+slots duplicados. O
+  -- advisory lock transacional força a 2ª chamada a esperar o commit da 1ª e então
+  -- ver a sentinela preenchida (continue). Liberado automaticamente no fim da tx.
+  perform pg_advisory_xact_lock(hashtextextended(p_season_id::text, 0));
+
+  -- (2) Para cada divisão da temporada, criar o torneio + slots se ainda não
+  -- existe (sentinela = tournament_id).
+  for v_div in
+    select id, nivel, nome, por_nome, desempate, tournament_id
+      from public.league_division_seasons
+     where season_id = p_season_id
+     order by nivel
+  loop
+    if v_div.tournament_id is not null then
+      continue;  -- já montada (promote-first idempotente)
+    end if;
+
+    -- (3) Cria o tournament da divisão (is_public herdado da pirâmide).
+    insert into public.tournaments
+      (titulo, status, created_by, formato, por_nome, desempate_criterio, is_public)
+    values
+      (v_div.nome, 'rascunho', v_uid, 'liga', v_div.por_nome, v_div.desempate, v_is_public)
+    returning id into v_tournament;
+
+    update public.league_division_seasons
+       set tournament_id = v_tournament
+     where id = v_div.id;
+
+    -- (4)+(5) Insere os slots preenchidos, um por competidor da divisão. Os
+    -- competidores da divisão são os que já têm league_division_entries para
+    -- esta division_season (criadas pela action de montagem ANTES da RPC, sem
+    -- slot_id ainda).
+    v_holders_usados := array[]::uuid[];
+    v_vagas := 0;
+    for v_comp in
+      select lde.id as entry_id, lc.id as competitor_id, lc.team_id, lc.rotulo,
+             lc.holder_user_id, lc.competition_id
+        from public.league_division_entries lde
+        join public.league_competitors lc on lc.id = lde.competitor_id
+       where lde.division_season_id = v_div.id
+         and lde.slot_id is null
+       order by lde.created_at, lc.created_at
+    loop
+      -- Integridade cross-pirâmide: o competidor referenciado pela entry tem de
+      -- pertencer à MESMA competição da temporada (a cascata de posse por si só não
+      -- garante isso — o FK só exige existência).
+      if v_comp.competition_id is distinct from v_competition then
+        raise exception 'COMPETIDOR_DE_OUTRA_PIRAMIDE';
+      end if;
+
+      if v_div.por_nome then
+        -- Por NOME: a divisão exige competidor de rótulo (XOR clube/rótulo do slot).
+        if v_comp.rotulo is null then
+          raise exception 'COMPETIDOR_INCOMPATIVEL_COM_DIVISAO';
+        end if;
+        -- rotulo + competitor_id, sem técnico.
+        insert into public.tournament_slots
+          (tournament_id, team_id, rotulo, user_id, competitor_id)
+        values
+          (v_tournament, null, v_comp.rotulo, null, v_comp.competitor_id)
+        returning id into v_slot;
+      else
+        -- Por CLUBE: a divisão exige competidor de clube (XOR clube/rótulo do slot).
+        if v_comp.team_id is null then
+          raise exception 'COMPETIDOR_INCOMPATIVEL_COM_DIVISAO';
+        end if;
+        -- team_id + competitor_id + user_id com degradação na colisão
+        -- com slots_um_clube_por_tecnico (mesmo holder já usado nesta divisão).
+        if v_comp.holder_user_id is not null
+           and not (v_comp.holder_user_id = any (v_holders_usados))
+        then
+          v_user_id := v_comp.holder_user_id;
+          v_holders_usados := array_append(v_holders_usados, v_comp.holder_user_id);
+        else
+          v_user_id := null;  -- vaga gerida pelo dono
+        end if;
+
+        insert into public.tournament_slots
+          (tournament_id, team_id, rotulo, user_id, competitor_id)
+        values
+          (v_tournament, v_comp.team_id, null, v_user_id, v_comp.competitor_id)
+        returning id into v_slot;
+      end if;
+
+      -- (5) Liga a entry à vaga recém-criada.
+      update public.league_division_entries
+         set slot_id = v_slot
+       where id = v_comp.entry_id;
+
+      v_vagas := v_vagas + 1;
+    end loop;
+
+    -- (6) Uma liga precisa de 2..20 (iniciarTorneio). Falha explícita ANTES de
+    -- consolidar a sentinela em estado inválido (o raise reverte a transação toda,
+    -- restaurando tournament_id = NULL para re-montagem).
+    if v_vagas < 2 then
+      raise exception 'DIVISAO_SEM_COMPETIDORES_SUFICIENTES';
+    end if;
+  end loop;
+end;
+$$;
+
+revoke execute on function public.montar_temporada(uuid) from public, anon;
+grant execute on function public.montar_temporada(uuid) to authenticated;
+
+-- ---------- Helper anti-recursão de RLS: dono da pirâmide ----------
+-- Usada DENTRO das policies das tabelas da pirâmide. SECURITY DEFINER evita a
+-- recursão e a repetição da subquery (espelha eh_participante).
+create or replace function public.eh_dono_competition(c_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.league_competitions c
+    where c.id = c_id
+      and c.created_by = (select auth.uid())
+  );
+$$;
+
+revoke execute on function public.eh_dono_competition(uuid) from public;
+grant execute on function public.eh_dono_competition(uuid) to anon, authenticated;
+
+-- ---------- Trigger: temporada encerrada imutável ----------
+-- Barra UPDATE que reabra/altere uma temporada 'encerrada' (status/numero/
+-- competition_id). Espelha lock_match_lifecycle; complementa
+-- lock_division_tournament_reopen (aquele protege o TORNEIO da divisão, este
+-- protege a LINHA da temporada). service_role (migrations) permanece livre.
+create or replace function public.lock_league_season()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if old.status = 'encerrada'
+       and (new.status is distinct from old.status
+            or new.numero is distinct from old.numero
+            or new.competition_id is distinct from old.competition_id)
+    then
+      raise exception 'A temporada encerrada não pode ser alterada';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists league_seasons_lock on public.league_seasons;
+create trigger league_seasons_lock
+  before update on public.league_seasons
+  for each row execute function public.lock_league_season();
+
+-- ---------- Trigger: geometria da divisão travada fora de rascunho ----------
+-- tournament_id/nivel/por_nome/tamanho são a GEOMETRIA da divisão: editáveis só
+-- enquanto a temporada é 'rascunho' e travados depois. Espelha
+-- lock_slot_relations. service_role permanece livre.
+create or replace function public.lock_league_division_season()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if (new.tournament_id is distinct from old.tournament_id
+        or new.nivel is distinct from old.nivel
+        or new.por_nome is distinct from old.por_nome
+        or new.tamanho is distinct from old.tamanho)
+       and exists (
+         select 1 from public.league_seasons ls
+         where ls.id = old.season_id
+           and ls.status <> 'rascunho'
+       )
+    then
+      raise exception 'A geometria da divisão não pode mudar após a temporada sair do rascunho';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists league_division_seasons_lock on public.league_division_seasons;
+create trigger league_division_seasons_lock
+  before update on public.league_division_seasons
+  for each row execute function public.lock_league_division_season();
+
+-- ---------- Trigger: identidade do competidor imutável após jogar ----------
+-- team_id/rotulo (identidade) são travados depois que o competidor tem QUALQUER
+-- league_division_entries (já entrou numa divisão — identidade imutável).
+-- holder_user_id (técnico que acompanha) permanece MUTÁVEL (substituível).
+-- service_role permanece livre.
+create or replace function public.lock_league_competitor_identity()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if (new.team_id is distinct from old.team_id
+        or new.rotulo is distinct from old.rotulo)
+       and exists (
+         select 1 from public.league_division_entries lde
+         where lde.competitor_id = old.id
+       )
+    then
+      raise exception 'A identidade do competidor não pode mudar após a primeira entrada em divisão';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists league_competitors_lock_identity on public.league_competitors;
+create trigger league_competitors_lock_identity
+  before update on public.league_competitors
+  for each row execute function public.lock_league_competitor_identity();
+
+-- ---------- Trigger: freeze do torneio de divisão de temporada congelada ----------
+-- DEFESA REAL do FREEZE (vale contra QUALQUER caminho, inclusive POST direto e
+-- qualquer action futura): reabrirTorneio opera direto em tournaments e o dono
+-- da pirâmide É o created_by dos torneios das divisões — passaria por todas as
+-- policies. Este trigger barra a transição de status 'encerrado' →
+-- 'ativo'/'rascunho' QUANDO o tournaments.id pertence a uma divisão cuja
+-- league_seasons.status in ('em_fluxo','encerrada'). Espelha lock_match_lifecycle.
+-- service_role (migrations) permanece livre. O guard na action reabrirTorneio é
+-- a camada de UX complementar (não substitui esta).
+create or replace function public.lock_division_tournament_reopen()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if old.status = 'encerrado'
+       and new.status in ('ativo', 'rascunho')
+       and exists (
+         select 1
+         from public.league_division_seasons lds
+         join public.league_seasons ls on ls.id = lds.season_id
+         where lds.tournament_id = old.id
+           and ls.status in ('em_fluxo', 'encerrada')
+       )
+    then
+      raise exception 'A divisão de uma temporada congelada não pode ser reaberta';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists tournaments_lock_division_reopen on public.tournaments;
+create trigger tournaments_lock_division_reopen
+  before update on public.tournaments
+  for each row execute function public.lock_division_tournament_reopen();
+
+-- ---------- Estende lock_slot_relations: competitor_id travado fora de rascunho ----------
+-- competitor_id é gravado na montagem (rascunho) e não muda depois — defendido
+-- pelo mesmo lock que já trava team_id/rotulo. Reescreve a função preservando o
+-- corpo original e adicionando o ramo do competitor_id. service_role livre.
+create or replace function public.lock_slot_relations()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::jsonb ->> 'role',
+       ''
+     ) <> 'service_role'
+  then
+    if new.tournament_id is distinct from old.tournament_id then
+      raise exception 'Não é permitido mover a vaga de torneio';
+    end if;
+    if new.team_id is distinct from old.team_id
+       and exists (
+         select 1 from public.tournaments t
+         where t.id = old.tournament_id
+           and t.status <> 'rascunho'
+       )
+    then
+      raise exception 'O clube da vaga não pode mudar após o início do torneio';
+    end if;
+    -- Vaga por NOME: o rótulo também é geometria da disputa — travado pós-rascunho.
+    if new.rotulo is distinct from old.rotulo
+       and exists (
+         select 1 from public.tournaments t
+         where t.id = old.tournament_id
+           and t.status <> 'rascunho'
+       )
+    then
+      raise exception 'O nome do competidor não pode mudar após o início do torneio';
+    end if;
+    -- Pirâmide: o competidor persistente ligado à vaga é geometria de
+    -- proveniência — gravado na montagem (rascunho) e imutável depois.
+    if new.competitor_id is distinct from old.competitor_id
+       and exists (
+         select 1 from public.tournaments t
+         where t.id = old.tournament_id
+           and t.status <> 'rascunho'
+       )
+    then
+      raise exception 'O competidor da vaga não pode mudar após o início do torneio';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+-- (o trigger tournament_slots_lock_relations já aponta para esta função)
+
+-- ============================================================
+-- Row Level Security — tabelas da pirâmide
+-- ============================================================
+-- Padrão cascata do schema: SELECT espelha a visibilidade da pirâmide (ativa OU
+-- dono); escrita só do dono (validada via subquery transitiva contra a pirâmide,
+-- com o helper eh_dono_competition definer). As policies tournaments_insert_owner
+-- e slots_insert_owner_rascunho NÃO são relaxadas — o pré-preenchimento de slots
+-- roda pela RPC montar_temporada (SECURITY DEFINER), preservando o invariante
+-- "técnico só por aceite" do torneio AVULSO.
+alter table public.league_competitions     enable row level security;
+alter table public.league_seasons          enable row level security;
+alter table public.league_division_seasons enable row level security;
+alter table public.league_boundaries       enable row level security;
+alter table public.league_competitors      enable row level security;
+alter table public.league_division_entries enable row level security;
+
+-- ----- league_competitions: ativa é pública; arquivada só o dono -----
+drop policy if exists league_competitions_select_visivel on public.league_competitions;
+create policy league_competitions_select_visivel on public.league_competitions
+  for select to anon, authenticated
+  using (status = 'ativa' or created_by = auth.uid());
+
+drop policy if exists league_competitions_insert_owner on public.league_competitions;
+create policy league_competitions_insert_owner on public.league_competitions
+  for insert to authenticated
+  with check (created_by = auth.uid());
+
+drop policy if exists league_competitions_update_owner on public.league_competitions;
+create policy league_competitions_update_owner on public.league_competitions
+  for update to authenticated
+  using (created_by = auth.uid())
+  with check (created_by = auth.uid());
+
+drop policy if exists league_competitions_delete_owner on public.league_competitions;
+create policy league_competitions_delete_owner on public.league_competitions
+  for delete to authenticated
+  using (created_by = auth.uid());
+
+-- ----- league_seasons: visibilidade/escrita via pirâmide -----
+drop policy if exists league_seasons_select_visivel on public.league_seasons;
+create policy league_seasons_select_visivel on public.league_seasons
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.league_competitions c
+      where c.id = competition_id
+        and (c.status = 'ativa' or c.created_by = auth.uid())
+    )
+  );
+
+drop policy if exists league_seasons_insert_owner on public.league_seasons;
+create policy league_seasons_insert_owner on public.league_seasons
+  for insert to authenticated
+  with check (public.eh_dono_competition(competition_id));
+
+drop policy if exists league_seasons_update_owner on public.league_seasons;
+create policy league_seasons_update_owner on public.league_seasons
+  for update to authenticated
+  using (public.eh_dono_competition(competition_id))
+  with check (public.eh_dono_competition(competition_id));
+
+drop policy if exists league_seasons_delete_owner on public.league_seasons;
+create policy league_seasons_delete_owner on public.league_seasons
+  for delete to authenticated
+  using (public.eh_dono_competition(competition_id));
+
+-- ----- league_division_seasons: visibilidade/escrita via season → pirâmide -----
+drop policy if exists league_division_seasons_select_visivel on public.league_division_seasons;
+create policy league_division_seasons_select_visivel on public.league_division_seasons
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1
+      from public.league_seasons ls
+      join public.league_competitions c on c.id = ls.competition_id
+      where ls.id = season_id
+        and (c.status = 'ativa' or c.created_by = auth.uid())
+    )
+  );
+
+-- Escrita: o dono da pirâmide dona da season. A subquery resolve a season → a
+-- pirâmide; eh_dono_competition (definer) valida a posse.
+drop policy if exists league_division_seasons_insert_owner on public.league_division_seasons;
+create policy league_division_seasons_insert_owner on public.league_division_seasons
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.league_seasons ls
+      where ls.id = season_id
+        and public.eh_dono_competition(ls.competition_id)
+    )
+  );
+
+drop policy if exists league_division_seasons_update_owner on public.league_division_seasons;
+create policy league_division_seasons_update_owner on public.league_division_seasons
+  for update to authenticated
+  using (
+    exists (
+      select 1 from public.league_seasons ls
+      where ls.id = season_id
+        and public.eh_dono_competition(ls.competition_id)
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.league_seasons ls
+      where ls.id = season_id
+        and public.eh_dono_competition(ls.competition_id)
+    )
+  );
+
+drop policy if exists league_division_seasons_delete_owner on public.league_division_seasons;
+create policy league_division_seasons_delete_owner on public.league_division_seasons
+  for delete to authenticated
+  using (
+    exists (
+      select 1 from public.league_seasons ls
+      where ls.id = season_id
+        and public.eh_dono_competition(ls.competition_id)
+    )
+  );
+
+-- ----- league_boundaries: visibilidade/escrita via season → pirâmide -----
+drop policy if exists league_boundaries_select_visivel on public.league_boundaries;
+create policy league_boundaries_select_visivel on public.league_boundaries
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1
+      from public.league_seasons ls
+      join public.league_competitions c on c.id = ls.competition_id
+      where ls.id = season_id
+        and (c.status = 'ativa' or c.created_by = auth.uid())
+    )
+  );
+
+drop policy if exists league_boundaries_insert_owner on public.league_boundaries;
+create policy league_boundaries_insert_owner on public.league_boundaries
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.league_seasons ls
+      where ls.id = season_id
+        and public.eh_dono_competition(ls.competition_id)
+    )
+  );
+
+drop policy if exists league_boundaries_update_owner on public.league_boundaries;
+create policy league_boundaries_update_owner on public.league_boundaries
+  for update to authenticated
+  using (
+    exists (
+      select 1 from public.league_seasons ls
+      where ls.id = season_id
+        and public.eh_dono_competition(ls.competition_id)
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.league_seasons ls
+      where ls.id = season_id
+        and public.eh_dono_competition(ls.competition_id)
+    )
+  );
+
+drop policy if exists league_boundaries_delete_owner on public.league_boundaries;
+create policy league_boundaries_delete_owner on public.league_boundaries
+  for delete to authenticated
+  using (
+    exists (
+      select 1 from public.league_seasons ls
+      where ls.id = season_id
+        and public.eh_dono_competition(ls.competition_id)
+    )
+  );
+
+-- ----- league_competitors: visibilidade/escrita via pirâmide -----
+drop policy if exists league_competitors_select_visivel on public.league_competitors;
+create policy league_competitors_select_visivel on public.league_competitors
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.league_competitions c
+      where c.id = competition_id
+        and (c.status = 'ativa' or c.created_by = auth.uid())
+    )
+  );
+
+drop policy if exists league_competitors_insert_owner on public.league_competitors;
+create policy league_competitors_insert_owner on public.league_competitors
+  for insert to authenticated
+  with check (public.eh_dono_competition(competition_id));
+
+drop policy if exists league_competitors_update_owner on public.league_competitors;
+create policy league_competitors_update_owner on public.league_competitors
+  for update to authenticated
+  using (public.eh_dono_competition(competition_id))
+  with check (public.eh_dono_competition(competition_id));
+
+drop policy if exists league_competitors_delete_owner on public.league_competitors;
+create policy league_competitors_delete_owner on public.league_competitors
+  for delete to authenticated
+  using (public.eh_dono_competition(competition_id));
+
+-- ----- league_division_entries: visibilidade/escrita via entry → divisão → season → pirâmide -----
+drop policy if exists league_division_entries_select_visivel on public.league_division_entries;
+create policy league_division_entries_select_visivel on public.league_division_entries
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1
+      from public.league_division_seasons lds
+      join public.league_seasons ls on ls.id = lds.season_id
+      join public.league_competitions c on c.id = ls.competition_id
+      where lds.id = division_season_id
+        and (c.status = 'ativa' or c.created_by = auth.uid())
+    )
+  );
+
+drop policy if exists league_division_entries_insert_owner on public.league_division_entries;
+create policy league_division_entries_insert_owner on public.league_division_entries
+  for insert to authenticated
+  with check (
+    -- Posse via cascata E coerência cross-pirâmide: o competidor referenciado tem
+    -- de pertencer à MESMA competição da divisão (o FK só garante existência).
+    exists (
+      select 1
+      from public.league_division_seasons lds
+      join public.league_seasons ls on ls.id = lds.season_id
+      join public.league_competitors lc on lc.id = competitor_id
+      where lds.id = division_season_id
+        and public.eh_dono_competition(ls.competition_id)
+        and lc.competition_id = ls.competition_id
+    )
+  );
+
+drop policy if exists league_division_entries_update_owner on public.league_division_entries;
+create policy league_division_entries_update_owner on public.league_division_entries
+  for update to authenticated
+  using (
+    exists (
+      select 1
+      from public.league_division_seasons lds
+      join public.league_seasons ls on ls.id = lds.season_id
+      where lds.id = division_season_id
+        and public.eh_dono_competition(ls.competition_id)
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.league_division_seasons lds
+      join public.league_seasons ls on ls.id = lds.season_id
+      join public.league_competitors lc on lc.id = competitor_id
+      where lds.id = division_season_id
+        and public.eh_dono_competition(ls.competition_id)
+        and lc.competition_id = ls.competition_id
+    )
+  );
+
+drop policy if exists league_division_entries_delete_owner on public.league_division_entries;
+create policy league_division_entries_delete_owner on public.league_division_entries
+  for delete to authenticated
+  using (
+    exists (
+      select 1
+      from public.league_division_seasons lds
+      join public.league_seasons ls on ls.id = lds.season_id
+      where lds.id = division_season_id
+        and public.eh_dono_competition(ls.competition_id)
+    )
+  );

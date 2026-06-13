@@ -218,6 +218,11 @@ export function classificarGrupos(
 
   for (let g = 1; g <= qtdGrupos; g++) {
     const doGrupo = partidas.filter((p) => p.grupo === g)
+    // Dívida (add-ligas-piramide Fase 0): a fase de grupos classifica sempre por
+    // CBF — o preset `tournaments.desempate_criterio` ainda não é propagado aqui.
+    // Sem regressão (era CBF antes do preset existir) e fora do caminho da
+    // pirâmide (que usa formato 'liga'). Propagar quando o formato interno por
+    // divisão entrar (Fase 5).
     const linhas = computeStandings(regras, doGrupo)
     if (linhas.length < classificadosPorGrupo + 1) {
       // K < tamanho do grupo é validado no Iniciar; linhas só faltam se

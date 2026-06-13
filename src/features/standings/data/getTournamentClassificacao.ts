@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server"
 import {
   computeStandings,
   type LinhaClassificacao,
+  type TiebreakerPreset,
 } from "@/features/standings/computeStandings"
 import type {
   MatchStatus,
@@ -29,6 +30,9 @@ export interface TorneioClassificacao {
   pontos_vitoria: number
   pontos_empate: number
   pontos_derrota: number
+  /** Preset de desempate (default 'cbf' = comportamento legado). Repassado ao
+   * `computeStandings` como 3º arg; sem isto o preset seria ignorado. */
+  desempate_criterio: string
 }
 
 export interface LinhaComNome extends LinhaClassificacao {
@@ -287,14 +291,16 @@ function projetarLado(
  *   MESMA requisição — uma viagem ao banco, não duas.
  */
 export const getTournamentClassificacao = cache(async function getTournamentClassificacao(
-  tournamentId: string
+  tournamentId: string,
+  /** Override do preset (testes): substitui `tournaments.desempate_criterio`. */
+  tiebreakerOverride?: TiebreakerPreset
 ): Promise<ClassificacaoTorneio | null> {
   const supabase = await createClient()
 
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select(
-      "id, titulo, status, formato, ida_e_volta, terceiro_lugar, classificados_por_grupo, created_by, pontos_vitoria, pontos_empate, pontos_derrota"
+      "id, titulo, status, formato, ida_e_volta, terceiro_lugar, classificados_por_grupo, created_by, pontos_vitoria, pontos_empate, pontos_derrota, desempate_criterio"
     )
     .eq("id", tournamentId)
     .maybeSingle()
@@ -401,7 +407,13 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     derrota: torneio.pontos_derrota,
   }
 
-  const linhas = computeStandings(regras, linhasMotor).map((linha) => ({
+  // Preset de desempate da divisão/torneio. Sem repassar aos 3 call-sites do
+  // motor o preset seria silenciosamente ignorado (a coluna existiria mas o
+  // motor rodaria sempre CBF). Override é insumo de teste.
+  const desempate: TiebreakerPreset =
+    tiebreakerOverride ?? ((torneio.desempate_criterio as TiebreakerPreset) ?? "cbf")
+
+  const linhas = computeStandings(regras, linhasMotor, desempate).map((linha) => ({
     ...linha,
     nome: nomes.get(linha.participanteId) ?? "Sem nome",
     escudoUrl: escudos.get(linha.participanteId) ?? null,
@@ -423,7 +435,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
           placar_1: p.placar_1,
           placar_2: p.placar_2,
           status: p.status,
-        }))
+        })),
+        desempate
       ).map((linha) => ({
         ...linha,
         nome: nomesClubes.get(linha.participanteId) ?? "Sem nome",
@@ -599,7 +612,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
           placar_2: p.placar_2,
           status: p.status,
           woVencedor: woVencedor(p),
-        }))
+        })),
+      desempate
     ).map((linha) => ({
       ...linha,
       nome: nomes.get(linha.participanteId) ?? "Sem nome",

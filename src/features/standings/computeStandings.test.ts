@@ -270,6 +270,85 @@ describe("computeStandings — cadeia de desempate", () => {
   })
 })
 
+describe("computeStandings — presets de desempate", () => {
+  // Cenário-âncora: 'a' tem 1 vitória + 2 derrotas (3 pts, saldo -1);
+  // 'b' tem 3 empates (3 pts, saldo 0). A cadeia objetiva os separa de modo
+  // OPOSTO entre os presets: CBF prioriza vitórias (a > b); inglês prioriza
+  // saldo (b > a). Mesmas partidas, ordem diferente → prova que o preset pega.
+  const partidasVitoriaVsSaldo: PartidaClassificavel[] = [
+    // a: 1 vitória + 2 derrotas = 3 pts, saldo -1
+    partida("a", "c", 1, 0),
+    partida("a", "d", 0, 1),
+    partida("a", "d", 0, 1),
+    // b: 3 empates = 3 pts, saldo 0
+    partida("b", "c", 0, 0),
+    partida("b", "c", 0, 0),
+    partida("b", "c", 0, 0),
+  ]
+
+  it("default (sem 3º arg) é CBF: vitórias desempatam ANTES do saldo (a > b)", () => {
+    const r = computeStandings(CBF, partidasVitoriaVsSaldo)
+    const ia = r.findIndex((l) => l.participanteId === "a")
+    const ib = r.findIndex((l) => l.participanteId === "b")
+    expect(ia).toBeLessThan(ib) // a (1 vitória) à frente apesar do saldo pior
+  })
+
+  it("passar 'cbf' explicitamente é idêntico ao default (a > b)", () => {
+    const padrao = computeStandings(CBF, partidasVitoriaVsSaldo)
+    const explicito = computeStandings(CBF, partidasVitoriaVsSaldo, "cbf")
+    expect(ordem(explicito)).toEqual(ordem(padrao))
+  })
+
+  it("'ingles' inverte: saldo desempata ANTES das vitórias (b > a)", () => {
+    const r = computeStandings(CBF, partidasVitoriaVsSaldo, "ingles")
+    const ia = r.findIndex((l) => l.participanteId === "a")
+    const ib = r.findIndex((l) => l.participanteId === "b")
+    expect(ib).toBeLessThan(ia) // b (saldo 0) à frente de a (saldo -1)
+  })
+
+  it("'ingles' produz ordem DIFERENTE de 'cbf' nas mesmas partidas", () => {
+    const cbf = computeStandings(CBF, partidasVitoriaVsSaldo)
+    const ingles = computeStandings(CBF, partidasVitoriaVsSaldo, "ingles")
+    const posAB = (linhas: ReturnType<typeof computeStandings>) => [
+      linhas.findIndex((l) => l.participanteId === "a"),
+      linhas.findIndex((l) => l.participanteId === "b"),
+    ]
+    const [aCbf, bCbf] = posAB(cbf)
+    const [aIngles, bIngles] = posAB(ingles)
+    expect(aCbf).toBeLessThan(bCbf) // CBF: a antes de b (vitórias)
+    expect(bIngles).toBeLessThan(aIngles) // inglês: b antes de a (saldo)
+    expect(ordem(cbf)).not.toEqual(ordem(ingles))
+  })
+
+  it("'ingles' ainda usa gols pró para desempatar saldo igual", () => {
+    const r = computeStandings(CBF, [
+      partida("a", "c", 3, 1), // saldo 2, gp 3
+      partida("b", "d", 2, 0), // saldo 2, gp 2
+    ], "ingles")
+    expect(r[0].participanteId).toBe("a") // mais gols pró
+  })
+
+  it("'ingles' ainda restringe o confronto direto a EXATAMENTE 2 empatados", () => {
+    // a e b empatam TODA a cadeia objetiva do inglês (pontos/saldo/gp/vitórias)
+    // e se enfrentaram: a venceu o confronto direto → fica à frente.
+    const r = computeStandings(CBF, [
+      partida("a", "b", 2, 1), // a vence o confronto direto
+      partida("a", "c", 0, 1), // equaliza: a fica 3pts 1v gp2 gc2 saldo 0
+      partida("b", "d", 1, 0), // b fica 3pts 1v gp2 gc2 saldo 0
+    ], "ingles")
+    const ia = r.findIndex((l) => l.participanteId === "a")
+    const ib = r.findIndex((l) => l.participanteId === "b")
+    expect(ia).toBeLessThan(ib)
+    expect(r[ia].posicao).not.toBe(r[ib].posicao)
+  })
+
+  it("'custom' na Fase 0 degrada para o comportamento CBF", () => {
+    const cbf = computeStandings(CBF, partidasVitoriaVsSaldo, "cbf")
+    const custom = computeStandings(CBF, partidasVitoriaVsSaldo, "custom")
+    expect(ordem(custom)).toEqual(ordem(cbf))
+  })
+})
+
 describe("computeStandings — W.O. (walkover)", () => {
   it("vitória por W.O. soma os PONTOS de vitória/derrota sem tocar gols/saldo", () => {
     const r = computeStandings(CBF, [wo("a", "b", "a")])

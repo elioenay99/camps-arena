@@ -1,6 +1,14 @@
 // Tipos do banco mantidos à mão, espelhando supabase/schema.sql.
 // Fonte de verdade do schema é o SQL; estes tipos dão type-safety ao client.
 
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
 export type TournamentStatus = "rascunho" | "ativo" | "encerrado"
 export type TournamentFormat =
   | "avulso"
@@ -9,6 +17,18 @@ export type TournamentFormat =
   | "grupos_mata_mata"
   | "fase_liga"
 export type MatchStatus = "agendada" | "em_andamento" | "encerrada"
+export type LeagueCompetitionStatus = "ativa" | "arquivada"
+export type LeagueSeasonStatus =
+  | "rascunho"
+  | "ativa"
+  | "em_fluxo"
+  | "encerrada"
+export type LeagueRankingBase = "posicao" | "ppg" | "promedios"
+export type LeagueBoundaryMode =
+  | "direto"
+  | "playoff_acesso"
+  | "playout"
+  | "barragem_cruzada"
 
 export interface Database {
   public: {
@@ -52,6 +72,7 @@ export interface Database {
           pontos_vitoria: number
           pontos_empate: number
           pontos_derrota: number
+          desempate_criterio: string
           created_at: string
         }
         Insert: {
@@ -68,6 +89,7 @@ export interface Database {
           pontos_vitoria?: number
           pontos_empate?: number
           pontos_derrota?: number
+          desempate_criterio?: string
           created_at?: string
         }
         Update: {
@@ -84,6 +106,7 @@ export interface Database {
           pontos_vitoria?: number
           pontos_empate?: number
           pontos_derrota?: number
+          desempate_criterio?: string
           created_at?: string
         }
         Relationships: [
@@ -318,6 +341,7 @@ export interface Database {
           team_id: string | null
           rotulo: string | null
           user_id: string | null
+          competitor_id: string | null
           created_at: string
         }
         Insert: {
@@ -326,6 +350,7 @@ export interface Database {
           team_id?: string | null
           rotulo?: string | null
           user_id?: string | null
+          competitor_id?: string | null
           created_at?: string
         }
         Update: {
@@ -334,6 +359,7 @@ export interface Database {
           team_id?: string | null
           rotulo?: string | null
           user_id?: string | null
+          competitor_id?: string | null
           created_at?: string
         }
         Relationships: [
@@ -356,6 +382,13 @@ export interface Database {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_slots_competitor_id_fkey"
+            columns: ["competitor_id"]
+            isOneToOne: false
+            referencedRelation: "league_competitors"
             referencedColumns: ["id"]
           },
         ]
@@ -411,6 +444,294 @@ export interface Database {
           },
         ]
       }
+      league_competitions: {
+        Row: {
+          id: string
+          nome: string
+          created_by: string | null
+          status: LeagueCompetitionStatus
+          desempate_padrao: string
+          is_public: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          nome: string
+          created_by?: string | null
+          status?: LeagueCompetitionStatus
+          desempate_padrao?: string
+          is_public?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          nome?: string
+          created_by?: string | null
+          status?: LeagueCompetitionStatus
+          desempate_padrao?: string
+          is_public?: boolean
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "league_competitions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      league_seasons: {
+        Row: {
+          id: string
+          competition_id: string
+          numero: number
+          status: LeagueSeasonStatus
+          config_snapshot: Json
+          previous_season_id: string | null
+          created_at: string
+          encerrada_em: string | null
+        }
+        Insert: {
+          id?: string
+          competition_id: string
+          numero: number
+          status?: LeagueSeasonStatus
+          config_snapshot?: Json
+          previous_season_id?: string | null
+          created_at?: string
+          encerrada_em?: string | null
+        }
+        Update: {
+          id?: string
+          competition_id?: string
+          numero?: number
+          status?: LeagueSeasonStatus
+          config_snapshot?: Json
+          previous_season_id?: string | null
+          created_at?: string
+          encerrada_em?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "league_seasons_competition_id_fkey"
+            columns: ["competition_id"]
+            isOneToOne: false
+            referencedRelation: "league_competitions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_seasons_previous_season_id_fkey"
+            columns: ["previous_season_id"]
+            isOneToOne: false
+            referencedRelation: "league_seasons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      league_division_seasons: {
+        Row: {
+          id: string
+          season_id: string
+          nivel: number
+          nome: string
+          tournament_id: string | null
+          por_nome: boolean
+          desempate: string
+          tamanho: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          season_id: string
+          nivel: number
+          nome: string
+          tournament_id?: string | null
+          por_nome?: boolean
+          desempate?: string
+          tamanho: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          season_id?: string
+          nivel?: number
+          nome?: string
+          tournament_id?: string | null
+          por_nome?: boolean
+          desempate?: string
+          tamanho?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "league_division_seasons_season_id_fkey"
+            columns: ["season_id"]
+            isOneToOne: false
+            referencedRelation: "league_seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_division_seasons_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      league_boundaries: {
+        Row: {
+          id: string
+          season_id: string
+          nivel_superior: number
+          vagas_rebaixamento: number
+          vagas_acesso: number
+          modo: LeagueBoundaryMode
+          playoff_vagas: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          season_id: string
+          nivel_superior: number
+          vagas_rebaixamento?: number
+          vagas_acesso?: number
+          modo?: LeagueBoundaryMode
+          playoff_vagas?: number | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          season_id?: string
+          nivel_superior?: number
+          vagas_rebaixamento?: number
+          vagas_acesso?: number
+          modo?: LeagueBoundaryMode
+          playoff_vagas?: number | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "league_boundaries_season_id_fkey"
+            columns: ["season_id"]
+            isOneToOne: false
+            referencedRelation: "league_seasons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      league_competitors: {
+        Row: {
+          id: string
+          competition_id: string
+          team_id: string | null
+          rotulo: string | null
+          holder_user_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          competition_id: string
+          team_id?: string | null
+          rotulo?: string | null
+          holder_user_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          competition_id?: string
+          team_id?: string | null
+          rotulo?: string | null
+          holder_user_id?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "league_competitors_competition_id_fkey"
+            columns: ["competition_id"]
+            isOneToOne: false
+            referencedRelation: "league_competitions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_competitors_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_competitors_holder_user_id_fkey"
+            columns: ["holder_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      league_division_entries: {
+        Row: {
+          id: string
+          division_season_id: string
+          competitor_id: string
+          slot_id: string | null
+          posicao_final: number | null
+          destino: string | null
+          resolvido_por: string | null
+          pontos: number | null
+          jogos: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          division_season_id: string
+          competitor_id: string
+          slot_id?: string | null
+          posicao_final?: number | null
+          destino?: string | null
+          resolvido_por?: string | null
+          pontos?: number | null
+          jogos?: number | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          division_season_id?: string
+          competitor_id?: string
+          slot_id?: string | null
+          posicao_final?: number | null
+          destino?: string | null
+          resolvido_por?: string | null
+          pontos?: number | null
+          jogos?: number | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "league_division_entries_division_season_id_fkey"
+            columns: ["division_season_id"]
+            isOneToOne: false
+            referencedRelation: "league_division_seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_division_entries_competitor_id_fkey"
+            columns: ["competitor_id"]
+            isOneToOne: false
+            referencedRelation: "league_competitors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_division_entries_slot_id_fkey"
+            columns: ["slot_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_slots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       users_public: {
@@ -457,11 +778,23 @@ export interface Database {
           ja_tem_vaga: boolean
         }[]
       }
+      eh_dono_competition: {
+        Args: { c_id: string }
+        Returns: boolean
+      }
+      montar_temporada: {
+        Args: { p_season_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       tournament_status: TournamentStatus
       tournament_format: TournamentFormat
       match_status: MatchStatus
+      league_competition_status: LeagueCompetitionStatus
+      league_season_status: LeagueSeasonStatus
+      league_ranking_base: LeagueRankingBase
+      league_boundary_mode: LeagueBoundaryMode
     }
     CompositeTypes: Record<string, never>
   }
