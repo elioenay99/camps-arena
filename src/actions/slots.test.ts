@@ -26,6 +26,7 @@ const TORNEIO = "11111111-1111-4111-8111-111111111111"
 const SLOT = "44444444-4444-4444-8444-444444444444"
 const DONO = "22222222-2222-4222-8222-222222222222"
 const TECNICO = "33333333-3333-4333-8333-333333333333"
+const TEAM = "55555555-5555-4555-8555-555555555555"
 const CODIGO = "abc123def456ghj7"
 
 function formData(campos: Record<string, string>) {
@@ -42,8 +43,9 @@ interface Cenario {
   /** Erro do RPC: { message } com código curto, e/ou code (23505). */
   rpcError?: { message?: string; code?: string } | null
   rpcThrows?: boolean
-  /** Lookup do slot (propriedade por filtro: slot do MEU torneio). */
-  slot?: { id: string; tournament_id: string } | null
+  /** Lookup do slot (propriedade por filtro: slot do MEU torneio). team_id
+   * null = vaga por NOME (regenerarConviteVaga recusa). */
+  slot?: { id: string; tournament_id: string; team_id?: string | null } | null
   slotError?: boolean
   /** Linhas afetadas pelo UPDATE de esvaziar (select de confirmação). */
   updateLinhas?: Array<{ id: string }>
@@ -332,7 +334,7 @@ describe("regenerarConviteVaga", () => {
   it("dono regenera: upsert na MESMA linha (onConflict slot_id)", async () => {
     const { upsertSpy } = montarClient({
       user: { id: DONO },
-      slot: { id: SLOT, tournament_id: TORNEIO },
+      slot: { id: SLOT, tournament_id: TORNEIO, team_id: TEAM },
       upsertErros: [null],
     })
     const r = await regenerarConviteVaga(SLOT)
@@ -351,7 +353,7 @@ describe("regenerarConviteVaga", () => {
   it("colisão de código (23505) ganha UM retry com código novo", async () => {
     const { upsertSpy } = montarClient({
       user: { id: DONO },
-      slot: { id: SLOT, tournament_id: TORNEIO },
+      slot: { id: SLOT, tournament_id: TORNEIO, team_id: TEAM },
       upsertErros: ["23505", null],
     })
     const r = await regenerarConviteVaga(SLOT)
@@ -365,7 +367,7 @@ describe("regenerarConviteVaga", () => {
   it("erro que não é colisão falha sem retry", async () => {
     const { upsertSpy } = montarClient({
       user: { id: DONO },
-      slot: { id: SLOT, tournament_id: TORNEIO },
+      slot: { id: SLOT, tournament_id: TORNEIO, team_id: TEAM },
       upsertErros: ["42501"],
     })
     const r = await regenerarConviteVaga(SLOT)
@@ -376,12 +378,26 @@ describe("regenerarConviteVaga", () => {
   it("colisão dupla desiste com mensagem genérica", async () => {
     const { upsertSpy } = montarClient({
       user: { id: DONO },
-      slot: { id: SLOT, tournament_id: TORNEIO },
+      slot: { id: SLOT, tournament_id: TORNEIO, team_id: TEAM },
       upsertErros: ["23505", "23505"],
     })
     const r = await regenerarConviteVaga(SLOT)
     expect(r.ok).toBe(false)
     expect(upsertSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it("vaga por NOME (sem clube) é recusada com mensagem clara, sem upsert", async () => {
+    // team_id null = vaga por nome: não tem técnico nem convite (o organizador
+    // lança os placares). O guard recusa ANTES de tocar slot_invites; a trava
+    // real (trigger + RLS) é o backstop no banco.
+    const { upsertSpy } = montarClient({
+      user: { id: DONO },
+      slot: { id: SLOT, tournament_id: TORNEIO, team_id: null },
+    })
+    const r = await regenerarConviteVaga(SLOT)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/por nome.*não usam convite/i)
+    expect(upsertSpy).not.toHaveBeenCalled()
   })
 })
 

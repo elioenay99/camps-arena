@@ -985,6 +985,39 @@ create trigger tournament_slots_lock_relations
   before update on public.tournament_slots
   for each row execute function public.lock_slot_relations();
 
+-- ---------- Trigger: vaga por NOME nunca tem convite ----------
+-- Invariante do modelo por-nome: vaga por NOME (team_id NULL + rotulo) não tem
+-- técnico nem convite — o organizador lança os placares. A UI já esconde o botão
+-- (VagasSection); este trigger é a defesa de integridade no banco (junto da RLS
+-- de slot_invites), fechando o POST direto a regenerarConviteVaga / bypass do
+-- PostgREST. É trigger (não CHECK) porque a condição mora em outra tabela.
+-- SEM exceção de service_role DE PROPÓSITO (ao contrário de lock_slot_relations):
+-- nenhum caminho legítimo (seed/admin) cria convite para vaga por-nome.
+-- SLOT_POR_NOME é mensagem-código de BACKSTOP, deliberadamente NÃO mapeada na
+-- action (o guard de UX de regenerarConviteVaga a antecede no fluxo real).
+create or replace function public.block_slot_invite_por_nome()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if exists (
+    select 1 from public.tournament_slots s
+    where s.id = new.slot_id
+      and s.team_id is null
+  ) then
+    raise exception 'SLOT_POR_NOME';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists slot_invites_block_por_nome on public.slot_invites;
+create trigger slot_invites_block_por_nome
+  before insert or update on public.slot_invites
+  for each row execute function public.block_slot_invite_por_nome();
+
 -- =====================================================================
 -- Row Level Security
 -- =====================================================================
@@ -1395,6 +1428,8 @@ create policy slot_invites_select_owner on public.slot_invites
     )
   );
 
+-- with check ganha `team_id is not null`: o dono só pode criar/atualizar convite
+-- de vaga de CLUBE. Vaga por-nome é barrada aqui (e no trigger, universal).
 drop policy if exists slot_invites_insert_owner on public.slot_invites;
 create policy slot_invites_insert_owner on public.slot_invites
   for insert to authenticated
@@ -1404,6 +1439,7 @@ create policy slot_invites_insert_owner on public.slot_invites
       join public.tournaments t on t.id = s.tournament_id
       where s.id = slot_id
         and t.created_by = auth.uid()
+        and s.team_id is not null
     )
   );
 
@@ -1424,6 +1460,7 @@ create policy slot_invites_update_owner on public.slot_invites
       join public.tournaments t on t.id = s.tournament_id
       where s.id = slot_id
         and t.created_by = auth.uid()
+        and s.team_id is not null
     )
   );
 

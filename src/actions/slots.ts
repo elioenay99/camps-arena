@@ -223,7 +223,7 @@ export async function regenerarConviteVaga(
 
   const { data: slot, error: slotError } = await supabase
     .from("tournament_slots")
-    .select("id, tournament_id, tournaments!inner(id)")
+    .select("id, tournament_id, team_id, tournaments!inner(id)")
     .eq("id", parsed.data)
     .eq("tournaments.created_by", user.id)
     .maybeSingle()
@@ -232,6 +232,12 @@ export async function regenerarConviteVaga(
   }
   if (!slot) {
     return { ok: false, error: "Vaga não encontrada ou você não é o dono do torneio." }
+  }
+  // Vaga por NOME (sem clube) não usa convite — o organizador lança os placares.
+  // A trava REAL é no banco (trigger + RLS); aqui é a mensagem clara, antes de
+  // tocar slot_invites (a UI já esconde o botão neste caso).
+  if (slot.team_id === null) {
+    return { ok: false, error: "Vagas por nome não usam convite." }
   }
 
   const TENTATIVAS = 2
