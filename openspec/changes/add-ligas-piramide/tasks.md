@@ -1,0 +1,90 @@
+# Tasks — add-ligas-piramide
+
+Checklist faseado (Fase 0 → 5, igual à proposal). Gates por fase: typecheck / lint / test / build verdes; DDL aplicada via MCP mostrando o SQL ANTES ([[feedback-mcp-autonomia]] + REGRA 4); validação ao vivo mobile-first (390px) nos 2 temas (Dracula/Canarinho). Tudo aditivo/nullable — zero regressão nos torneios legados.
+
+## Fase 0 — DDL fundacional + motor parametrizável
+
+### 0.1 DDL (via MCP; espelhar em `supabase/schema.sql`)
+- [ ] 0.1.1 Pré-check read-only (mostrar SQL antes): contar `tournament_slots` (todos com clube/rótulo XOR), confirmar 0 torneios com `desempate_criterio` faltando (coluna nova), validar que nenhum `tournaments.formato='liga'` já está vinculado a pirâmide.
+- [ ] 0.1.2 Criar os 4 enums: `league_competition_status`, `league_season_status`, `league_ranking_base`, `league_boundary_mode` (bloco `do $$ ... if not exists ... end$$`, idempotente).
+- [ ] 0.1.3 Criar `league_competitions` (PK uuid, `created_by` set null, `status` default 'ativa', `desempate_padrao` default 'cbf' + CHECK `in ('cbf','ingles','custom')` — SEM 'espanhol' na Fase 0, `is_public` boolean default true, `nome` não-vazio + índice `created_by`).
+- [ ] 0.1.4 Criar `league_seasons` (`competition_id` cascade, `numero` >= 1, `status` default 'rascunho', `config_snapshot` jsonb, `previous_season_id` set null, `encerrada_em`; índice único `(competition_id, numero)` + índice de competição).
+- [ ] 0.1.5 Criar `league_division_seasons` (`season_id` cascade, `nivel` >= 1, `nome`, `tournament_id` restrict nullable, `por_nome` default false, `desempate` default 'cbf' + CHECK `in ('cbf','ingles','custom')`, `tamanho` 2..20; índices únicos `(season_id, nivel)` e `tournament_id` parcial + índice de season). A UNIQUE `(season_id, nivel)` é a SENTINELA de idempotência da montagem (criada ANTES dos tournaments).
+- [ ] 0.1.6 Criar `league_boundaries` (`season_id` cascade, `nivel_superior` >= 1, `vagas_rebaixamento`/`vagas_acesso` >= 0 default 0, `modo` default 'direto', `playoff_vagas` + CHECK de coerência por modo; índice único `(season_id, nivel_superior)` + índice de season).
+- [ ] 0.1.7 Criar `league_competitors` (`competition_id` cascade, `team_id` restrict, `rotulo`, `holder_user_id` set null NULLABLE = técnico que acompanha ou null = vaga gerida pelo dono; CHECK XOR clube/rótulo + não-vazio; índices únicos parciais team/rótulo case-insensitive + índice de competição).
+- [ ] 0.1.8 Criar `league_division_entries` (`division_season_id` cascade, `competitor_id` cascade, `slot_id` restrict nullable, `posicao_final`/`destino`/`resolvido_por`/`pontos`/`jogos`; CHECK `destino in ('sobe','cai','permanece')` e CHECK `resolvido_por in ('classificacao','playoff','sorteio','override')` — 'sorteio' é MOTIVO, não destino; índices únicos `(division_season_id, competitor_id)` e `slot_id` parcial + índices competidor/divisão).
+- [ ] 0.1.9 `alter table tournament_slots add column competitor_id uuid references league_competitors(id) on delete set null` + índice parcial. NÃO mexer no CHECK `slots_clube_xor_rotulo` existente.
+- [ ] 0.1.10 `alter table tournaments add column desempate_criterio text not null default 'cbf'` + CHECK `tournaments_desempate_valido in ('cbf','ingles','custom')` — SEM 'espanhol' na Fase 0 (alargado na Fase 5).
+- [ ] 0.1.11 RLS das 6 tabelas (SELECT pirâmide ativa/dono; INSERT/UPDATE/DELETE só dono via subquery transitiva) + helper `eh_dono_competition(uuid) security definer`. `enable row level security` nas 6 tabelas. As policies `tournaments_insert_owner`/`slots_insert_owner_rascunho` NÃO são relaxadas (o pré-preenchimento de slots roda pela RPC `montar_temporada`).
+- [ ] 0.1.12 RPC `montar_temporada(p_season_id uuid)` (SECURITY DEFINER, `set search_path = ''`, espelha o estilo de `aceitar_convite_vaga`): (1) valida `auth.uid() = league_competitions.created_by` da season senão `raise 'NAO_DONO'`; (2) idempotente pela sentinela `league_division_seasons.tournament_id`; (3) cria `tournaments(formato='liga', status='rascunho', por_nome, desempate_criterio, is_public herdado)`; (4) insere `tournament_slots` preenchidos (por nome: `rotulo`+`competitor_id`; por clube: `team_id`+`competitor_id`+`user_id`=`holder_user_id` COM degradação para NULL se colidir com `slots_um_clube_por_tecnico`); (5) cria `league_division_entries`. `revoke execute ... from public, anon; grant execute ... to authenticated`.
+- [ ] 0.1.13 Triggers de lock (security definer, bypass service_role): `lock_league_season` (encerrada imutável), `lock_league_division_season` (tournament_id/nivel/por_nome/tamanho travados fora de rascunho), `lock_league_competitor_identity` (team_id/rotulo travados após primeira entry; `holder_user_id` mutável), `lock_division_tournament_reopen` (em `tournaments`: barra status 'encerrado'→'ativo'/'rascunho' quando o torneio é divisão de season `em_fluxo`/`encerrada` — fecha o furo do `reabrirTorneio`). Estender `lock_slot_relations` para barrar mudança de `competitor_id` fora de rascunho.
+- [ ] 0.1.14 Aplicar via MCP (mostrar SQL completo antes); preferir BRANCH Supabase para o esquema grande, depois mesclar. Verificar colunas/constraints/índices/policies/RPC/triggers presentes.
+- [ ] 0.1.15 Espelhar TODA a DDL em `supabase/schema.sql` (mesmo estilo/comentários do arquivo).
+
+### 0.2 Tipos
+- [ ] 0.2.1 Regenerar `src/lib/supabase/database.types.ts` (6 tabelas + enums + `tournament_slots.competitor_id` + `tournaments.desempate_criterio`).
+- [ ] 0.2.2 Typecheck verde (nenhum consumidor existente quebra — campos novos opcionais/nullable).
+
+### 0.3 Motor de desempate parametrizável
+- [ ] 0.3.1 Em `computeStandings.ts`: exportar `TiebreakerPreset = 'cbf'|'ingles'|'custom'` (SEM 'espanhol' — Fase 5) e `TiebreakerSpec`; adicionar 3º param `tiebreaker: TiebreakerPreset = 'cbf'` em `computeStandings` (linha 78).
+- [ ] 0.3.2 Implementar `obterTiebreakerSpec(preset)`: `cbf` retorna `[pontos, vitorias, saldo, golsPro]` + `confrontoDiretoApenasEm2: true` (BYTE-IDÊNTICO ao atual); `ingles` `[pontos, saldo, golsPro, vitorias]` + `confrontoDiretoApenasEm2: true`. `custom`/`espanhol` NÃO entram na Fase 0.
+- [ ] 0.3.3 Refatorar a ordenação (linhas 148-155), o agrupamento de empatados (158-169) e o confronto direto (195-209) para usarem a `spec` — mantendo `porId` como tiebreaker final.
+- [ ] 0.3.4 Propagação no fetcher (SEM as TRÊS edições juntas o preset é IGNORADO silenciosamente): (a) incluir `desempate_criterio` na string `.select(...)` de `tournaments` em `getTournamentClassificacao.ts:~297`; (b) adicionar `desempate_criterio: string` à interface `TorneioClassificacao` (`getTournamentClassificacao.ts:16-32`); (c) passar `const desempate = (torneio.desempate_criterio as TiebreakerPreset) ?? 'cbf'` como 3º arg `tiebreaker` nos 3 call-sites do motor (linhas 404, 418, 591); param opcional `tiebreakerOverride?` para testes.
+- [ ] 0.3.5 Testes: preservar 100% de `computeStandings.test.ts` (default `cbf` passa intacto); adicionar `describe('presets de desempate')` com fixtures `ingles` (sem `espanhol` na Fase 0).
+
+### 0.4 Gate Fase 0
+- [ ] 0.4.1 `pnpm typecheck && pnpm lint && pnpm test && pnpm build` verdes.
+- [ ] 0.4.2 Smoke ao vivo: torneio de liga legado classifica idêntico (default cbf intocado).
+- [ ] 0.4.3 Revisão adversarial por workflow (foco: não-regressão do motor, RLS das 6 tabelas, RPC `montar_temporada` não relaxa policies de cliente, idempotência do schema, presets sem 'espanhol').
+
+## Fase 1 — Fundação ponta-a-ponta
+
+### 1.1 Schema de criação (Zod)
+- [ ] 1.1.1 `src/schema/leaguePyramidSchema.ts`: `createCompetitionSchema` (nome, `isPublic`, lista de divisões com `{ nivel, nome, porNome, desempate, tamanho, clubes|nomes }`, fronteiras `{ nivelSuperior, vagasAcesso, vagasRebaixamento, modo }`), presets Brasileirão 4-4 / Premier 3-3 / Personalizado. Refines (REJEITAM, não só avisam): níveis contínuos 1..N; fronteiras só entre adjacentes; tamanhos 2..20; `desempate in ('cbf','ingles')` (Fase 0/1); INVARIANTE de fechamento de tamanho por divisão `tamanho = tamanho - sobe - cai + recebidos_cima + recebidos_baixo` resultando em `[2,20]` em TODAS as divisões; pontas (divisão 1 não recebe de cima nem sobe; última não recebe de baixo nem cai); N=1 permitido (sem fronteiras).
+
+### 1.2 Actions
+- [ ] 1.2.1 `src/actions/leaguePyramid.ts` → `createCompetition`: valida form, cria `league_competitions` (com `is_public`) + `league_seasons(numero=1, status='rascunho')` + `league_division_seasons` + `league_boundaries` + `league_competitors` (um por clube/nome, com `holder_user_id` opcional). Posse = `created_by`.
+- [ ] 1.2.2 `montarTemporada(seasonId)`: action thin que CHAMA a RPC `montar_temporada(seasonId)` (SECURITY DEFINER — pré-preenche `user_id` por dentro do definer; ver 0.1.12). A RPC cria os `tournaments(formato='liga', status='rascunho', por_nome, desempate_criterio, is_public herdado)`, insere `tournament_slots` preenchidos (clube via `team_id`+`competitor_id`+`user_id`=`holder_user_id` COM degradação para NULL na colisão `slots_um_clube_por_tecnico`; nome via `rotulo`+`competitor_id`), cria `league_division_entries`, atribui `tournament_id`. Idempotente pela sentinela `league_division_seasons.tournament_id`.
+- [ ] 1.2.3 `iniciarDivisao(divisionSeasonId)`: thin wrapper que chama `iniciarTorneio(tournament_id)` (reúso total) + transição `season → 'ativa'` quando todas iniciadas.
+- [ ] 1.2.4 `calcularFluxoTemporada(seasonId)` (read-only): lê `getTournamentClassificacao` por divisão; deriva base `posicao`/`ppg`; aplica fronteiras `'direto'` simétricas (N últimos caem / N primeiros sobem); sorteio crypto no empate exato da zona de corte (ordena TODOS os empatados na fronteira, preenche as vagas na ordem sorteada; semente gravada). Marca `resolvido_por='sorteio'` quando o corte foi por sorteio. Retorna PLANO (sem escrita).
+- [ ] 1.2.5 `confirmarFluxoTemporada(seasonId, ajustes?)` (escrita, idempotente): `season → 'em_fluxo'`; persiste `league_division_entries` (posicao_final/destino/`resolvido_por`/pontos/jogos); aplica override do dono (`resolvido_por='override'`); chama `montarProximaTemporada`; `season → 'encerrada'`.
+- [ ] 1.2.6 `montarProximaTemporada(seasonId)`: cria `league_seasons(numero=N+1, previous_season_id=N)`; realoca competidores ao destino (técnico `holder_user_id` acompanha); VALIDA o fechamento de tamanho por divisão e REJEITA (erro explícito, sem escrita) se alguma divisão sair de `[2,20]`; cria as `league_division_seasons` da N+1 ANTES dos tournaments (sentinela), depois chama a RPC `montar_temporada(N+1)` para os torneios/slots/entries. Idempotência: `league_seasons_numero_unico` (temporada) + sentinela `tournament_id` (montagem); re-rodar após falha parcial completa só o que faltou.
+- [ ] 1.2.7 Guard em `reabrirTorneio` (`src/actions/tournaments.ts:479`, camada (a) do freeze): após carregar o torneio, rejeitar se ele for uma divisão (`league_division_seasons.tournament_id = id`) cuja `league_seasons.status in ('em_fluxo','encerrada')` — retorna o erro de propriedade existente, sem reabrir. A defesa REAL é o trigger `lock_division_tournament_reopen` (0.1.13); este guard é a camada de UX.
+
+### 1.3 UI (mobile-first 390px, 2 temas)
+- [ ] 1.3.1 Rota `src/app/dashboard/ligas/` (lista de pirâmides do dono) + `nova/` (wizard com presets).
+- [ ] 1.3.2 `LeagueWizard` (client leaf): passos preset → divisões → fronteiras → competidores (toggle nome/clube por divisão; chips para nomes, `TeamSearchInput` para clubes — reúso). Hidden fields tipados.
+- [ ] 1.3.3 Página da temporada `dashboard/ligas/[id]/` (RSC): abas/cards por divisão, cada uma linkando a página de torneio EXISTENTE (`/dashboard/torneios/[tournamentId]`).
+- [ ] 1.3.4 `StandingsTable`: prop opcional `zonas?: { acesso: number[]; rebaixamento: number[] }` (destaque de zona sobe/cai). Default vazio preserva uso standalone.
+- [ ] 1.3.5 Tela de fluxo: render do PLANO (sobe/cai/sorteio) com 2 cliques (calcular → confirmar) + ajuste manual do empate antes de confirmar.
+- [ ] 1.3.6 Fetchers RSC: `getCompetition`, `getSeason`, `getDivisionStandings` (reúsa `getTournamentClassificacao` por divisão).
+
+### 1.4 Gate Fase 1
+- [ ] 1.4.1 `pnpm typecheck && pnpm lint && pnpm test && pnpm build` verdes. Testes de `calcularFluxoTemporada`/`montarProximaTemporada`: (a) pirâmide de 3 divisões — fechamento de tamanho em TODAS as fronteiras internas + as duas pontas (divisão 1 não sobe, última não cai); (b) config que deixaria divisão <2 é REJEITADA antes de escrever; (c) sorteio determinístico por semente (mesma semente → mesma ordem); (d) fronteira direta simétrica conserva tamanho; (e) N=1 (uma divisão, sem fronteiras); (f) degradação do `user_id` para NULL quando 2 competidores da mesma divisão têm o mesmo `holder_user_id`.
+- [ ] 1.4.2 Validação AO VIVO (Playwright, logado, 390px, ambos os temas): criar pirâmide 2 divisões (preset) → montar temporada (RPC) → iniciar divisões → lançar placares → executar fluxo (sobe/cai com sorteio) → confirmar → temporada N+1 montada com competidores realocados + técnico mantido. Validar também que `reabrirTorneio` numa divisão de temporada congelada é BARRADO.
+- [ ] 1.4.3 Revisão adversarial por workflow (foco: RPC `montar_temporada` (posse + degradação na colisão), RLS/locks das 6 tabelas + `lock_division_tournament_reopen`, idempotência do promote-first pela sentinela, conservação de tamanho por CHECK, sorteio auditável).
+- [ ] 1.4.4 DDL adicional desta fase (se houver) via MCP mostrando SQL antes + espelho em `schema.sql`.
+
+## Fase 2 — Playoff de acesso + playout (bloco)
+- [ ] 2.1 `league_boundaries.modo` `'playoff_acesso'`/`'playout'`: integra os times da zona via `montarConfrontosSorteio`/`montarConfrontosPotes` + `gerarFaseInicial` + `gerarProximaFase` (reúso de `gerarChaveMataMata`, máx 32).
+- [ ] 2.2 `calcularFluxoTemporada` consome o resultado da chave (vencedores sobem / perdedores caem) no plano.
+- [ ] 2.3 UI da chave de playoff/playout dentro do fluxo; testes; gate (typecheck/lint/test/build + ao vivo 390px/2 temas + revisão adversarial).
+
+## Fase 3 — Barragem cruzada (bloco)
+- [ ] 3.1 `league_boundaries.modo` `'barragem_cruzada'` (X de d × Y de d+1): `montarConfrontosManual` com seeds explícitos + `gerarProximaFase`.
+- [ ] 3.2 UI da barragem + integração ao plano de sobe/cai; testes; gate completo.
+
+## Fase 4 — Promedios + página do competidor (bloco)
+- [ ] 4.1 Base `promedios`: média plurianual lendo `league_division_entries` das N temporadas via `previous_season_id`.
+- [ ] 4.2 Página do competidor `dashboard/ligas/competidor/[id]/`: histórico de temporadas/divisões/destinos; reúso de `league_competitors` + `league_division_entries`.
+- [ ] 4.3 Testes; gate completo.
+
+## Fase 5 — Ciclos alternativos + formato interno + custom (bloco)
+- [ ] 5.1 Apertura/Clausura/split (meias-temporadas em `league_seasons`/`config_snapshot`).
+- [ ] 5.2 Formato interno por divisão (grupos+mata-mata via `gerarFaseDeGrupos`/`gerarChaveMataMata`).
+- [ ] 5.3 Desempate `custom` + `espanhol` (cadeia configurável + mini-tabela entre 3+ empatados). ALARGA os CHECKs `tournaments_desempate_valido`, `league_competitions_desempate_valido` e `league_division_seasons_desempate_valido` para incluir `'espanhol'`; adiciona `'espanhol'` ao `TiebreakerPreset`. Espelhar em `schema.sql`.
+- [ ] 5.4 Testes; gate completo.
+
+## Encerramento
+- [ ] Z.1 Commit (pt-BR, Conventional Commits, sem coautoria de IA) + push.
+- [ ] Z.2 `openspec archive add-ligas-piramide` após validação completa.
