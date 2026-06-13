@@ -133,16 +133,36 @@ export default async function Home() {
                   1º
                 </span>
                 <Trophy className="size-4 shrink-0 text-gold-ink" />
-                <NomeQueTroca sai="Palmeiras" entra="Flamengo" />
-                <span className="font-display text-sm font-bold tabular-nums">19</span>
+                <ValorQueTroca
+                  sai="Palmeiras"
+                  entra="Flamengo"
+                  wrapperClassName="min-w-0 flex-1"
+                  className="truncate text-sm font-medium"
+                />
+                {/* Empate provisório (1×1) → vitória do Flamengo (2×1): 19 → 21. */}
+                <ValorQueTroca
+                  sai="19"
+                  entra="21"
+                  className="font-display text-sm font-bold tabular-nums"
+                />
               </li>
               <li className="flex items-center gap-3 rounded-md px-3 py-2">
                 <span className="font-display w-6 text-sm font-bold tabular-nums text-muted-foreground">
                   2º
                 </span>
                 <span className="size-4 shrink-0" />
-                <NomeQueTroca sai="Flamengo" entra="Palmeiras" />
-                <span className="font-display text-sm font-bold tabular-nums">19</span>
+                <ValorQueTroca
+                  sai="Flamengo"
+                  entra="Palmeiras"
+                  wrapperClassName="min-w-0 flex-1"
+                  className="truncate text-sm font-medium"
+                />
+                {/* Empate provisório (1×1) → derrota do Palmeiras (2×1): 19 → 18. */}
+                <ValorQueTroca
+                  sai="19"
+                  entra="18"
+                  className="font-display text-sm font-bold tabular-nums"
+                />
               </li>
               <li className="flex items-center gap-3 rounded-md px-3 py-2">
                 <span className="font-display w-6 text-sm font-bold tabular-nums text-muted-foreground">
@@ -213,21 +233,28 @@ export default async function Home() {
 }
 
 /**
- * Nome de time que TROCA de posição no gol (sincronizado com o SVG): o time que
- * sai some sutilmente e o que sobe entra deslizando. Empilhados na MESMA célula
- * de grid (sem position absoluto) — a célula dimensiona pelo nome maior. Sob
- * `prefers-reduced-motion` as classes param: o estado base mostra só o "sai"
- * (classificação inicial: Palmeiras 1º, Flamengo 2º).
+ * Valor (nome OU pontos) que TROCA no gol, sincronizado com o SVG: o que sai some
+ * sutilmente e o que entra desliza para dentro. Os dois ficam empilhados na MESMA
+ * célula de grid (sem position absoluto) — a célula dimensiona pelo maior. Sob
+ * `prefers-reduced-motion` as classes hs-rank-* param: o estado base mostra só o
+ * "sai" (classificação inicial: Palmeiras 1º com 19, Flamengo 2º com 19).
  */
-function NomeQueTroca({ sai, entra }: { sai: string; entra: string }) {
+function ValorQueTroca({
+  sai,
+  entra,
+  className,
+  wrapperClassName,
+}: {
+  sai: string;
+  entra: string;
+  className?: string;
+  wrapperClassName?: string;
+}) {
+  const item = `col-start-1 row-start-1${className ? ` ${className}` : ""}`;
   return (
-    <span className="grid min-w-0 flex-1">
-      <span className="hs-rank-out col-start-1 row-start-1 truncate text-sm font-medium">
-        {sai}
-      </span>
-      <span className="hs-rank-in col-start-1 row-start-1 truncate text-sm font-medium">
-        {entra}
-      </span>
+    <span className={`grid${wrapperClassName ? ` ${wrapperClassName}` : ""}`}>
+      <span className={`hs-rank-out ${item}`}>{sai}</span>
+      <span className={`hs-rank-in ${item}`}>{entra}</span>
     </span>
   );
 }
