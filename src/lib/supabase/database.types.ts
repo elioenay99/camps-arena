@@ -806,6 +806,10 @@ export interface Database {
         Args: { p_boundary_id: string; p_competitor_ids: string[] }
         Returns: string
       }
+      montar_barragem: {
+        Args: { p_boundary_id: string; p_competitor_ids: string[] }
+        Returns: string
+      }
     }
     Enums: {
       tournament_status: TournamentStatus

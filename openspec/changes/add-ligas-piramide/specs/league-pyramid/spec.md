@@ -159,3 +159,40 @@ O fluxo de fim de temporada (`calcularFluxoTemporada`) SHALL incorporar o result
 
 - **WHEN** as divisões encerraram mas uma chave de playoff ainda não foi decidida
 - **THEN** o cálculo do fluxo é bloqueado com erro explícito até a chave ser concluída
+
+### Requirement: Fronteira por barragem cruzada (Fase 3)
+
+Uma fronteira SHALL poder ser configurada (`league_boundaries.modo`) como `barragem_cruzada` — uma chave que MISTURA competidores das DUAS divisões adjacentes (a superior `d` e a inferior `d+1`), diferente do playoff/playout que são INTRA-divisão. A fronteira SHALL poder combinar uma parte DIRETA (`vagas_rebaixamento` caem direto de `d`, `vagas_acesso` sobem direto de `d+1`) com a barragem por cima, em um de dois estilos (`playoff_estilo`) e leg format configurável (`playoff_ida_e_volta`):
+- **Estilo `pares`** (par-a-par): `playoff_vagas` PAR participantes formam `B = playoff_vagas/2` confrontos INDEPENDENTES 1×1, cada um entre 1 competidor de `d` (zona de risco, logo acima dos diretos) e 1 de `d+1` (zona de disputa, logo abaixo dos diretos), semeados DIRETO (melhor-de-baixo × melhor-de-cima, índice a índice). Em cada par o vencedor fica/sobe a `d` e o perdedor cai/fica em `d+1`.
+- **Estilo `chave`** (chave única mista): `playoff_vagas = k+1 ∈ {4,8,16,32}` participantes — 1 defensor de `d` + k desafiantes de `d+1` — numa chave de mata-mata; o campeão fica/sobe a `d` e todos os demais ficam/caem em `d+1`.
+
+A barragem SHALL ser AUTO-BALANCEADA: cada par/chave troca exatamente 0 ou 1 vaga entre as divisões (vencedor de baixo sobe SSE perdedor de cima cai), portanto `|sobem pela barragem| == |caem pela barragem|` sempre, independentemente do resultado. A CONSERVAÇÃO de tamanho SHALL exigir apenas a simetria da parte direta (`vagas_acesso == vagas_rebaixamento`), pois a barragem não contribui ao saldo líquido. A configuração SHALL REJEITAR (não apenas avisar): estilo fora de `{pares,chave}`; `playoff_vagas` que não caiba nas DUAS divisões (zona de `d` e de `d+1`); e barragem entre divisões com `por_nome` divergente. As pontas continuam válidas (a fronteira exige as duas divisões adjacentes).
+
+#### Scenario: Barragem em pares decide acesso/queda cruzando divisões
+
+- **WHEN** a fronteira é `barragem_cruzada` estilo `pares` com B pares, e cada par é jogado
+- **THEN** em cada par o vencedor (seja de `d` ou de `d+1`) ocupa a vaga superior e o perdedor a inferior, trocando exatamente as vagas dos pares "virados" e conservando o tamanho das duas divisões
+
+#### Scenario: Barragem em chave única promove o campeão
+
+- **WHEN** a fronteira é `barragem_cruzada` estilo `chave` (1 defensor de `d` + k de `d+1`) e a chave é decidida
+- **THEN** se o campeão é de `d+1` ele sobe e o defensor de `d` cai; se o campeão é o defensor, ninguém se move — conservando o tamanho
+
+#### Scenario: Barragem entre divisões heterogêneas é rejeitada
+
+- **WHEN** o dono tenta configurar barragem entre uma divisão por clube e outra por nome
+- **THEN** a configuração é REJEITADA (homogeneidade `por_nome` cruzada exigida pelo Zod/wizard e pela RPC `montar_barragem`)
+
+### Requirement: Montar e jogar a barragem cruzada (Fase 3)
+
+Para cada fronteira `barragem_cruzada`, o sistema SHALL resolver a ZONA nas DUAS divisões pela classificação e chamar a RPC `SECURITY DEFINER` `montar_barragem(p_boundary_id uuid, p_competitor_ids uuid[])` — que valida o modo, exige as duas divisões-fonte e o mesmo `por_nome` entre elas, cria um `tournaments` de `formato='mata_mata'` em rascunho (herdando `por_nome`/`desempate`/`is_public`), insere os `tournament_slots` dos competidores da zona na ordem de seeding e vincula o torneio à fronteira (`league_boundaries.playoff_tournament_id`, a MESMA sentinela do playoff). No estilo `chave` a geração SHALL reusar o motor de mata-mata existente; no estilo `pares` SHALL gerar `B` confrontos independentes na primeira rodada (sem reduzir a um campeão, e respeitando o leg format mesmo com `B=1`). A montagem SHALL ser idempotente e as chaves SHALL ficar CONGELADAS após o fluxo confirmar (reúso do guard + trigger sobre `playoff_tournament_id`). O fluxo de fim de temporada SHALL incorporar o resultado da barragem (quem sobe/cai vem do RESULTADO, com `resolvido_por='playoff'`), exigindo a barragem DECIDIDA antes de produzir o plano, mantendo a disjunção de cortes e a conservação, e podendo misturar fronteiras `direto`, de playoff e de barragem na mesma temporada.
+
+#### Scenario: Montagem da barragem cria a chave cruzada
+
+- **WHEN** todas as divisões encerram e o dono monta as barragens
+- **THEN** cada fronteira `barragem_cruzada` ganha um torneio `mata_mata` com as vagas dos competidores das duas divisões da zona, jogável pelo ciclo de torneio existente
+
+#### Scenario: Fluxo reflete o resultado da barragem
+
+- **WHEN** todas as divisões e todas as barragens da temporada estão decididas e o dono calcula o fluxo
+- **THEN** o plano sobe/cai usa o resultado das barragens (vencedores de baixo sobem, perdedores de cima caem), com `resolvido_por='playoff'`, conservando o tamanho das divisões na próxima temporada

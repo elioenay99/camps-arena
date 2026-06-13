@@ -68,9 +68,13 @@ interface DivisaoRascunho {
 }
 
 /** Modo de uma fronteira (espelha MODOS_FRONTEIRA do schema). */
-type ModoFronteira = "direto" | "playoff_acesso" | "playout"
+type ModoFronteira = "direto" | "playoff_acesso" | "playout" | "barragem_cruzada"
 /** Estilo de resolução de um playoff (espelha PLAYOFF_ESTILOS do schema). */
 type EstiloPlayoff = "vagas" | "extra"
+/** Estilo de uma barragem cruzada (espelha BARRAGEM_ESTILOS do schema). */
+type EstiloBarragem = "pares" | "chave"
+/** Estilo de QUALQUER fronteira não-direto (playoff ∪ barragem; ESTILOS_FRONTEIRA). */
+type EstiloFronteira = EstiloPlayoff | EstiloBarragem
 
 /**
  * Uma fronteira entre `nivelSuperior` (d) e d+1. Na Fase 2 a fronteira pode
@@ -83,8 +87,11 @@ interface FronteiraRascunho {
   vagasAcesso: number
   vagasRebaixamento: number
   modo: ModoFronteira
-  /** Estilo do playoff — só definido quando modo !== "direto". */
-  playoffEstilo?: EstiloPlayoff
+  /**
+   * Estilo da fronteira não-direto — playoff (vagas/extra) OU barragem
+   * (pares/chave). Só definido quando modo !== "direto".
+   */
+  playoffEstilo?: EstiloFronteira
   /** Chave em ida-e-volta (final sempre jogo único). Default false. */
   playoffIdaEVolta: boolean
   /** Tamanho da chave (2..32) — só definido quando modo !== "direto". */
@@ -114,6 +121,7 @@ const MODO_ROTULO: Record<ModoFronteira, string> = {
   direto: "Direto (pela tabela)",
   playoff_acesso: "Playoff de acesso",
   playout: "Playout (queda)",
+  barragem_cruzada: "Barragem cruzada",
 }
 
 /** Nome amigável de uma divisão por nível, quando o dono não nomeou. */
@@ -201,6 +209,19 @@ function patchModoFronteira(
       vagasRebaixamento: f.vagasAcesso,
     }
   }
+  // Barragem cruzada: AUTO-BALANCEADA → diretos sempre simétricos. Semeia o
+  // estilo 'pares' com pv=2 (B=1 confronto 1×1), preservando o nº de diretos do
+  // lado de acesso (que vira o número simétrico de sobe/cai diretos).
+  if (modo === "barragem_cruzada") {
+    const diretos = Math.max(0, f.vagasAcesso)
+    return {
+      modo,
+      playoffEstilo: "pares",
+      playoffVagas: 2,
+      vagasAcesso: diretos,
+      vagasRebaixamento: diretos,
+    }
+  }
   // Vira playoff: SEMEAR uma combinação VÁLIDA (sem beco-sem-saída). Preserva o
   // movimento N do lado favorável (acesso no acesso; queda no playout): se N é
   // potência de 2, usa 'vagas' com chave 2N (a chave decide as N vagas); senão
@@ -244,13 +265,30 @@ function patchModoFronteira(
  * Recalcula vagas brutas conforme o estilo escolhido, mantendo o lado que o
  * usuário controla e DERIVANDO o dependente (regra do 'extra', design §8.3).
  * No 'vagas' GARANTE uma combinação válida (chave completa + nº favorável
- * potência de 2 < chave) — clampa em vez de produzir config inválida.
+ * potência de 2 < chave) — clampa em vez de produzir config inválida. Na
+ * barragem ('pares'/'chave') os diretos são SEMPRE simétricos; só normaliza o
+ * tamanho da chave ao formato exigido por cada estilo (par vs. potência de 2).
  */
 function aplicarEstiloFronteira(
   f: FronteiraRascunho,
-  estilo: EstiloPlayoff
+  estilo: EstiloFronteira
 ): Partial<FronteiraRascunho> {
   const base: Partial<FronteiraRascunho> = { playoffEstilo: estilo, modo: f.modo }
+  if (estilo === "pares") {
+    // pv PAR (2B confrontos 1×1). Se o atual não serve, usa 2 (B=1). Diretos
+    // simétricos preservados (a barragem é auto-balanceada nos diretos).
+    const pv = f.playoffVagas && f.playoffVagas >= 2 && f.playoffVagas % 2 === 0
+      ? f.playoffVagas
+      : 2
+    return { ...base, playoffVagas: pv, vagasAcesso: f.vagasAcesso, vagasRebaixamento: f.vagasAcesso }
+  }
+  if (estilo === "chave") {
+    // pv potência de 2 ∈ {4,8,16,32} (1 defensor + k desafiantes). Diretos simétricos.
+    const pv = (PLAYOFF_VAGAS_COMPLETAS as readonly number[]).includes(f.playoffVagas ?? 0)
+      ? (f.playoffVagas as number)
+      : 4
+    return { ...base, playoffVagas: pv, vagasAcesso: f.vagasAcesso, vagasRebaixamento: f.vagasAcesso }
+  }
   if (estilo === "vagas") {
     // 'vagas' exige chave COMPLETA (4/8/16/32). Se vinha de 'extra' com chave 2,
     // normaliza para a menor completa que mostre uma opção válida.
@@ -342,6 +380,48 @@ function erroConservacao(
   // Bloqueia antes da conservação porque uma chave incompleta nem tem efetivos.
   for (const f of fronteiras) {
     if (f.modo === "direto") continue
+
+    // BARRAGEM CRUZADA: bloco DEDICADO (mistura as DUAS divisões). Espelha as
+    // rejeições do schema (§9.9): estilo pares/chave; pv par (pares) ou potência
+    // de 2 (chave); homogeneidade por_nome; zona cabe em CADA lado. NÃO cai no
+    // bloco singular de playoff abaixo (cuja zona-fonte é de UMA divisão só).
+    if (f.modo === "barragem_cruzada") {
+      const sup = f.nivelSuperior
+      if (f.playoffEstilo === undefined || f.playoffVagas === undefined) {
+        return `${nomeDe(sup)} ⇄ ${nomeDe(sup + 1)}: complete a configuração da barragem (estilo e nº de participantes).`
+      }
+      const pv = f.playoffVagas
+      if (f.playoffEstilo === "pares") {
+        if (pv % 2 !== 0 || pv < 2) {
+          return `${nomeDe(sup)} ⇄ ${nomeDe(sup + 1)}: na barragem em pares, o nº de participantes é par (2 por dupla). Use 2, 4, 6…`
+        }
+      } else if (f.playoffEstilo === "chave") {
+        if (!(PLAYOFF_VAGAS_COMPLETAS as readonly number[]).includes(pv)) {
+          return `${nomeDe(sup)} ⇄ ${nomeDe(sup + 1)}: a barragem em chave única exige uma chave completa (${PLAYOFF_VAGAS_COMPLETAS.join(", ")}). Para um confronto 1×1, use o estilo "pares".`
+        }
+      } else {
+        return `${nomeDe(sup)} ⇄ ${nomeDe(sup + 1)}: a barragem cruzada usa o estilo "pares" ou "chave".`
+      }
+      const divSup = porNivel.get(sup)
+      const divInf = porNivel.get(sup + 1)
+      if (divSup && divInf && divSup.porNome !== divInf.porNome) {
+        return `A barragem entre ${nomeDe(sup)} e ${nomeDe(sup + 1)} precisa das duas divisões no mesmo modo (ambas por clube ou ambas por nome).`
+      }
+      // Zona cabe em CADA lado: pares ⇒ R+B≤tam(sup) E A+B≤tam(inf) (B=pv/2);
+      // chave ⇒ R+1≤tam(sup) E A+k≤tam(inf) (k=pv-1). A=acesso, R=rebaixamento.
+      const A = f.vagasAcesso
+      const R = f.vagasRebaixamento
+      const ladoSup = f.playoffEstilo === "pares" ? R + pv / 2 : R + 1
+      const ladoInf = f.playoffEstilo === "pares" ? A + pv / 2 : A + (pv - 1)
+      if (divSup && ladoSup > divSup.tamanho) {
+        return `A barragem de ${nomeDe(sup)} ⇄ ${nomeDe(sup + 1)} precisa de ${ladoSup} competidores de ${divSup.nome || nomePadraoDivisao(divSup.nivel)} (rebaixados diretos + zona de risco), que só tem ${divSup.tamanho}.`
+      }
+      if (divInf && ladoInf > divInf.tamanho) {
+        return `A barragem de ${nomeDe(sup)} ⇄ ${nomeDe(sup + 1)} precisa de ${ladoInf} competidores de ${divInf.nome || nomePadraoDivisao(divInf.nivel)} (promovidos diretos + zona de disputa), que só tem ${divInf.tamanho}.`
+      }
+      continue
+    }
+
     if (f.playoffEstilo === undefined || f.playoffVagas === undefined) {
       return `${nomeDe(f.nivelSuperior)} ⇄ ${nomeDe(f.nivelSuperior + 1)}: complete a configuração do playoff (estilo e tamanho da chave).`
     }
@@ -1132,6 +1212,9 @@ function PassoFronteiras({
 /** Tamanhos de chave (potências de 2, 2..32) oferecidos no estilo 'extra'. */
 const CHAVE_TAMANHOS_EXTRA = [2, 4, 8, 16, 32] as const
 
+/** Nº de participantes (PAR, 2..32) oferecidos na barragem em 'pares' (B = pv/2 duplas). */
+const BARRAGEM_PARES_TAMANHOS = [2, 4, 6, 8, 10, 12, 14, 16] as const
+
 /** Cartão de configuração de UMA fronteira: modo + (se playoff) estilo/leg/chave. */
 function CartaoFronteira({
   f,
@@ -1147,8 +1230,14 @@ function CartaoFronteira({
   const ns = f.nivelSuperior
   const nomeSup = sup?.nome || nomePadraoDivisao(ns)
   const nomeInf = inf?.nome || nomePadraoDivisao(ns + 1)
-  const ehPlayoff = f.modo !== "direto"
+  const ehBarragem = f.modo === "barragem_cruzada"
+  // ehPlayoff = chave de playoff_acesso/playout (NÃO inclui a barragem, que tem
+  // sua própria UI dedicada de 2 divisões).
+  const ehPlayoff = f.modo !== "direto" && !ehBarragem
   const ehExtra = f.playoffEstilo === "extra"
+  // Barragem mistura as DUAS divisões: elas precisam do mesmo modo (por_nome).
+  const barragemPorNomeDivergente =
+    ehBarragem && sup !== undefined && inf !== undefined && sup.porNome !== inf.porNome
 
   // Lado que o usuário controla no 'extra' (o outro é derivado).
   const ladoControla = f.modo === "playout" ? "rebaixamento" : "acesso"
@@ -1199,7 +1288,7 @@ function CartaoFronteira({
         </select>
       </div>
 
-      {!ehPlayoff && (
+      {f.modo === "direto" && (
         /* direto: simetria obrigatória → um único campo (sobem == caem). */
         <div className="grid gap-1.5">
           <Label htmlFor={`vagas-${ns}`} className="text-xs">
@@ -1217,6 +1306,131 @@ function CartaoFronteira({
             }
           />
         </div>
+      )}
+
+      {ehBarragem && (
+        <>
+          {/* Estilo da barragem — espelha visualmente o de playoff (2 radios). */}
+          <fieldset className="m-0 grid gap-1.5 border-0 p-0">
+            <legend className="text-xs font-medium">Estilo da barragem</legend>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              <label
+                className={cn(
+                  "flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 text-xs transition-colors",
+                  f.playoffEstilo === "pares"
+                    ? "border-primary bg-primary/8"
+                    : "border-border hover:border-primary/40"
+                )}
+              >
+                <input
+                  type="radio"
+                  name={`estilo-${ns}`}
+                  checked={f.playoffEstilo === "pares"}
+                  onChange={() => onAtualizar(ns, aplicarEstiloFronteira(f, "pares"))}
+                  className="accent-primary mt-0.5 size-3.5"
+                />
+                <span>
+                  Pares (confrontos 1×1)
+                  <span className="text-muted-foreground block font-normal">
+                    Cada dupla 1×1: vencedor sobe, perdedor cai.
+                  </span>
+                </span>
+              </label>
+              <label
+                className={cn(
+                  "flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 text-xs transition-colors",
+                  f.playoffEstilo === "chave"
+                    ? "border-primary bg-primary/8"
+                    : "border-border hover:border-primary/40"
+                )}
+              >
+                <input
+                  type="radio"
+                  name={`estilo-${ns}`}
+                  checked={f.playoffEstilo === "chave"}
+                  onChange={() => onAtualizar(ns, aplicarEstiloFronteira(f, "chave"))}
+                  className="accent-primary mt-0.5 size-3.5"
+                />
+                <span>
+                  Chave única
+                  <span className="text-muted-foreground block font-normal">
+                    1 da divisão de cima + desafiantes de baixo; o campeão fica em cima.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          {/* Diretos SEMPRE simétricos (a barragem é auto-balanceada). */}
+          <div className="grid gap-1.5">
+            <Label htmlFor={`vagas-${ns}`} className="text-xs">
+              Sobem e caem diretos (mesmo número)
+            </Label>
+            <Input
+              id={`vagas-${ns}`}
+              type="number"
+              inputMode="numeric"
+              min={0}
+              step={1}
+              value={f.vagasAcesso}
+              onChange={(e) =>
+                setVagasSimetrico(Math.max(0, Math.round(Number(e.target.value) || 0)))
+              }
+            />
+          </div>
+
+          {/* Participantes da barragem: pares ⇒ par (2..16); chave ⇒ {4,8,16,32}. */}
+          <div className="grid gap-1.5">
+            <Label htmlFor={`chave-${ns}`} className="text-xs">
+              {f.playoffEstilo === "pares"
+                ? "Participantes na barragem (par)"
+                : "Tamanho da chave"}
+            </Label>
+            <select
+              id={`chave-${ns}`}
+              value={f.playoffVagas ?? (f.playoffEstilo === "pares" ? 2 : 4)}
+              onChange={(e) => onAtualizar(ns, { playoffVagas: Number(e.target.value) })}
+              className={SELECT_CLASSE}
+            >
+              {(f.playoffEstilo === "pares"
+                ? BARRAGEM_PARES_TAMANHOS
+                : PLAYOFF_VAGAS_COMPLETAS
+              ).map((n) => (
+                <option key={n} value={n}>
+                  {n} competidores
+                </option>
+              ))}
+            </select>
+            <p className="text-muted-foreground text-[0.7rem]">
+              {f.playoffEstilo === "pares"
+                ? "Metade vem da divisão de cima, metade da de baixo, em duplas."
+                : "1 defensor da divisão de cima e o restante desafia, vindo de baixo."}
+            </p>
+          </div>
+
+          {barragemPorNomeDivergente && (
+            <p className="text-destructive text-xs" role="alert">
+              As duas divisões da barragem estão em modos diferentes (clube vs.
+              nome). Deixe ambas no mesmo modo para liberar o avanço.
+            </p>
+          )}
+
+          {/* Leg format (reuso do toggle de playoff). */}
+          <label className="bg-card/40 hover:border-primary/40 has-[:focus-visible]:ring-ring flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors has-[:focus-visible]:ring-2">
+            <input
+              type="checkbox"
+              checked={f.playoffIdaEVolta}
+              onChange={(e) => onAtualizar(ns, { playoffIdaEVolta: e.target.checked })}
+              className="border-input accent-primary size-4 rounded"
+            />
+            <span className="text-sm">
+              Ida e volta
+              <span className="text-muted-foreground block text-xs font-normal">
+                Cada confronto em dois jogos (a final é sempre jogo único).
+              </span>
+            </span>
+          </label>
+        </>
       )}
 
       {ehPlayoff && (

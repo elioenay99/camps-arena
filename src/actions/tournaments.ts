@@ -824,6 +824,29 @@ export async function avancarFase(
     return { ok: false, error: erroPropriedade }
   }
 
+  // BARRAGEM 'pares' (Fase 3): a chave é B confrontos 1×1 INDEPENDENTES numa
+  // rodada ÚNICA — NÃO há próxima fase. Como o torneio é `mata_mata`,
+  // `tamanhoChaveDasPartidas` veria 2B≥4 e inferiria uma fase 2 espúria; gerá-la
+  // parearia vencedores de pares DISTINTOS e corromperia `resultadoBarragemPares`
+  // (a barragem nunca ficaria `decidida` → trava o fluxo da temporada). Defesa
+  // real (o PlayoffsPanel já esconde o botão; a página de torneio não).
+  const { data: barragemPares, error: barragemError } = await supabase
+    .from("league_boundaries")
+    .select("id")
+    .eq("playoff_tournament_id", parsed.data)
+    .eq("modo", "barragem_cruzada")
+    .eq("playoff_estilo", "pares")
+    .limit(1)
+  if (barragemError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (barragemPares && barragemPares.length > 0) {
+    return {
+      ok: false,
+      error: "A barragem em pares se decide na rodada única — não há fase a avançar.",
+    }
+  }
+
   // Lados por VAGA (slot ids). O motor consome `participante_1/2` (ids opacos)
   // — mapeamos vaga_1/vaga_2 para esse shape na leitura e de volta no INSERT.
   const { data: partidasRaw, error: partidasError } = await supabase

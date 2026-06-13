@@ -125,8 +125,17 @@ function montarCenario(c: {
   user?: { id: string } | null
   torneio?: Record<string, unknown>
 }) {
+  // Cadeia mínima para a query de barragem 'pares' (esconde "Avançar fase");
+  // retorna { data: null } → não-barragem, preserva o comportamento existente.
+  const chain: Record<string, unknown> = {
+    select: () => chain,
+    eq: () => chain,
+    limit: () => chain,
+    maybeSingle: async () => ({ data: null }),
+  }
   mockCreateClient.mockResolvedValue({
     auth: { getUser: vi.fn(async () => ({ data: { user: c.user ?? { id: DONO } } })) },
+    from: vi.fn(() => chain),
   } as unknown as never)
   mockClassificacao.mockResolvedValue({
     torneio: torneioBase(c.torneio),

@@ -1793,13 +1793,16 @@ alter table public.league_boundaries
 -- "vagas potência de 2 / zona cabe na divisão" NÃO é expressável em CHECK cruzada
 -- (precisa do tamanho da divisão) — validada no Zod + na action montarPlayoffs,
 -- como a conservação de tamanho da Fase 1.
+-- Fase 3: a barragem cruzada usa estilos próprios ('pares'/'chave'); o CHECK é
+-- disjuntivo POR MODO (playoff ⇒ vagas/extra; barragem ⇒ pares/chave).
 alter table public.league_boundaries
   drop constraint if exists league_boundaries_estilo_coerente;
 alter table public.league_boundaries
   add constraint league_boundaries_estilo_coerente
   check (
     (modo = 'direto' and playoff_estilo is null)
-    or (modo <> 'direto' and playoff_estilo in ('vagas', 'extra'))
+    or (modo in ('playoff_acesso', 'playout') and playoff_estilo in ('vagas', 'extra'))
+    or (modo = 'barragem_cruzada' and playoff_estilo in ('pares', 'chave'))
   );
 
 -- Um torneio de chave pertence a no máximo uma fronteira (sentinela).
@@ -2244,6 +2247,178 @@ $$;
 
 revoke execute on function public.montar_playoff(uuid, uuid[]) from public, anon;
 grant execute on function public.montar_playoff(uuid, uuid[]) to authenticated;
+
+-- ---------- RPC: montar_barragem (SECURITY DEFINER) — Fase 3 ----------
+-- Espelha montar_playoff, mas a chave MISTURA competidores de DUAS divisões
+-- adjacentes (a fronteira barragem_cruzada): superior (nivel_superior) e
+-- inferior (nivel_superior+1). Valida ambas as fontes + homogeneidade por_nome
+-- cruzada (BARRAGEM_POR_NOME_INCOERENTE). Os p_competitor_ids vêm JÁ ordenados
+-- (seeding) pela action montarPlayoffs.
+create or replace function public.montar_barragem(
+  p_boundary_id    uuid,
+  p_competitor_ids uuid[]
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid          uuid := (select auth.uid());
+  v_season       uuid;
+  v_nivel        integer;
+  v_modo         public.league_boundary_mode;
+  v_idavolta     boolean;
+  v_existing     uuid;
+  v_competition  uuid;
+  v_dono         uuid;
+  v_is_public    boolean;
+  v_div_sup      uuid;
+  v_div_inf      uuid;
+  v_por_nome_sup boolean;
+  v_por_nome_inf boolean;
+  v_por_nome     boolean;
+  v_desempate    text;
+  v_tournament   uuid;
+  v_user_id      uuid;
+  v_holders_usados uuid[];
+  v_cid          uuid;
+  v_comp         record;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  -- Fronteira + posse + herança (por_nome/desempate vêm das divisões-fonte abaixo).
+  select lb.season_id, lb.nivel_superior, lb.modo, lb.playoff_ida_e_volta,
+         lb.playoff_tournament_id, ls.competition_id, lc.created_by, lc.is_public
+    into v_season, v_nivel, v_modo, v_idavolta, v_existing,
+         v_competition, v_dono, v_is_public
+    from public.league_boundaries lb
+    join public.league_seasons ls on ls.id = lb.season_id
+    join public.league_competitions lc on lc.id = ls.competition_id
+   where lb.id = p_boundary_id;
+
+  if v_season is null then
+    raise exception 'BOUNDARY_INVALIDA';
+  end if;
+  if v_dono is distinct from v_uid then
+    raise exception 'NAO_DONO';
+  end if;
+  if v_modo <> 'barragem_cruzada' then
+    raise exception 'FRONTEIRA_NAO_BARRAGEM';
+  end if;
+
+  -- Idempotência: a chave já existe (sentinela).
+  if v_existing is not null then
+    return v_existing;
+  end if;
+
+  -- Serializa por fronteira (namespace 1, igual a montar_playoff).
+  perform pg_advisory_xact_lock(hashtextextended(p_boundary_id::text, 1));
+  select playoff_tournament_id into v_existing
+    from public.league_boundaries where id = p_boundary_id;
+  if v_existing is not null then
+    return v_existing;
+  end if;
+
+  -- DUAS divisões-fonte: superior (nivel) e inferior (nivel+1).
+  select id, por_nome, desempate
+    into v_div_sup, v_por_nome_sup, v_desempate
+    from public.league_division_seasons
+   where season_id = v_season and nivel = v_nivel;
+  select id, por_nome
+    into v_div_inf, v_por_nome_inf
+    from public.league_division_seasons
+   where season_id = v_season and nivel = v_nivel + 1;
+  if v_div_sup is null or v_div_inf is null then
+    raise exception 'DIVISAO_FONTE_INVALIDA';
+  end if;
+
+  -- Homogeneidade por_nome CRUZADA: chave entre clube e nome é incoerente.
+  if v_por_nome_sup is distinct from v_por_nome_inf then
+    raise exception 'BARRAGEM_POR_NOME_INCOERENTE';
+  end if;
+  v_por_nome := v_por_nome_sup;
+
+  -- Cardinalidade mínima da zona (a zona EXATA é validada na action).
+  if array_length(p_competitor_ids, 1) is null
+     or array_length(p_competitor_ids, 1) < 2 then
+    raise exception 'ZONA_VAZIA';
+  end if;
+
+  -- Cria o tournaments da chave (rascunho — a action gera as partidas e promove).
+  insert into public.tournaments
+    (titulo, status, created_by, formato, ida_e_volta, terceiro_lugar,
+     por_nome, desempate_criterio, is_public)
+  values
+    ('Barragem — nível ' || v_nivel::text || '×' || (v_nivel + 1)::text,
+     'rascunho', v_uid, 'mata_mata',
+     coalesce(v_idavolta, false), false, v_por_nome, v_desempate, v_is_public)
+  returning id into v_tournament;
+
+  update public.league_boundaries
+     set playoff_tournament_id = v_tournament
+   where id = p_boundary_id;
+
+  -- Slots na ORDEM de p_competitor_ids (= ordem de seeding da action).
+  v_holders_usados := array[]::uuid[];
+  foreach v_cid in array p_competitor_ids loop
+    select lc.id as competitor_id, lc.team_id, lc.rotulo,
+           lc.holder_user_id, lc.competition_id
+      into v_comp
+      from public.league_competitors lc
+     where lc.id = v_cid;
+
+    if v_comp.competitor_id is null then
+      raise exception 'COMPETIDOR_INEXISTENTE';
+    end if;
+    if v_comp.competition_id is distinct from v_competition then
+      raise exception 'COMPETIDOR_DE_OUTRA_PIRAMIDE';
+    end if;
+    -- Entry em UMA das DUAS divisões-fonte (superior OU inferior).
+    if not exists (
+      select 1 from public.league_division_entries lde
+       where lde.division_season_id in (v_div_sup, v_div_inf)
+         and lde.competitor_id = v_cid
+    ) then
+      raise exception 'COMPETIDOR_FORA_DA_ZONA';
+    end if;
+
+    if v_por_nome then
+      if v_comp.rotulo is null then
+        raise exception 'BARRAGEM_POR_NOME_INCOERENTE';
+      end if;
+      insert into public.tournament_slots
+        (tournament_id, team_id, rotulo, user_id, competitor_id)
+      values
+        (v_tournament, null, v_comp.rotulo, null, v_comp.competitor_id);
+    else
+      if v_comp.team_id is null then
+        raise exception 'BARRAGEM_POR_NOME_INCOERENTE';
+      end if;
+      -- Degradação do user_id na colisão com slots_um_clube_por_tecnico.
+      if v_comp.holder_user_id is not null
+         and not (v_comp.holder_user_id = any (v_holders_usados))
+      then
+        v_user_id := v_comp.holder_user_id;
+        v_holders_usados := array_append(v_holders_usados, v_comp.holder_user_id);
+      else
+        v_user_id := null;
+      end if;
+      insert into public.tournament_slots
+        (tournament_id, team_id, rotulo, user_id, competitor_id)
+      values
+        (v_tournament, v_comp.team_id, null, v_user_id, v_comp.competitor_id);
+    end if;
+  end loop;
+
+  return v_tournament;
+end;
+$$;
+
+revoke execute on function public.montar_barragem(uuid, uuid[]) from public, anon;
+grant execute on function public.montar_barragem(uuid, uuid[]) to authenticated;
 
 -- ---------- Helper anti-recursão de RLS: dono da pirâmide ----------
 -- Usada DENTRO das policies das tabelas da pirâmide. SECURITY DEFINER evita a

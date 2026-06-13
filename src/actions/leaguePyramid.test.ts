@@ -11,11 +11,13 @@ vi.mock("@/features/standings/data/getTournamentClassificacao", () => ({
 import { createCompetition, montarTemporada } from "@/actions/leaguePyramid"
 import {
   calcularPlanoFluxo,
+  combinarFronteiraBarragem,
   combinarFronteiraPlayoff,
   ordemSorteada,
   prngDeSemente,
   resolverZonaDeCorte,
   validarFechamentoTamanho,
+  zonaBarragemPorPosicao,
   zonaPlayoffPorPosicao,
   type DivisaoFluxo,
   type FronteiraFluxo,
@@ -959,5 +961,137 @@ describe("combinarFronteiraPlayoff", () => {
     expect([...r.caemPorChave]).toEqual([cid("sup4")]) // só o perdedor é 'playoff'
     expect([...r.sobem].sort()).toEqual([cid("inf1"), cid("inf2")].sort())
     expect(r.sobemPorChave.size).toBe(0)
+  })
+})
+
+describe("zonaBarragemPorPosicao (Fase 3)", () => {
+  const ord = (prefixo: string, n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      competitorId: cid(`${prefixo}${i + 1}`),
+      posicao: i + 1,
+    }))
+
+  it("pares: B logo acima dos R diretos (sup) × B logo abaixo dos A diretos (inf)", () => {
+    const z = zonaBarragemPorPosicao({
+      estilo: "pares",
+      vagasAcesso: 2,
+      vagasRebaixamento: 2,
+      playoffVagas: 4, // B=2
+      superiorOrdenada: ord("sup", 8),
+      inferiorOrdenada: ord("inf", 8),
+    })
+    expect(z).not.toBeNull()
+    // zona de risco da superior = sup5,sup6 (acima dos rebaixados sup7,sup8)
+    expect([...z!.deSuperior].sort()).toEqual([cid("sup5"), cid("sup6")].sort())
+    // zona de disputa da inferior = inf3,inf4 (abaixo dos promovidos inf1,inf2)
+    expect([...z!.deInferior].sort()).toEqual([cid("inf3"), cid("inf4")].sort())
+    // pareamento DIRETO: melhor de baixo × melhor de cima, índice a índice
+    expect(z!.pares).toEqual([
+      [cid("inf3"), cid("sup5")],
+      [cid("inf4"), cid("sup6")],
+    ])
+  })
+
+  it("chave: 1 defensor de d (seed 1) + k de d+1", () => {
+    const z = zonaBarragemPorPosicao({
+      estilo: "chave",
+      vagasAcesso: 2,
+      vagasRebaixamento: 2,
+      playoffVagas: 4, // k=3
+      superiorOrdenada: ord("sup", 8),
+      inferiorOrdenada: ord("inf", 8),
+    })
+    expect(z).not.toBeNull()
+    expect(z!.ordenados).toEqual([
+      cid("sup6"), // defensor = pior não-rebaixado (pos 6) como seed 1
+      cid("inf3"),
+      cid("inf4"),
+      cid("inf5"),
+    ])
+    expect([...z!.deSuperior]).toEqual([cid("sup6")])
+  })
+
+  it("zona que não cabe ⇒ null (defensivo)", () => {
+    const z = zonaBarragemPorPosicao({
+      estilo: "pares",
+      vagasAcesso: 2,
+      vagasRebaixamento: 1,
+      playoffVagas: 4, // B=2; A+B=4 > inf.length=3
+      superiorOrdenada: ord("sup", 4),
+      inferiorOrdenada: ord("inf", 3),
+    })
+    expect(z).toBeNull()
+  })
+})
+
+describe("combinarFronteiraBarragem (Fase 3)", () => {
+  const ord = (prefixo: string, n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      competitorId: cid(`${prefixo}${i + 1}`),
+      posicao: i + 1,
+    }))
+
+  it("pares: vencedor de baixo sobe + perdedor de cima cai; auto-balanceado", () => {
+    const r = combinarFronteiraBarragem({
+      estilo: "pares",
+      vagasAcesso: 2,
+      vagasRebaixamento: 2,
+      superiorOrdenada: ord("sup", 8),
+      inferiorOrdenada: ord("inf", 8),
+      deSuperior: new Set([cid("sup5"), cid("sup6")]),
+      deInferior: new Set([cid("inf3"), cid("inf4")]),
+      resultadoPares: [
+        { vencedor: cid("inf3"), perdedor: cid("sup5") }, // vira: inf3 sobe, sup5 cai
+        { vencedor: cid("sup6"), perdedor: cid("inf4") }, // não vira: nada
+      ],
+    })
+    expect([...r.sobem].sort()).toEqual(
+      [cid("inf1"), cid("inf2"), cid("inf3")].sort()
+    )
+    expect([...r.caem].sort()).toEqual(
+      [cid("sup7"), cid("sup8"), cid("sup5")].sort()
+    )
+    expect([...r.sobemPorChave]).toEqual([cid("inf3")])
+    expect([...r.caemPorChave]).toEqual([cid("sup5")])
+    // auto-balanceado
+    expect(r.sobemPorChave.size).toBe(r.caemPorChave.size)
+  })
+
+  it("chave: campeão de baixo sobe + defensor de cima cai", () => {
+    const r = combinarFronteiraBarragem({
+      estilo: "chave",
+      vagasAcesso: 2,
+      vagasRebaixamento: 2,
+      superiorOrdenada: ord("sup", 8),
+      inferiorOrdenada: ord("inf", 8),
+      deSuperior: new Set([cid("sup6")]),
+      deInferior: new Set([cid("inf3"), cid("inf4"), cid("inf5")]),
+      campeao: cid("inf3"),
+    })
+    expect([...r.sobemPorChave]).toEqual([cid("inf3")])
+    expect([...r.caemPorChave]).toEqual([cid("sup6")])
+    expect([...r.sobem].sort()).toEqual(
+      [cid("inf1"), cid("inf2"), cid("inf3")].sort()
+    )
+    expect([...r.caem].sort()).toEqual(
+      [cid("sup7"), cid("sup8"), cid("sup6")].sort()
+    )
+  })
+
+  it("chave: campeão é o defensor ⇒ nada se move pela chave", () => {
+    const r = combinarFronteiraBarragem({
+      estilo: "chave",
+      vagasAcesso: 2,
+      vagasRebaixamento: 2,
+      superiorOrdenada: ord("sup", 8),
+      inferiorOrdenada: ord("inf", 8),
+      deSuperior: new Set([cid("sup6")]),
+      deInferior: new Set([cid("inf3"), cid("inf4"), cid("inf5")]),
+      campeao: cid("sup6"),
+    })
+    expect(r.sobemPorChave.size).toBe(0)
+    expect(r.caemPorChave.size).toBe(0)
+    expect([...r.sobem].sort()).toEqual([cid("inf1"), cid("inf2")].sort())
+    expect([...r.caem].sort()).toEqual([cid("sup7"), cid("sup8")].sort())
   })
 })

@@ -33,11 +33,25 @@ export const MAX_DIVISOES = 8
  */
 export const DESEMPATES_DISPONIVEIS = ["cbf", "ingles"] as const
 
-/** Modos de fronteira disponíveis até a Fase 2 (barragem_cruzada é Fase 3). */
-export const MODOS_FRONTEIRA = ["direto", "playoff_acesso", "playout"] as const
+/** Modos de fronteira (Fase 3 adiciona barragem_cruzada — chave entre 2 divisões). */
+export const MODOS_FRONTEIRA = [
+  "direto",
+  "playoff_acesso",
+  "playout",
+  "barragem_cruzada",
+] as const
 
 /** Estilos de resolução de uma fronteira de playoff (Fase 2). */
 export const PLAYOFF_ESTILOS = ["vagas", "extra"] as const
+
+/**
+ * Estilos da barragem cruzada (Fase 3): `pares` (B confrontos 1×1 independentes)
+ * e `chave` (1 defensor de d + k de d+1 numa chave potência-de-2, campeão sobe).
+ */
+export const BARRAGEM_ESTILOS = ["pares", "chave"] as const
+
+/** União dos estilos de qualquer fronteira não-`direto` (coerência por modo no refine). */
+export const ESTILOS_FRONTEIRA = [...PLAYOFF_ESTILOS, ...BARRAGEM_ESTILOS] as const
 
 /**
  * Tamanhos de chave COMPLETA (sem byes) exigidos pelo estilo `vagas`: a chave
@@ -57,7 +71,7 @@ export function ehPotenciaDe2(n: number): boolean {
 /** Forma mínima de fronteira que o movimento efetivo precisa. */
 export type FronteiraMovimento = {
   modo: (typeof MODOS_FRONTEIRA)[number]
-  playoffEstilo?: (typeof PLAYOFF_ESTILOS)[number]
+  playoffEstilo?: (typeof ESTILOS_FRONTEIRA)[number]
   vagasAcesso: number
   vagasRebaixamento: number
 }
@@ -80,6 +94,13 @@ export function movimentoEfetivo(f: FronteiraMovimento): {
   if (f.modo === "playout" && f.playoffEstilo === "extra") {
     return { sobeEf: f.vagasAcesso, caiEf: f.vagasRebaixamento + 1 }
   }
+  // Barragem cruzada (Fase 3) é AUTO-BALANCEADA: cada par/chave troca 0 ou 1↔1
+  // (net zero), então só os diretos contam no movimento efetivo — a simetria
+  // sobeEf==caiEf exige vagasAcesso==vagasRebaixamento (design §9.2). O default
+  // abaixo já entrega isso; o ramo é explícito para travar a semântica.
+  if (f.modo === "barragem_cruzada") {
+    return { sobeEf: f.vagasAcesso, caiEf: f.vagasRebaixamento }
+  }
   return { sobeEf: f.vagasAcesso, caiEf: f.vagasRebaixamento }
 }
 
@@ -91,7 +112,7 @@ export function movimentoEfetivo(f: FronteiraMovimento): {
  */
 export function zonaDaChave(f: {
   modo: (typeof MODOS_FRONTEIRA)[number]
-  playoffEstilo?: (typeof PLAYOFF_ESTILOS)[number]
+  playoffEstilo?: (typeof ESTILOS_FRONTEIRA)[number]
   vagasAcesso: number
   vagasRebaixamento: number
   playoffVagas: number
@@ -185,9 +206,10 @@ const fronteiraSchema = z
     // Fase 2: 'direto' (extremos da tabela), 'playoff_acesso' (chave decide o
     // acesso) e 'playout' (chave decide a queda). 'barragem_cruzada' = Fase 3.
     modo: z.enum(MODOS_FRONTEIRA, { error: "Modo de fronteira inválido." }),
-    // Estilo do playoff (Fase 2): 'vagas' = chave decide as vagas; 'extra' =
-    // diretos + 1 na chave. Obrigatório sse modo ≠ 'direto'.
-    playoffEstilo: z.enum(PLAYOFF_ESTILOS).optional(),
+    // Estilo da fronteira não-direto: playoff (vagas/extra) ou barragem
+    // (pares/chave). Obrigatório sse modo ≠ 'direto'; a coerência modo×estilo é
+    // validada no superRefine (espelha o CHECK league_boundaries_estilo_coerente).
+    playoffEstilo: z.enum(ESTILOS_FRONTEIRA).optional(),
     // Leg format da chave (jogo único vs ida-e-volta; final sempre jogo único).
     playoffIdaEVolta: z.boolean().default(false),
     // Quantos competidores entram na chave (2..32). Obrigatório sse modo ≠ 'direto'.
@@ -216,11 +238,15 @@ const fronteiraSchema = z
       return
     }
 
-    // modo playoff_acesso | playout
+    // modo não-direto (playoff_acesso | playout | barragem_cruzada): estilo e
+    // tamanho da chave obrigatórios.
+    const ehBarragem = f.modo === "barragem_cruzada"
     if (f.playoffEstilo === undefined) {
       ctx.addIssue({
         code: "custom",
-        message: "Escolha o estilo do playoff: a chave decide as vagas, ou direto + 1 na chave.",
+        message: ehBarragem
+          ? 'Escolha o estilo da barragem: "pares" (confrontos 1×1) ou "chave" (chave única).'
+          : "Escolha o estilo do playoff: a chave decide as vagas, ou direto + 1 na chave.",
         path: ["playoffEstilo"],
       })
       return
@@ -234,6 +260,44 @@ const fronteiraSchema = z
       return
     }
     const pv = f.playoffVagas
+
+    // Coerência modo × estilo (espelha o CHECK league_boundaries_estilo_coerente):
+    // barragem ⇒ pares/chave; playoff ⇒ vagas/extra.
+    const estiloPermitido = ehBarragem ? BARRAGEM_ESTILOS : PLAYOFF_ESTILOS
+    if (!(estiloPermitido as readonly string[]).includes(f.playoffEstilo)) {
+      ctx.addIssue({
+        code: "custom",
+        message: ehBarragem
+          ? 'A barragem cruzada usa o estilo "pares" ou "chave".'
+          : 'O playoff usa o estilo "a chave decide as vagas" ou "direto + 1 na chave".',
+        path: ["playoffEstilo"],
+      })
+      return
+    }
+
+    if (ehBarragem) {
+      if (f.playoffEstilo === "pares") {
+        // pv = 2B participantes (B confrontos 1×1). Par e ≥ 2.
+        if (pv % 2 !== 0) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "Na barragem em pares, o nº de participantes é par (2 por dupla). Use 2, 4, 6…",
+            path: ["playoffVagas"],
+          })
+        }
+      } else {
+        // 'chave': 1 defensor + k de baixo numa chave COMPLETA (potência de 2).
+        if (!(PLAYOFF_VAGAS_COMPLETAS as readonly number[]).includes(pv)) {
+          ctx.addIssue({
+            code: "custom",
+            message: `A barragem em chave única exige uma chave completa (${PLAYOFF_VAGAS_COMPLETAS.join(", ")}). Para um confronto 1×1, use o estilo "pares".`,
+            path: ["playoffVagas"],
+          })
+        }
+      }
+      return
+    }
 
     if (f.playoffEstilo === "vagas") {
       if (!(PLAYOFF_VAGAS_COMPLETAS as readonly number[]).includes(pv)) {
@@ -445,9 +509,13 @@ export const createCompetitionSchema = z
         })
       }
 
-      // ZONA da chave cabe na divisão-FONTE (acesso ⇒ inferior; playout ⇒
-      // superior). É invariante distinta do movimento físico/fechamento.
-      if (f.modo !== "direto" && f.playoffEstilo && f.playoffVagas) {
+      // ZONA da chave de PLAYOFF cabe na divisão-FONTE (acesso ⇒ inferior;
+      // playout ⇒ superior). Invariante distinta do movimento físico/fechamento.
+      if (
+        (f.modo === "playoff_acesso" || f.modo === "playout") &&
+        f.playoffEstilo &&
+        f.playoffVagas
+      ) {
         const fonteNivel = f.modo === "playout" ? sup : inf
         const fonte = porNivel.get(fonteNivel)
         if (fonte) {
@@ -456,6 +524,45 @@ export const createCompetitionSchema = z
             ctx.addIssue({
               code: "custom",
               message: `A chave de playoff precisa de ${zona} competidores da divisão "${fonte.nome}", que só tem ${fonte.tamanho}. Reduza o tamanho da chave ou as vagas diretas.`,
+              path: ["fronteiras", idx, "playoffVagas"],
+            })
+          }
+        }
+      }
+
+      // BARRAGEM CRUZADA: a zona mistura as DUAS divisões — homogeneidade
+      // por_nome + zona cabe em CADA lado (bloco dedicado, design §9.9).
+      if (f.modo === "barragem_cruzada" && f.playoffEstilo && f.playoffVagas) {
+        const divSup = porNivel.get(sup)
+        const divInf = porNivel.get(inf)
+        if (divSup && divInf) {
+          if (divSup.porNome !== divInf.porNome) {
+            ctx.addIssue({
+              code: "custom",
+              message: `A barragem entre "${divSup.nome}" e "${divInf.nome}" exige as duas divisões no MESMO modo (ambas por clube ou ambas por nome).`,
+              path: ["fronteiras", idx, "modo"],
+            })
+          }
+          // pares ⇒ R+B≤tam(sup) E A+B≤tam(inf); chave ⇒ R+1≤tam(sup) E A+k≤tam(inf).
+          const R = f.vagasRebaixamento
+          const A = f.vagasAcesso
+          const ladoSup =
+            f.playoffEstilo === "pares" ? R + f.playoffVagas / 2 : R + 1
+          const ladoInf =
+            f.playoffEstilo === "pares"
+              ? A + f.playoffVagas / 2
+              : A + (f.playoffVagas - 1)
+          if (ladoSup > divSup.tamanho) {
+            ctx.addIssue({
+              code: "custom",
+              message: `A barragem precisa de ${ladoSup} competidores da divisão "${divSup.nome}" (rebaixados diretos + zona de risco), que só tem ${divSup.tamanho}.`,
+              path: ["fronteiras", idx, "playoffVagas"],
+            })
+          }
+          if (ladoInf > divInf.tamanho) {
+            ctx.addIssue({
+              code: "custom",
+              message: `A barragem precisa de ${ladoInf} competidores da divisão "${divInf.nome}" (promovidos diretos + zona de disputa), que só tem ${divInf.tamanho}.`,
               path: ["fronteiras", idx, "playoffVagas"],
             })
           }

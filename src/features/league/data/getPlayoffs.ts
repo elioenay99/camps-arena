@@ -1,6 +1,7 @@
 import "server-only"
 
 import {
+  resultadoBarragemPares,
   resultadoDaChave,
   type PartidaJogada,
 } from "@/features/knockout/gerarChaveMataMata"
@@ -11,12 +12,12 @@ import {
 import { createClient } from "@/lib/supabase/server"
 import type { TournamentStatus } from "@/lib/supabase/database.types"
 
-/** Uma fronteira de PLAYOFF (não-`direto`) da temporada, com a chave já carregada. */
+/** Uma fronteira não-`direto` (playoff/playout/barragem) da temporada, com a chave carregada. */
 export interface PlayoffFronteira {
   /** Nível d da fronteira (d ⇄ d+1). */
   nivelSuperior: number
-  modo: "playoff_acesso" | "playout"
-  estilo: "vagas" | "extra"
+  modo: "playoff_acesso" | "playout" | "barragem_cruzada"
+  estilo: "vagas" | "extra" | "pares" | "chave"
   playoffVagas: number
   vagasAcesso: number
   vagasRebaixamento: number
@@ -129,8 +130,12 @@ export async function getPlayoffs(
   // Carrega cada chave em paralelo (uma viagem por fronteira montada).
   const fronteiras: PlayoffFronteira[] = await Promise.all(
     playoffBoundaries.map(async (f): Promise<PlayoffFronteira> => {
-      const modo = f.modo as "playoff_acesso" | "playout"
-      const estilo = (f.playoff_estilo ?? "vagas") as "vagas" | "extra"
+      const modo = f.modo as "playoff_acesso" | "playout" | "barragem_cruzada"
+      const estilo = (f.playoff_estilo ?? "vagas") as
+        | "vagas"
+        | "extra"
+        | "pares"
+        | "chave"
       const playoffVagas = f.playoff_vagas ?? 0
 
       const base: PlayoffFronteira = {
@@ -160,17 +165,33 @@ export async function getPlayoffs(
       }
 
       const partidas = classificacao.chave
-      // `vagas` = lado FAVORÁVEL da chave: sobe no acesso, cai no playout (mesma
-      // convenção de `calcularFluxoTemporada` ao ler a chave).
-      const vagas = modo === "playoff_acesso" ? f.vagas_acesso : f.vagas_rebaixamento
-      const decidida =
-        partidas.length > 0 &&
-        resultadoDaChave(paraPartidaJogada(partidas), {
-          modo,
-          estilo,
-          vagas,
-          playoffVagas,
-        }).decidida
+      // `decidida` pela MESMA fonte pura do backend (calcularFluxoTemporada):
+      // barragem `pares` → resultadoBarragemPares; barragem `chave` → chave 1-vaga
+      // 'extra'; playoff/playout → resultadoDaChave com o lado favorável.
+      let decidida = false
+      if (partidas.length > 0) {
+        const jogadas = paraPartidaJogada(partidas)
+        if (modo === "barragem_cruzada") {
+          decidida =
+            estilo === "pares"
+              ? resultadoBarragemPares(jogadas).decidida
+              : resultadoDaChave(jogadas, {
+                  modo: "playoff_acesso",
+                  estilo: "extra",
+                  vagas: 1,
+                  playoffVagas,
+                }).decidida
+        } else {
+          const vagas =
+            modo === "playoff_acesso" ? f.vagas_acesso : f.vagas_rebaixamento
+          decidida = resultadoDaChave(jogadas, {
+            modo,
+            estilo: estilo as "vagas" | "extra",
+            vagas,
+            playoffVagas,
+          }).decidida
+        }
+      }
 
       return {
         ...base,

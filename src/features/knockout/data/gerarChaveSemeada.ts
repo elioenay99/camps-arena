@@ -11,6 +11,7 @@
 import {
   gerarFaseInicial,
   type ConfrontoChave,
+  type PartidaChave,
 } from "@/features/knockout/gerarChaveMataMata"
 import type { createClient } from "@/lib/supabase/server"
 
@@ -20,16 +21,25 @@ export type GerarChaveSemeadaResult =
   | { ok: true }
   | { ok: false; error: string }
 
+/** Gerador da 1ª fase a partir dos confrontos (default = bracket de mata-mata). */
+type GeradorFaseInicial = (
+  confrontos: ConfrontoChave[],
+  idaEVolta: boolean
+) => PartidaChave[]
+
 /**
  * Insere a 1ª fase da chave `confrontos` no torneio `tournamentId` e promove o
  * torneio de `rascunho` para `ativo`. Roda no contexto do DONO (a RLS de
- * `matches`/`tournaments` exige `created_by = auth.uid()`).
+ * `matches`/`tournaments` exige `created_by = auth.uid()`). O `gerador` permite
+ * trocar a 1ª fase: default `gerarFaseInicial` (bracket); a barragem `pares`
+ * usa `gerarBarragemPares` (B confrontos independentes, sem exceção de "final").
  */
 export async function gerarChaveSemeada(
   supabase: SupabaseServerClient,
   tournamentId: string,
   confrontos: ConfrontoChave[],
-  idaEVolta: boolean
+  idaEVolta: boolean,
+  gerador: GeradorFaseInicial = gerarFaseInicial
 ): Promise<GerarChaveSemeadaResult> {
   const erroGenerico =
     "Não foi possível gerar a chave do playoff agora. Tente novamente."
@@ -49,7 +59,7 @@ export async function gerarChaveSemeada(
   if (!jaGeradas || jaGeradas.length === 0) {
     // Lados por VAGA (slot ids): participante_1/2 do confronto carregam os slot
     // ids → vaga_1/vaga_2. Bye nasce 'encerrada' 0x0 (memória durável do slot).
-    const partidas = gerarFaseInicial(confrontos, idaEVolta).map((p) => ({
+    const partidas = gerador(confrontos, idaEVolta).map((p) => ({
       tournament_id: tournamentId,
       vaga_1: p.participante_1,
       vaga_2: p.participante_2,

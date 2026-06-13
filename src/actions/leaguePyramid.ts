@@ -7,8 +7,11 @@ import { z } from "zod"
 import { iniciarTorneio } from "@/actions/tournaments"
 import { gerarChaveSemeada } from "@/features/knockout/data/gerarChaveSemeada"
 import {
+  gerarBarragemPares,
+  resultadoBarragemPares,
   resultadoDaChave,
   semearPlayoffPorPosicao,
+  type ConfrontoChave,
   type PartidaJogada,
 } from "@/features/knockout/gerarChaveMataMata"
 import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao"
@@ -24,8 +27,10 @@ import {
 // `"use server"` — aqui toda export precisa ser async function (ver flowEngine).
 import {
   calcularPlanoFluxo,
+  combinarFronteiraBarragem,
   combinarFronteiraPlayoff,
   validarFechamentoTamanho,
+  zonaBarragemPorPosicao,
   zonaPlayoffPorPosicao,
   type AjusteFluxo,
   type DivisaoFluxo,
@@ -338,6 +343,13 @@ function mensagemDaMontagem(error: { message?: string; code?: string }): string 
   if (m.includes("PLAYOFF_POR_NOME_INCOERENTE")) {
     return "A divisão do playoff mistura clube e nome — incoerente."
   }
+  // Erros específicos da RPC montar_barragem (Fase 3).
+  if (m.includes("FRONTEIRA_NAO_BARRAGEM")) {
+    return "Esta fronteira não é uma barragem cruzada."
+  }
+  if (m.includes("BARRAGEM_POR_NOME_INCOERENTE")) {
+    return "A barragem mistura divisões por clube e por nome — incoerente."
+  }
   if (m.includes("ZONA_VAZIA")) {
     return "A zona do playoff ficou sem competidores suficientes."
   }
@@ -544,6 +556,94 @@ async function lerResultadoChave(
 }
 
 /**
+ * Lê o desfecho de uma chave de BARRAGEM (Fase 3) — em competitorIds. O `chave`
+ * reusa `resultadoDaChave` (campeão = único `.sobem`); o `pares` usa
+ * `resultadoBarragemPares` (vencedor/perdedor por par). PURO a partir das
+ * partidas; a action cruza com a zona (quem é de d vs d+1) em
+ * `combinarFronteiraBarragem`.
+ */
+type BarragemLeitura =
+  | {
+      ok: true
+      campeao?: string
+      resultadoPares?: { vencedor: string; perdedor: string }[]
+    }
+  | { ok: false; error: string }
+
+async function lerResultadoBarragem(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  playoffTournamentId: string,
+  opts: { estilo: "pares" | "chave"; playoffVagas: number }
+): Promise<BarragemLeitura> {
+  const erro = "Não foi possível ler a barragem. Tente novamente."
+  const pendente =
+    "Há barragem pendente: termine as chaves antes de calcular o fluxo."
+  const { data: slots, error: slotsError } = await supabase
+    .from("tournament_slots")
+    .select("id, competitor_id")
+    .eq("tournament_id", playoffTournamentId)
+  if (slotsError || !slots) {
+    return { ok: false, error: erro }
+  }
+  const compPorSlot = new Map<string, string>()
+  for (const s of slots) {
+    if (s.competitor_id) compPorSlot.set(s.id, s.competitor_id)
+  }
+
+  const { data: matches, error: matchesError } = await supabase
+    .from("matches")
+    .select(
+      "rodada, posicao, perna, vaga_1, vaga_2, placar_1, placar_2, status, wo, wo_vencedor"
+    )
+    .eq("tournament_id", playoffTournamentId)
+    .not("rodada", "is", null)
+  if (matchesError) {
+    return { ok: false, error: erro }
+  }
+  const partidas: PartidaJogada[] = (matches ?? []).map((m) => ({
+    rodada: m.rodada,
+    posicao: m.posicao,
+    perna: m.perna,
+    participante_1: m.vaga_1,
+    participante_2: m.vaga_2,
+    placar_1: m.placar_1,
+    placar_2: m.placar_2,
+    status: m.status,
+    woVencedor: m.wo ? m.wo_vencedor : null,
+  }))
+
+  if (opts.estilo === "chave") {
+    const r = resultadoDaChave(partidas, {
+      modo: "playoff_acesso",
+      estilo: "extra",
+      vagas: 1,
+      playoffVagas: opts.playoffVagas,
+    })
+    if (!r.decidida) {
+      return { ok: false, error: pendente }
+    }
+    const campeaoSlot = [...r.sobem][0]
+    const campeao = campeaoSlot ? compPorSlot.get(campeaoSlot) : undefined
+    return { ok: true, campeao }
+  }
+
+  const r = resultadoBarragemPares(partidas)
+  if (!r.decidida) {
+    return { ok: false, error: pendente }
+  }
+  const resultadoPares: { vencedor: string; perdedor: string }[] = []
+  for (const { vencedor, perdedor } of r.vencedorPorPar.values()) {
+    const v = compPorSlot.get(vencedor)
+    const p = perdedor ? compPorSlot.get(perdedor) : undefined
+    if (!v || !p) {
+      return { ok: false, error: erro }
+    }
+    resultadoPares.push({ vencedor: v, perdedor: p })
+  }
+  return { ok: true, resultadoPares }
+}
+
+/**
  * Monta as CHAVES de playoff/playout de uma temporada cujas divisões já
  * encerraram. Para cada fronteira não-`direto`: resolve a ZONA pela classificação
  * (best-first), chama a RPC `montar_playoff` (cria o tournaments mata_mata + slots
@@ -664,6 +764,91 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
   }
 
   for (const f of playoffFronteiras) {
+    // BARRAGEM CRUZADA (Fase 3): a chave mistura as duas divisões adjacentes.
+    if (f.modo === "barragem_cruzada") {
+      const estilo = f.playoff_estilo as "pares" | "chave"
+      const playoffVagas = f.playoff_vagas ?? 0
+      const superior = await carregarDivisao(f.nivel_superior)
+      const inferior = await carregarDivisao(f.nivel_superior + 1)
+      if (!superior || !inferior) {
+        return { ok: false, error: erroGenerico }
+      }
+      const zona = zonaBarragemPorPosicao({
+        estilo,
+        vagasAcesso: f.vagas_acesso,
+        vagasRebaixamento: f.vagas_rebaixamento,
+        playoffVagas,
+        superiorOrdenada: superior,
+        inferiorOrdenada: inferior,
+      })
+      if (!zona || zona.ordenados.length !== playoffVagas) {
+        // Zona não cabe (config que escapou do schema) — falha explícita.
+        return { ok: false, error: erroGenerico }
+      }
+
+      const { data: tournamentId, error: rpcError } = await supabase.rpc(
+        "montar_barragem",
+        { p_boundary_id: f.id, p_competitor_ids: zona.ordenados }
+      )
+      if (rpcError || !tournamentId) {
+        return { ok: false, error: mensagemDaMontagem(rpcError ?? { message: "" }) }
+      }
+
+      const { data: slots, error: slotsError } = await supabase
+        .from("tournament_slots")
+        .select("id, competitor_id")
+        .eq("tournament_id", tournamentId)
+      if (slotsError || !slots) {
+        return { ok: false, error: erroGenerico }
+      }
+      const slotPorComp = new Map<string, string>()
+      for (const s of slots) {
+        if (s.competitor_id) slotPorComp.set(s.competitor_id, s.id)
+      }
+
+      let confrontos: ConfrontoChave[]
+      let gerador: typeof gerarBarragemPares | undefined
+      try {
+        if (estilo === "pares") {
+          // Pares [inferior, superior] mapeados a slots; o desafiante (inf) é o
+          // lado 1 (manda a ida); gerarBarragemPares inverte na volta.
+          confrontos = (zona.pares ?? []).map(([inf, sup], i) => {
+            const s1 = slotPorComp.get(inf)
+            const s2 = slotPorComp.get(sup)
+            if (!s1 || !s2) throw new Error("slot ausente na barragem")
+            return { posicao: i + 1, participante_1: s1, participante_2: s2 }
+          })
+          gerador = gerarBarragemPares
+        } else {
+          const ordenadosSlots = zona.ordenados
+            .map((c) => slotPorComp.get(c))
+            .filter((s): s is string => s !== undefined)
+          if (ordenadosSlots.length !== zona.ordenados.length) {
+            throw new Error("slot ausente na barragem")
+          }
+          confrontos = semearPlayoffPorPosicao(ordenadosSlots)
+        }
+      } catch (e) {
+        console.error(
+          "montarPlayoffs: barragem seeding",
+          e instanceof Error ? e.message : e
+        )
+        return { ok: false, error: erroGenerico }
+      }
+
+      const r = await gerarChaveSemeada(
+        supabase,
+        tournamentId,
+        confrontos,
+        f.playoff_ida_e_volta,
+        gerador
+      )
+      if (!r.ok) {
+        return { ok: false, error: r.error }
+      }
+      continue
+    }
+
     const estilo = f.playoff_estilo as "vagas" | "extra"
     const modo = f.modo as "playoff_acesso" | "playout"
     const playoffVagas = f.playoff_vagas ?? 0
@@ -899,13 +1084,66 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
       continue
     }
 
-    // Fronteira de playoff: precisa da chave montada e DECIDIDA.
+    // Fronteira não-direto: precisa da chave montada e DECIDIDA.
     if (!f.playoff_tournament_id) {
       return {
         ok: false,
         error: "Há playoff pendente: monte os playoffs antes de calcular o fluxo.",
       }
     }
+
+    // BARRAGEM CRUZADA (Fase 3): combina o resultado da chave mista com os
+    // cortes diretos, cruzando as duas divisões.
+    if (f.modo === "barragem_cruzada") {
+      const estiloB = f.playoff_estilo as "pares" | "chave"
+      const playoffVagasB = f.playoff_vagas ?? 0
+      const sup = porNivel.get(f.nivel_superior) ?? []
+      const inf = porNivel.get(f.nivel_superior + 1) ?? []
+      const zona = zonaBarragemPorPosicao({
+        estilo: estiloB,
+        vagasAcesso: f.vagas_acesso,
+        vagasRebaixamento: f.vagas_rebaixamento,
+        playoffVagas: playoffVagasB,
+        superiorOrdenada: sup,
+        inferiorOrdenada: inf,
+      })
+      if (!zona) {
+        return { ok: false, error: erroGenerico }
+      }
+      const leituraB = await lerResultadoBarragem(supabase, f.playoff_tournament_id, {
+        estilo: estiloB,
+        playoffVagas: playoffVagasB,
+      })
+      if (!leituraB.ok) {
+        return { ok: false, error: leituraB.error }
+      }
+      const playoffB = combinarFronteiraBarragem({
+        estilo: estiloB,
+        vagasAcesso: f.vagas_acesso,
+        vagasRebaixamento: f.vagas_rebaixamento,
+        superiorOrdenada: sup,
+        inferiorOrdenada: inf,
+        deSuperior: zona.deSuperior,
+        deInferior: zona.deInferior,
+        resultadoPares: leituraB.resultadoPares,
+        campeao: leituraB.campeao,
+      })
+      // Sanidade: a barragem é AUTO-BALANCEADA (|sobePorChave|==|caePorChave|) e
+      // a parte direta é simétrica (A==R) — logo sobem.size==caem.size.
+      if (
+        playoffB.sobemPorChave.size !== playoffB.caemPorChave.size ||
+        playoffB.sobem.size !== playoffB.caem.size
+      ) {
+        console.error(
+          "calcularFluxoTemporada: divergência barragem",
+          `n${f.nivel_superior} sobe ${playoffB.sobem.size} cai ${playoffB.caem.size}`
+        )
+        return { ok: false, error: erroGenerico }
+      }
+      fronteirasFluxo.push({ ...base, playoff: playoffB })
+      continue
+    }
+
     const estilo = f.playoff_estilo as "vagas" | "extra"
     const modo = f.modo as "playoff_acesso" | "playout"
     const playoffVagas = f.playoff_vagas ?? 0

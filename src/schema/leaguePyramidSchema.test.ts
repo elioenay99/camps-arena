@@ -564,3 +564,116 @@ describe("createCompetitionSchema (playoff/playout — Fase 2)", () => {
     expect(r.success).toBe(false)
   })
 })
+
+describe("barragem cruzada (Fase 3)", () => {
+  const barragem = (tam: number, fronteira: Record<string, unknown>) =>
+    createCompetitionSchema.safeParse({
+      nome: "Pirâmide Barragem",
+      divisoes: [divisao(1, tam), divisao(2, tam)],
+      fronteiras: [{ nivelSuperior: 1, ...fronteira }],
+    })
+
+  it("aceita 'pares' simétrica (2 diretos + 2 pares, ida-e-volta)", () => {
+    const r = barragem(8, {
+      modo: "barragem_cruzada",
+      playoffEstilo: "pares",
+      playoffVagas: 4, // B=2 pares
+      playoffIdaEVolta: true,
+      vagasAcesso: 2,
+      vagasRebaixamento: 2,
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it("aceita 'chave' (1 defensor + 3 desafiantes; pv potência de 2)", () => {
+    const r = barragem(8, {
+      modo: "barragem_cruzada",
+      playoffEstilo: "chave",
+      playoffVagas: 4, // k=3
+      vagasAcesso: 1,
+      vagasRebaixamento: 1,
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it("REJEITA 'pares' com nº de participantes ímpar", () => {
+    const r = barragem(8, {
+      modo: "barragem_cruzada",
+      playoffEstilo: "pares",
+      playoffVagas: 3,
+      vagasAcesso: 1,
+      vagasRebaixamento: 1,
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("REJEITA 'chave' com tamanho não potência de 2", () => {
+    const r = barragem(8, {
+      modo: "barragem_cruzada",
+      playoffEstilo: "chave",
+      playoffVagas: 6,
+      vagasAcesso: 1,
+      vagasRebaixamento: 1,
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("REJEITA barragem assimétrica (acesso direto != rebaixamento direto)", () => {
+    const r = barragem(8, {
+      modo: "barragem_cruzada",
+      playoffEstilo: "pares",
+      playoffVagas: 4,
+      vagasAcesso: 3,
+      vagasRebaixamento: 2,
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("REJEITA estilo de playoff ('vagas') no modo barragem", () => {
+    const r = barragem(8, {
+      modo: "barragem_cruzada",
+      playoffEstilo: "vagas",
+      playoffVagas: 4,
+      vagasAcesso: 2,
+      vagasRebaixamento: 2,
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("REJEITA barragem entre divisões com por_nome divergente", () => {
+    const r = createCompetitionSchema.safeParse({
+      nome: "Barragem heterogênea",
+      divisoes: [
+        divisao(1, 8, { porNome: false }),
+        divisao(2, 8, { porNome: true }),
+      ],
+      fronteiras: [
+        {
+          nivelSuperior: 1,
+          modo: "barragem_cruzada",
+          playoffEstilo: "pares",
+          playoffVagas: 4,
+          vagasAcesso: 2,
+          vagasRebaixamento: 2,
+        },
+      ],
+    })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(
+        r.error.issues.some((i) => /MESMO modo|por clube ou ambas por nome/.test(i.message))
+      ).toBe(true)
+    }
+  })
+
+  it("REJEITA barragem cuja zona não cabe na divisão", () => {
+    const r = barragem(4, {
+      modo: "barragem_cruzada",
+      playoffEstilo: "pares",
+      playoffVagas: 8, // B=4; zona = 1 + 4 = 5 > tamanho 4
+      vagasAcesso: 1,
+      vagasRebaixamento: 1,
+    })
+    expect(r.success).toBe(false)
+  })
+})

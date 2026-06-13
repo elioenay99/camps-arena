@@ -753,3 +753,109 @@ export function resultadoDaChave(
   }
   return { decidida: true, sobem, caem, permanecem }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Barragem cruzada (Fase 3): B confrontos 1×1 INDEPENDENTES (não-bracket)      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Gera as partidas da BARRAGEM `pares`: B confrontos 1×1 que se decidem na
+ * PRÓPRIA rodada 1 — não há avanço de fase nem campeão único, cada par é
+ * independente. Difere de `gerarFaseInicial` por NÃO tratar
+ * `confrontos.length === 1` como final: uma barragem de UM par com ida-e-volta
+ * DEVE gerar as duas pernas (não é a "final" de uma chave). A barragem não tem
+ * byes (a action garante a paridade da zona); um lado nulo é defensivo.
+ */
+export function gerarBarragemPares(
+  confrontos: ConfrontoChave[],
+  idaEVolta: boolean
+): PartidaChave[] {
+  return confrontos.flatMap((c): PartidaChave[] => {
+    if (c.participante_2 === null) {
+      return [
+        {
+          rodada: 1,
+          posicao: c.posicao,
+          perna: null,
+          participante_1: c.participante_1,
+          participante_2: null,
+          bye: true,
+        },
+      ]
+    }
+    if (idaEVolta) {
+      return [
+        {
+          rodada: 1,
+          posicao: c.posicao,
+          perna: 1,
+          participante_1: c.participante_1,
+          participante_2: c.participante_2,
+          bye: false,
+        },
+        {
+          rodada: 1,
+          posicao: c.posicao,
+          perna: 2,
+          participante_1: c.participante_2,
+          participante_2: c.participante_1,
+          bye: false,
+        },
+      ]
+    }
+    return [
+      {
+        rodada: 1,
+        posicao: c.posicao,
+        perna: null,
+        participante_1: c.participante_1,
+        participante_2: c.participante_2,
+        bye: false,
+      },
+    ]
+  })
+}
+
+/** Desfecho da barragem `pares`: cada par (posição) resolvido independente. */
+export interface ResultadoBarragemPares {
+  /** Todos os pares presentes têm vencedor decidido. */
+  decidida: boolean
+  /** posição do par → { vencedor, perdedor }. */
+  vencedorPorPar: Map<number, ResultadoConfronto>
+}
+
+/**
+ * Deriva o desfecho da barragem `pares` das partidas persistidas. PURO: agrupa
+ * por `posicao` (cada par) e decide via `decidirConfronto` (reúsa W.O., agregado
+ * sem gol-fora; empate barrado na persistência pelo trigger). `decidida` = TODOS
+ * os pares resolvidos. A action mapeia vaga→competidor e cruza com as divisões
+ * (quem é de d vs d+1) para montar o sobe/cai em `combinarFronteiraBarragem`.
+ */
+export function resultadoBarragemPares(
+  partidas: PartidaJogada[]
+): ResultadoBarragemPares {
+  const geradas = partidas.filter(
+    (p): p is PartidaJogada & { rodada: number; posicao: number } =>
+      p.rodada !== null && p.posicao !== null
+  )
+  const vencedorPorPar = new Map<number, ResultadoConfronto>()
+  if (geradas.length === 0) return { decidida: false, vencedorPorPar }
+
+  const porSlot = new Map<number, PartidaJogada[]>()
+  for (const p of geradas) {
+    const lista = porSlot.get(p.posicao) ?? []
+    lista.push(p)
+    porSlot.set(p.posicao, lista)
+  }
+
+  let decidida = true
+  for (const [posicao, doSlot] of porSlot) {
+    const r = decidirConfronto(doSlot)
+    if (!r || r.perdedor === null) {
+      decidida = false
+      continue
+    }
+    vencedorPorPar.set(posicao, r)
+  }
+  return { decidida, vencedorPorPar }
+}

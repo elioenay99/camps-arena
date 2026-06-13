@@ -608,3 +608,76 @@ Sem unificar as fontes ANTES do laço de acesso, um competidor poderia entrar em
 - **Pontas**: a divisão 1 nunca é INFERIOR de fronteira (não recebe playoff_acesso de cima); a última nunca é SUPERIOR (não sofre playout). Já garantido pelo refine de adjacência (`leaguePyramidSchema.ts:262-271`, independe de modo) — 2 cenários de teste documentam.
 - **N=1 / fronteira direto**: inalterado — `montarPlayoffs` é no-op para temporadas sem fronteira de playoff; `mostrarFluxo` cai no caminho da Fase 1.
 - **Empate de agregado (ida-e-volta)**: barrado na persistência pelo trigger `valida_resultado_mata_mata` (§8.8) — sem estado preso; sem auto-desempate na Fase 2.
+
+## 9. Fase 3 — Barragem cruzada (detalhe)
+
+Sintetizado de um mapeamento exaustivo (workflow 6 áreas) do que a Fase 2 deixou pronto. Decisão de produto do dono (AskUserQuestion 2026-06-13): **suportar OS DOIS estilos por fronteira** (`pares` e `chave`), **semeadura DIRETA** (melhor-de-baixo × melhor-de-cima por índice na zona) e **leg format configurável por fronteira** (reusa `playoff_ida_e_volta`, padrão ida-e-volta). Reúso ~70% da Fase 2: `playoff_tournament_id` (sentinela), `gerarChaveSemeada`, `BracketView`/`PlayoffsPanel`/`getPlayoffs`, freeze 3 camadas, gate de status, e — o achado central deste mapeamento — `calcularPlanoFluxo` NÃO MUDA: a barragem produz uma `PlayoffFronteira` padrão (`sobem/caem/sobemPorChave/caemPorChave`) e o motor já a consome (`flowEngine.ts:270-303`); não há assertion de número fixo (confirmado por leitura), então o nº VARIÁVEL de movimentos da barragem encaixa sem fricção.
+
+### 9.1 Semântica (chave MISTA entre duas divisões)
+Diferente do playoff/playout (INTRA-divisão), a barragem entre `d` (superior, `nivel_superior`) e `d+1` (inferior) mistura competidores das DUAS divisões na mesma estrutura. A fronteira pode combinar uma parte DIRETA (`vagas_rebaixamento` R caem direto de `d`; `vagas_acesso` A sobem direto de `d+1`) com a barragem por cima dela. Os dois estilos:
+- **`pares`** (par-a-par): B confrontos 1×1 INDEPENDENTES. Cada par = 1 time de `d` (zona de risco, logo acima dos R diretos) × 1 time de `d+1` (zona de disputa, logo abaixo dos A diretos). Vencedor de cada par fica/sobe a `d`; perdedor cai/fica em `d+1`. Modelo Bundesliga (com B=1) / Promoción.
+- **`chave`** (chave única mista): 1 defensor de `d` (o pior não-rebaixado-direto) + k desafiantes de `d+1`, total `k+1` participantes numa chave de mata-mata potência de 2. Campeão fica/sobe a `d`; todos os demais ficam/caem em `d+1`. (k+1=2 seria idêntico a `pares` B=1 — por isso `chave` exige `k+1 ∈ {4,8,16,32}`, deixando o 1×1 para `pares`.)
+
+### 9.2 Conservação AUTO-BALANCEADA (a diferença-chave vs §8.3)
+A barragem é **zero-sum por construção**, independentemente do resultado:
+- `pares`: cada par tem 1 de `d` e 1 de `d+1`. Se o de `d+1` vence: ele sobe (entra em `d`), o de `d` cai (sai de `d`) — troca 1↔1. Se o de `d` vence: ambos permanecem — troca 0. Em TODO par, `|sobe| == |cai|`.
+- `chave`: se o campeão é de `d+1`: ele sobe, o defensor de `d` cai (1↔1). Se o campeão é o defensor de `d`: ninguém se move (0). Sempre `|sobe| == |cai|`.
+
+Logo o tamanho de `d`/`d+1` conserva entre temporadas SSE a parte DIRETA é simétrica (`A == R`); a barragem não contribui ao net. **`movimentoEfetivo` da barragem retorna `{ sobeEf: vagasAcesso, caiEf: vagasRebaixamento }`** (SÓ os diretos — NÃO somar B, que é variável e balanceado; somá-lo aos dois lados seria redundante e poderia confundir a leitura de simetria). A simetria `sobeEf == caiEf` ⇒ `vagasAcesso == vagasRebaixamento`. O fechamento de tamanho do schema (`leaguePyramidSchema` superRefine) usa `movimentoEfetivo` e está correto sem contar a barragem (net zero). `validarFechamentoTamanho` (pós-resultado, conta destinos reais) também passa sempre porque cada troca é 1↔1.
+
+### 9.3 Mapeamento de campos (reúso das colunas da Fase 2)
+- `modo = 'barragem_cruzada'` (enum já existe — Fase 0). `playoff_estilo ∈ {'pares','chave'}` (CHECK alargado — §9.4). `playoff_ida_e_volta` reusado. `playoff_tournament_id` reusado como sentinela. `playoff_vagas` = **nº de PARTICIPANTES** da estrutura (consistente com a Fase 2): `pares` ⇒ `playoff_vagas = 2B` (par, `B = playoff_vagas/2` pares); `chave` ⇒ `playoff_vagas = k+1 ∈ {4,8,16,32}`.
+- Zona (posições por estilo), na ordem de classificação (1 = topo):
+  - `pares`: B de `d` nas posições `[tam(d)-R-B+1 .. tam(d)-R]` (logo acima dos R diretos) + B de `d+1` nas posições `[A+1 .. A+B]` (logo abaixo dos A diretos). Pareamento DIRETO: par `i` = `(A+i)`-ésimo de `d+1` × `(tam(d)-R-B+i)`-ésimo de `d` (os "melhores" de cada zona se enfrentam, índice a índice).
+  - `chave`: 1 de `d` na posição `tam(d)-R` + k de `d+1` nas posições `[A+1 .. A+k]`. Seeding de bracket por posição (`semearPlayoffPorPosicao`): o defensor de `d` é o seed 1 (melhor caminho — convenção de mando da divisão superior).
+
+### 9.4 DDL aditiva (Fase 3) — alargar o CHECK `estilo_coerente`
+Nenhuma coluna nova; só o CHECK passa a aceitar os estilos da barragem (diferenciando por modo):
+```sql
+alter table public.league_boundaries drop constraint if exists league_boundaries_estilo_coerente;
+alter table public.league_boundaries add constraint league_boundaries_estilo_coerente
+  check ((modo = 'direto' and playoff_estilo is null)
+      or (modo in ('playoff_acesso','playout') and playoff_estilo in ('vagas','extra'))
+      or (modo = 'barragem_cruzada' and playoff_estilo in ('pares','chave')));
+```
+A homogeneidade `por_nome` das duas divisões e a potência-de-2/zona-cabe NÃO são expressáveis em CHECK cruzada — ficam no Zod + RPC `montar_barragem` + action (igual à Fase 2).
+
+### 9.5 RPC `montar_barragem` (SECURITY DEFINER) — DUAS divisões-fonte
+RPC NOVA (não generalizar `montar_playoff`: a validação de 2 fontes + homogeneidade cruzada muda o suficiente para que misturar os caminhos arrisque regredir a Fase 2 já validada). Assinatura `montar_barragem(p_boundary_id uuid, p_competitor_ids uuid[])`, espelhando `montar_playoff` (`set search_path=''`, posse `boundary→season→competition.created_by`, advisory lock namespace 1, sentinela promote-first, `ZONA_VAZIA` se `< 2`, degradação de `user_id`). Diferenças:
+1. Exige `modo = 'barragem_cruzada'` (senão `FRONTEIRA_NAO_BARRAGEM`).
+2. **Duas divisões-fonte**: `v_div_sup` (`nivel_superior`) e `v_div_inf` (`nivel_superior+1`); ambas devem existir (`DIVISAO_FONTE_INVALIDA`).
+3. **Homogeneidade cruzada**: `por_nome` de `d` deve igualar o de `d+1` (`BARRAGEM_POR_NOME_INCOERENTE`); o tournament herda esse `por_nome` (e `desempate` da superior, `is_public` da competição).
+4. **`COMPETIDOR_FORA_DA_ZONA` em 2 fontes**: cada `competitor_id` deve ter entry em `v_div_sup` OU `v_div_inf` (não numa só específica).
+5. Cria `tournaments(formato='mata_mata', ida_e_volta=playoff_ida_e_volta, terceiro_lugar=false, …)`, título `'Barragem — nível N×N+1'`, insere os slots na ordem de `p_competitor_ids`. `revoke ... from public, anon; grant ... to authenticated`.
+
+### 9.6 Motor puro (geração + decisão da barragem)
+A GERAÇÃO da chave fica na ACTION (reúso do motor JS), como na Fase 2. Peças por estilo:
+- **`chave`** (bracket normal): REUSA `semearPlayoffPorPosicao(ordenados)` + `gerarChaveSemeada` (que usa `gerarFaseInicial`, promove rascunho→ativo, trata 23505) + `resultadoDaChave(partidas, { modo:'playoff_acesso', estilo:'extra', vagas:1, playoffVagas:k+1 })` — o campeão sai em `.sobem`. Tudo já existe.
+- **`pares`** (NÃO é bracket — peça NOVA): `montarConfrontosManual` e `resultadoDaChave` assumem chave potência-de-2 que reduz a 1 campeão — INAPLICÁVEIS a B confrontos paralelos decididos na fase 1. Funções novas em `gerarChaveMataMata.ts`:
+  - `gerarBarragemPares(confrontos, idaEVolta): PartidaChave[]` — gera B confrontos na rodada 1, cada um jogo único ou 2 pernas (ida-e-volta), **SEM a exceção de `ehFinal`** de `gerarFaseInicial` (na barragem `pares` não há "final" — B=1 com ida-e-volta DEVE gerar 2 pernas, não 1). Reaproveita a forma de perna 1/2 com lados invertidos.
+  - `resultadoBarragemPares(partidas): { decidida, vencedorPorPar: Map<posicao, {vencedor, perdedor}> }` — agrupa por `posicao`, decide cada par via `decidirConfronto` (reúso: trata W.O., bye, agregado sem gol-fora). `decidida` = todos os B pares resolvidos. PURO.
+- **`combinarFronteiraBarragem(opts)`** (NOVO, puro, em `flowEngine.ts`) — produz a `PlayoffFronteira` padrão a partir do resultado + dos Sets `deSuperior`/`deInferior` (que competidor é de `d` vs `d+1`, fornecidos pela action) + cortes diretos:
+  - `caem` = (R diretos: fundo de `d`) ∪ `caemPorChave`; `sobem` = (A diretos: topo de `d+1`) ∪ `sobemPorChave`.
+  - `pares`: para cada par, se `vencedor ∈ deInferior` ⇒ `sobemPorChave.add(vencedor)`, `caemPorChave.add(perdedor)` (que é de `d`); se `vencedor ∈ deSuperior` ⇒ nenhum movimento.
+  - `chave`: seja `C` o campeão; se `C ∈ deInferior` ⇒ `sobemPorChave={C}`, `caemPorChave={defensor de d}`; senão ambos vazios.
+  - Invariante: `|sobemPorChave| == |caemPorChave|` (auto-balanceado). `resolvido_por='playoff'` (enum já existe — barragem é playoff por jogo, sem `cortePonta`/sorteio).
+
+### 9.7 Integração e freeze (reúso quase total)
+- **`montarPlayoffs`** (action): ramo `if f.modo === 'barragem_cruzada'`: resolve a zona nas DUAS divisões (sup+inf) por posição, valida potência-de-2 (no `chave`) / paridade (no `pares`) e zona-cabe, chama `montar_barragem(boundaryId, competitorIds_ordenados)`, e gera a chave via `gerarChaveSemeada` (estilo `chave`) ou `gerarBarragemPares`+insert (estilo `pares`). Idempotência/retomada parcial idêntica (sentinela + `jaGeradas`).
+- **`calcularFluxoTemporada`** (action): ramo barragem — lê o resultado (via `resultadoDaChave` no `chave` / `resultadoBarragemPares` no `pares`), monta os Sets `deSuperior`/`deInferior` da classificação das 2 divisões, chama `combinarFronteiraBarragem`, injeta em `FronteiraFluxo.playoff`. Os 3 estados (sem chave / pendente / decidida) idênticos. **`calcularPlanoFluxo` (motor puro) NÃO MUDA.**
+- **`confirmarFluxoTemporada` / `montarProximaTemporada`**: SEM mudança específica — o FREEZE (chave `encerrado`) e a cópia de `playoff_estilo`/`playoff_ida_e_volta` para a N+1 já são enum-safe (o `.select`/insert já incluem essas colunas; o CHECK alargado aceita os novos estilos).
+- **Freeze 3 camadas**: o trigger `lock_division_tournament_reopen` (ramo playoff) e o guard de `reabrirTorneio` já referenciam `league_boundaries.playoff_tournament_id` — a barragem reusa a MESMA sentinela, então estão cobertos sem mudança.
+
+### 9.8 UI (reúso + aditivo)
+- `PlayoffsPanel`/`getPlayoffs` já filtram fronteiras `modo ≠ 'direto'` (a barragem aparece). `BracketView` renderiza a chave (no `pares`, 1 fase com B slots lado a lado). `getPlayoffs` deriva `decidida` pela MESMA fonte pura (`resultadoDaChave`/`resultadoBarragemPares`).
+- **NOVO (aditivo)**: rótulo da zona CRUZADA na fronteira ("Xº–Yº da Série A × Mº–Nº da Série B"), construído no servidor. `derivarZonas` ganha um ramo para `barragem_cruzada`: a divisão `d` (vendo a fronteira ABAIXO) marca sua zona de risco; a divisão `d+1` (vendo a fronteira ACIMA) marca sua zona de disputa — ambas com o tratamento `gold`-tracejado já existente (sem cor nova).
+- `MODO_LABEL`/`ESTILO_LABEL` ganham as chaves `barragem_cruzada`/`pares`/`chave` (fallback seguro).
+
+### 9.9 Edge cases Fase 3 (invariantes precisas)
+- **`pares`**: `playoff_vagas` PAR, `2..32` (B = `playoff_vagas/2` ∈ `[1,16]`). Zona cabe: `R + B ≤ tam(d)` E `A + B ≤ tam(d+1)`. Pareamento direto exige as duas zonas com B elementos cada.
+- **`chave`**: `playoff_vagas = k+1 ∈ {4,8,16,32}` (potência de 2 ≥ 4 — o 1×1 é `pares` B=1). Zona cabe: `R + 1 ≤ tam(d)` E `A + k ≤ tam(d+1)`.
+- **Simetria**: `vagasAcesso == vagasRebaixamento` (sobre os efetivos = só diretos; §9.2). A barragem não compensa assimetria global (diferente do `extra`).
+- **Homogeneidade `por_nome` CRUZADA**: as duas divisões da barragem devem ter o MESMO `por_nome` — `montar_barragem` recusa (`BARRAGEM_POR_NOME_INCOERENTE`); o Zod/wizard previnem antes (a fronteira de barragem só é ofertada entre divisões homogêneas).
+- **Pontas**: a divisão 1 nunca é inferior; a última nunca é superior (refine de adjacência, independe de modo). Uma fronteira de barragem precisa das duas divisões adjacentes existirem.
+- **Empate de agregado (ida-e-volta)**: barrado na persistência (`valida_resultado_mata_mata`) — vale para o `pares` (cada par é um confronto) e o `chave`. Sem auto-desempate.
+- **Idempotência/retomada**: sentinela `playoff_tournament_id` + gate `jaGeradas` — re-rodar `montarPlayoffs` completa a chave/pares sem regerar.

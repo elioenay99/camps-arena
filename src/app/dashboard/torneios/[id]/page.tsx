@@ -133,6 +133,21 @@ export default async function TorneioPage({
     ehGerado &&
     (torneio.status === "rascunho" || gruposEmRecuperacao);
 
+  // Barragem 'pares' (Fase 3): a chave é B confrontos 1×1 numa rodada ÚNICA — não
+  // há fase a avançar. Como é `mata_mata`, a geometria abaixo (2B participantes)
+  // inferiria uma fase 2 espúria; gerá-la corromperia o resultado da barragem.
+  // Esconde o "Avançar fase" (a action `avancarFase` é a defesa real).
+  const { data: barragemPares } = ehMataMata
+    ? await supabase
+        .from("league_boundaries")
+        .select("id")
+        .eq("playoff_tournament_id", id)
+        .eq("modo", "barragem_cruzada")
+        .eq("playoff_estilo", "pares")
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
+
   // Avançar fase: dono de formato com chave, ativo, chave gerada e final
   // ainda não criada (a action revalida tudo; o gate aqui é UX). Geometria
   // derivada da PRÓPRIA chave em FASES RELATIVAS (rodada-base ≠ 1 nos
@@ -147,7 +162,8 @@ export default async function TorneioPage({
     (ehMataMata || ehGrupos) &&
     torneio.status === "ativo" &&
     chave.length > 0 &&
-    faseAtual < fasesTotais;
+    faseAtual < fasesTotais &&
+    barragemPares === null;
 
   // Gerar mata-mata (formatos de grupos): dono, ativo, grupos gerados e
   // chave ainda não criada. `pendentes` orienta o que falta (gate de UX).

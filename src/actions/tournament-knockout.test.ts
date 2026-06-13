@@ -71,6 +71,8 @@ interface Cenario {
   /** Partidas persistidas devolvidas no avancarFase (select da chave atual). */
   partidas?: PartidaPersistida[] | null
   partidasError?: boolean
+  /** true = este torneio é a chave de uma barragem 'pares' (avancarFase recusa). */
+  barragemPares?: boolean
 }
 
 /**
@@ -139,6 +141,16 @@ function montarClient(c: Cenario) {
       }),
   }
 
+  // league_boundaries (avancarFase): guard da barragem 'pares' — await após
+  // .eq().eq().eq().limit(1). Não-vazio ⇒ é barragem 'pares' ⇒ recusa avançar.
+  const cadeiaBoundaries = {
+    eq: vi.fn(() => cadeiaBoundaries),
+    limit: vi.fn(async () => ({
+      data: c.barragemPares ? [{ id: "b1" }] : [],
+      error: null,
+    })),
+  }
+
   // tournament_slots (iniciarMataMata): await após .eq(...) → as vagas.
   const cadeiaVagas = {
     eq: vi.fn(async () => ({
@@ -172,6 +184,8 @@ function montarClient(c: Cenario) {
         return { select: vi.fn(() => cadeiaTorneioSelect), update: updateSpy }
       if (tabela === "tournament_slots")
         return { select: vi.fn(() => cadeiaVagas) }
+      if (tabela === "league_boundaries")
+        return { select: vi.fn(() => cadeiaBoundaries) }
       return { select: matchesSelectSpy, insert: insertSpy }
     }),
   }
@@ -756,6 +770,26 @@ describe("avancarFase", () => {
     expect(mockRevalidate).toHaveBeenCalledWith(
       `/dashboard/torneios/${TORNEIO}`
     )
+  })
+
+  it("recusa avançar fase numa barragem 'pares' (rodada única, sem fase 2)", async () => {
+    // BLOCKER (Fase 3): a chave da barragem 'pares' é um mata_mata com B
+    // confrontos 1×1 numa rodada única. Sem o guard, avancarFase geraria uma
+    // fase 2 espúria pareando vencedores de pares distintos — corrompendo o
+    // resultado e travando o fluxo da temporada.
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false, terceiro_lugar: false },
+      partidas: [
+        jogada({ posicao: 1, vaga_1: A, vaga_2: B }), // par 1
+        jogada({ posicao: 2, vaga_1: C, vaga_2: D }), // par 2
+      ],
+      barragemPares: true,
+    })
+    const r = await avancarFase(TORNEIO)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/barragem|rodada única|não há fase/i)
+    expect(insertSpy).not.toHaveBeenCalled()
   })
 
   it("W.O. numa partida da fase decide o confronto e avança o vencedor do W.O.", async () => {

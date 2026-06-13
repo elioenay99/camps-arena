@@ -92,7 +92,16 @@ export function derivarZonas(
   // --- Lado do ACESSO (topo da tabela), fronteira ACIMA, esta divisão é a fonte.
   if (acima) {
     const ehPlayoffAcesso = acima.modo === "playoff_acesso"
-    if (ehPlayoffAcesso && acima.playoffVagas) {
+    if (acima.modo === "barragem_cruzada" && acima.playoffVagas) {
+      // Barragem: A diretos no topo + a ZONA DE DISPUTA logo abaixo vai à chave
+      // cruzada (B = pv/2 nos `pares`; k = pv-1 na `chave`).
+      const nBarr =
+        acima.playoffEstilo === "pares"
+          ? acima.playoffVagas / 2
+          : acima.playoffVagas - 1
+      intervalo(acesso, 1, acima.vagasAcesso, total)
+      intervalo(playoffAcesso, acima.vagasAcesso + 1, acima.vagasAcesso + nBarr, total)
+    } else if (ehPlayoffAcesso && acima.playoffVagas) {
       if (acima.playoffEstilo === "extra") {
         // diretos no topo, depois a chave logo abaixo.
         intervalo(acesso, 1, acima.vagasAcesso, total)
@@ -115,7 +124,18 @@ export function derivarZonas(
   // --- Lado da QUEDA (fundo da tabela), fronteira ABAIXO, esta divisão é a fonte.
   if (abaixo) {
     const ehPlayout = abaixo.modo === "playout"
-    if (ehPlayout && abaixo.playoffVagas) {
+    if (abaixo.modo === "barragem_cruzada" && abaixo.playoffVagas) {
+      // Barragem: R diretos no fundo + a ZONA DE RISCO logo acima vai à chave
+      // cruzada (B = pv/2 nos `pares`; 1 defensor na `chave`).
+      const nBarr = abaixo.playoffEstilo === "pares" ? abaixo.playoffVagas / 2 : 1
+      intervalo(rebaixamento, total - abaixo.vagasRebaixamento + 1, total, total)
+      intervalo(
+        playoffRebaixamento,
+        total - abaixo.vagasRebaixamento - nBarr + 1,
+        total - abaixo.vagasRebaixamento,
+        total
+      )
+    } else if (ehPlayout && abaixo.playoffVagas) {
       if (abaixo.playoffEstilo === "extra") {
         // diretos no fundo, depois a chave logo acima.
         intervalo(rebaixamento, total - abaixo.vagasRebaixamento + 1, total, total)

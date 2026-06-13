@@ -508,3 +508,149 @@ export function combinarFronteiraPlayoff(opts: {
 
   return { sobem, caem, sobemPorChave, caemPorChave }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Barragem cruzada (Fase 3): chave MISTA entre duas divisões adjacentes        */
+/* -------------------------------------------------------------------------- */
+
+export type BarragemEstiloFronteira = "pares" | "chave"
+
+/**
+ * A ZONA de uma barragem cruzada, resolvida pela classificação das DUAS
+ * divisões (superior `d` e inferior `d+1`). PURO. `superiorOrdenada`/
+ * `inferiorOrdenada` são best-first (posição 1 = topo).
+ * - `pares`: `B = playoffVagas/2` pares. Zona de `d` = os B logo ACIMA dos
+ *   `vagasRebaixamento` diretos (zona de risco); zona de `d+1` = os B logo
+ *   ABAIXO dos `vagasAcesso` diretos (zona de disputa). Pareamento DIRETO
+ *   (decisão do dono): par `i` = i-ésimo melhor de baixo × i-ésimo melhor de
+ *   cima na zona de risco — `pares[i] = [inferiorId, superiorId]`.
+ * - `chave`: 1 defensor de `d` (o pior não-rebaixado-direto) como seed 1 + os
+ *   `k = playoffVagas-1` melhores não-promovidos de `d+1`. `ordenados` segue a
+ *   ordem de seeding para `semearPlayoffPorPosicao`.
+ * `ordenados` é a ordem dos slots passada à RPC `montar_barragem` (no `pares`,
+ * intercala `[inf, sup]` por par; no `chave`, defensor primeiro).
+ */
+export interface ZonaBarragem {
+  ordenados: string[]
+  deSuperior: Set<string>
+  deInferior: Set<string>
+  /** Pares `[inferiorId, superiorId]` no estilo `pares` (a action gera os confrontos). */
+  pares?: [string, string][]
+}
+
+export function zonaBarragemPorPosicao(opts: {
+  estilo: BarragemEstiloFronteira
+  vagasAcesso: number
+  vagasRebaixamento: number
+  playoffVagas: number
+  superiorOrdenada: readonly LinhaClassificada[]
+  inferiorOrdenada: readonly LinhaClassificada[]
+}): ZonaBarragem | null {
+  const sup = [...opts.superiorOrdenada]
+    .sort((a, b) => a.posicao - b.posicao)
+    .map((x) => x.competitorId)
+  const inf = [...opts.inferiorOrdenada]
+    .sort((a, b) => a.posicao - b.posicao)
+    .map((x) => x.competitorId)
+  const A = opts.vagasAcesso
+  const R = opts.vagasRebaixamento
+
+  if (opts.estilo === "pares") {
+    const B = opts.playoffVagas / 2
+    if (!Number.isInteger(B) || B < 1) return null
+    // Zona de risco da superior: os B logo acima dos R rebaixados diretos (fundo).
+    const inicioSup = sup.length - R - B
+    // Zona de disputa da inferior: os B logo abaixo dos A promovidos diretos (topo).
+    if (inicioSup < 0 || A + B > inf.length) return null
+    const zonaSup = sup.slice(inicioSup, sup.length - R) // best-first dentro da zona
+    const zonaInf = inf.slice(A, A + B)
+    const pares: [string, string][] = []
+    const ordenados: string[] = []
+    for (let i = 0; i < B; i++) {
+      // melhor de baixo (topo da zona de disputa) × melhor de cima (topo da zona de risco).
+      pares.push([zonaInf[i], zonaSup[i]])
+      ordenados.push(zonaInf[i], zonaSup[i])
+    }
+    return {
+      ordenados,
+      deSuperior: new Set(zonaSup),
+      deInferior: new Set(zonaInf),
+      pares,
+    }
+  }
+
+  // estilo 'chave': 1 defensor de d (seed 1) + k de d+1.
+  const k = opts.playoffVagas - 1
+  const idxDefensor = sup.length - R - 1
+  if (idxDefensor < 0 || A + k > inf.length || k < 1) return null
+  const defensor = sup[idxDefensor]
+  const desafiantes = inf.slice(A, A + k)
+  return {
+    ordenados: [defensor, ...desafiantes],
+    deSuperior: new Set([defensor]),
+    deInferior: new Set(desafiantes),
+  }
+}
+
+/**
+ * Constrói a `PlayoffFronteira` de uma barragem cruzada combinando o resultado
+ * da chave (mapeado a competitorIds) com os cortes DIRETOS. PURO. A barragem é
+ * AUTO-BALANCEADA: cada par/chave troca 0 ou 1↔1, logo
+ * `|sobemPorChave| == |caemPorChave|` (design §9.2). `resolvido_por='playoff'`.
+ * - `pares`: para cada par `{vencedor, perdedor}`, se o vencedor é da INFERIOR
+ *   ele sobe e o perdedor (da superior) cai; se o vencedor é da superior, nada.
+ * - `chave`: se o `campeao` é da inferior, ele sobe e o defensor (único da
+ *   superior) cai; se o campeão é o defensor, nada.
+ */
+export function combinarFronteiraBarragem(opts: {
+  estilo: BarragemEstiloFronteira
+  vagasAcesso: number
+  vagasRebaixamento: number
+  superiorOrdenada: readonly LinhaClassificada[]
+  inferiorOrdenada: readonly LinhaClassificada[]
+  deSuperior: ReadonlySet<string>
+  deInferior: ReadonlySet<string>
+  /** estilo `pares`: vencedor/perdedor por par. */
+  resultadoPares?: readonly { vencedor: string; perdedor: string }[]
+  /** estilo `chave`: o campeão da chave (null se indecisa). */
+  campeao?: string | null
+}): PlayoffFronteira {
+  const sobem = new Set<string>()
+  const caem = new Set<string>()
+  const sobemPorChave = new Set<string>()
+  const caemPorChave = new Set<string>()
+
+  const sup = [...opts.superiorOrdenada].sort((a, b) => a.posicao - b.posicao)
+  const inf = [...opts.inferiorOrdenada].sort((a, b) => a.posicao - b.posicao)
+  // Diretos: A topo da inferior sobem; R fundo da superior caem.
+  for (const c of inf.slice(0, opts.vagasAcesso)) sobem.add(c.competitorId)
+  for (const c of opts.vagasRebaixamento > 0
+    ? sup.slice(sup.length - opts.vagasRebaixamento)
+    : [])
+    caem.add(c.competitorId)
+
+  if (opts.estilo === "pares") {
+    for (const { vencedor, perdedor } of opts.resultadoPares ?? []) {
+      if (opts.deInferior.has(vencedor)) {
+        sobem.add(vencedor)
+        sobemPorChave.add(vencedor)
+        caem.add(perdedor) // perdedor é da superior
+        caemPorChave.add(perdedor)
+      }
+      // vencedor da superior ⇒ ambos permanecem (nada a marcar).
+    }
+  } else {
+    const campeao = opts.campeao
+    if (campeao && opts.deInferior.has(campeao)) {
+      const defensor = [...opts.deSuperior][0]
+      sobem.add(campeao)
+      sobemPorChave.add(campeao)
+      if (defensor) {
+        caem.add(defensor)
+        caemPorChave.add(defensor)
+      }
+    }
+  }
+
+  return { sobem, caem, sobemPorChave, caemPorChave }
+}

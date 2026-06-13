@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { useTransition } from "react"
 import {
   ArrowDownToLine,
+  ArrowUpDown,
   ArrowUpToLine,
   CheckCircle2,
   ExternalLink,
@@ -31,8 +32,8 @@ import { cn } from "@/lib/utils"
  */
 export interface PlayoffFronteiraView {
   nivelSuperior: number
-  modo: "playoff_acesso" | "playout"
-  estilo: "vagas" | "extra"
+  modo: "playoff_acesso" | "playout" | "barragem_cruzada"
+  estilo: "vagas" | "extra" | "pares" | "chave"
   playoffVagas: number
   vagasAcesso: number
   vagasRebaixamento: number
@@ -63,11 +64,14 @@ function rotuloNivel(nivel: number, nomes?: PlayoffsPanelProps["nivelNomes"]) {
 const MODO_LABEL: Record<PlayoffFronteiraView["modo"], string> = {
   playoff_acesso: "Playoff de acesso",
   playout: "Playout",
+  barragem_cruzada: "Barragem cruzada",
 }
 
 const ESTILO_LABEL: Record<PlayoffFronteiraView["estilo"], string> = {
   vagas: "a chave decide as vagas",
   extra: "direto + 1 na chave",
+  pares: "confrontos 1×1",
+  chave: "chave única entre as divisões",
 }
 
 /**
@@ -82,6 +86,9 @@ const ESTILO_LABEL: Record<PlayoffFronteiraView["estilo"], string> = {
  * Em ambos, `decidida` é a fronteira do esconde — fonte única com o motor.
  */
 function escondeAvancar(f: PlayoffFronteiraView): boolean {
+  // Barragem `pares`: B confrontos 1×1 numa rodada ÚNICA — nunca há próxima fase
+  // a gerar (não é um bracket que reduz a um campeão). Esconde sempre.
+  if (f.modo === "barragem_cruzada" && f.estilo === "pares") return true
   return f.decidida
 }
 
@@ -204,7 +211,12 @@ function FronteiraChave({
 }) {
   const router = useRouter()
   const { modo, playoffTournamentId, torneioStatus, decidida } = fronteira
-  const Icon = modo === "playoff_acesso" ? ArrowUpToLine : ArrowDownToLine
+  const Icon =
+    modo === "barragem_cruzada"
+      ? ArrowUpDown
+      : modo === "playoff_acesso"
+        ? ArrowUpToLine
+        : ArrowDownToLine
   const nomeSup = rotuloNivel(fronteira.nivelSuperior, nivelNomes)
   const nomeInf = rotuloNivel(fronteira.nivelSuperior + 1, nivelNomes)
 

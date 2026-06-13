@@ -4,6 +4,7 @@ import {
   decidirConfronto,
   ehTerceiroLugar,
   embaralhar,
+  gerarBarragemPares,
   gerarFaseInicial,
   gerarProximaFase,
   MATA_MATA_MAX_PARTICIPANTES,
@@ -13,6 +14,7 @@ import {
   ordemDeSeed,
   POSICAO_TERCEIRO_LUGAR,
   previaMataMata,
+  resultadoBarragemPares,
   resultadoDaChave,
   rodadaBaseDaChave,
   rotuloFase,
@@ -992,5 +994,87 @@ describe("resultadoDaChave (defensivo contra config inválida)", () => {
       playoffVagas: 8,
     })
     expect(r.decidida).toBe(false)
+  })
+})
+
+describe("gerarBarragemPares (Fase 3 — não-bracket)", () => {
+  it("B=1 ida-e-volta gera DUAS pernas (NÃO vira jogo único como gerarFaseInicial)", () => {
+    const partidas = gerarBarragemPares(
+      [{ posicao: 1, participante_1: "inf", participante_2: "sup" }],
+      true
+    )
+    expect(partidas).toHaveLength(2)
+    expect(partidas.map((p) => p.perna)).toEqual([1, 2])
+    // lados invertidos na volta
+    expect(partidas[0].participante_1).toBe("inf")
+    expect(partidas[1].participante_1).toBe("sup")
+    expect(partidas.every((p) => p.rodada === 1 && !p.bye)).toBe(true)
+  })
+
+  it("B=2 jogo único: 2 confrontos na rodada 1, perna null", () => {
+    const partidas = gerarBarragemPares(
+      [
+        { posicao: 1, participante_1: "i1", participante_2: "s1" },
+        { posicao: 2, participante_1: "i2", participante_2: "s2" },
+      ],
+      false
+    )
+    expect(partidas).toHaveLength(2)
+    expect(partidas.every((p) => p.perna === null && p.rodada === 1)).toBe(true)
+    expect(partidas.map((p) => p.posicao)).toEqual([1, 2])
+  })
+
+  it("B=2 ida-e-volta: 4 partidas (2 por par, pernas invertidas)", () => {
+    const partidas = gerarBarragemPares(
+      [
+        { posicao: 1, participante_1: "i1", participante_2: "s1" },
+        { posicao: 2, participante_1: "i2", participante_2: "s2" },
+      ],
+      true
+    )
+    expect(partidas).toHaveLength(4)
+    expect(partidas.filter((p) => p.posicao === 1).map((p) => p.perna)).toEqual([
+      1, 2,
+    ])
+  })
+})
+
+describe("resultadoBarragemPares (Fase 3)", () => {
+  it("todos os pares decididos (jogo único) ⇒ decidida + vencedores por par", () => {
+    const partidas: PartidaJogada[] = [
+      jogada({ posicao: 1, participante_1: "i1", participante_2: "s1", placar_1: 2, placar_2: 0 }),
+      jogada({ posicao: 2, participante_1: "i2", participante_2: "s2", placar_1: 0, placar_2: 1 }),
+    ]
+    const r = resultadoBarragemPares(partidas)
+    expect(r.decidida).toBe(true)
+    expect(r.vencedorPorPar.get(1)).toEqual({ vencedor: "i1", perdedor: "s1" })
+    expect(r.vencedorPorPar.get(2)).toEqual({ vencedor: "s2", perdedor: "i2" })
+  })
+
+  it("um par ainda em aberto ⇒ NÃO decidida", () => {
+    const partidas: PartidaJogada[] = [
+      jogada({ posicao: 1, participante_1: "i1", participante_2: "s1", placar_1: 2, placar_2: 0 }),
+      jogada({ posicao: 2, participante_1: "i2", participante_2: "s2", status: "agendada", placar_1: 0, placar_2: 0 }),
+    ]
+    expect(resultadoBarragemPares(partidas).decidida).toBe(false)
+  })
+
+  it("ida-e-volta: decide por agregado puro (sem gol fora)", () => {
+    const partidas: PartidaJogada[] = [
+      jogada({ posicao: 1, perna: 1, participante_1: "i1", participante_2: "s1", placar_1: 1, placar_2: 0 }),
+      jogada({ posicao: 1, perna: 2, participante_1: "s1", participante_2: "i1", placar_1: 0, placar_2: 0 }),
+    ]
+    const r = resultadoBarragemPares(partidas)
+    expect(r.decidida).toBe(true)
+    expect(r.vencedorPorPar.get(1)).toEqual({ vencedor: "i1", perdedor: "s1" })
+  })
+
+  it("W.O. em um par decide", () => {
+    const partidas: PartidaJogada[] = [
+      jogada({ posicao: 1, participante_1: "i1", participante_2: "s1", woVencedor: "s1" }),
+    ]
+    const r = resultadoBarragemPares(partidas)
+    expect(r.decidida).toBe(true)
+    expect(r.vencedorPorPar.get(1)).toEqual({ vencedor: "s1", perdedor: "i1" })
   })
 })
