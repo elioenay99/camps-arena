@@ -26,7 +26,7 @@ export function MatchHistoryList({
       {partidas.map((p) => (
         <li
           key={p.id}
-          className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm"
+          className="flex items-center justify-between gap-4 rounded-lg border bg-card/40 px-4 py-3 text-sm motion-safe:transition-colors hover:border-primary/30"
         >
           {/* min-w-0 + truncate: sem eles, nome longo não encolhe (min-width
               auto do flex) e o grupo invade a data no mobile. */}
@@ -44,11 +44,11 @@ export function MatchHistoryList({
               {p.nome_1}
             </span>
             {p.wo ? (
-              <span className="bg-muted shrink-0 rounded px-1.5 py-0.5 text-xs font-medium uppercase">
+              <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold tracking-wide uppercase">
                 W.O.
               </span>
             ) : (
-              <span className="shrink-0 font-semibold tabular-nums">
+              <span className="shrink-0 font-display font-semibold tabular-nums">
                 {p.placar_1} x {p.placar_2}
               </span>
             )}

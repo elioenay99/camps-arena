@@ -76,7 +76,7 @@ export function OpenMatchesList({
     return (
       <li
         key={p.id}
-        className="flex flex-wrap items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm"
+        className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-card/40 px-4 py-3 text-sm motion-safe:transition-colors hover:border-primary/30"
       >
         <span className="flex min-w-0 items-center gap-2" aria-hidden="true">
           {p.rodada !== null ? (
@@ -87,13 +87,13 @@ export function OpenMatchesList({
             </span>
           ) : null}
           <span className="truncate">{p.nome_1}</span>
-          <span className="shrink-0 font-semibold tabular-nums">
+          <span className="shrink-0 font-display font-semibold tabular-nums">
             {p.placar_1} x {p.placar_2}
           </span>
           <span className="truncate">{p.nome_2}</span>
           {/* Clube órfão (sem técnico): viraria W.O. ao fechar a rodada. */}
           {p.orfao_1 || p.orfao_2 ? (
-            <span className="text-muted-foreground shrink-0 text-xs">
+            <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-xs">
               (vaga aberta)
             </span>
           ) : null}
@@ -102,7 +102,10 @@ export function OpenMatchesList({
           {`${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}${p.perna !== null ? ` (${p.perna === 1 ? "ida" : "volta"})` : ""}: ` : ""}Placar atual: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2} — partida ${LABEL_STATUS[p.status]}`}
         </span>
         <span className="flex shrink-0 flex-wrap items-center gap-3">
-          <span aria-hidden="true" className="text-muted-foreground text-xs">
+          <span
+            aria-hidden="true"
+            className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs"
+          >
             {LABEL_STATUS[p.status]}
           </span>
           {atalho ? (
@@ -159,7 +162,15 @@ export function OpenMatchesList({
       {rodadas.map((rodada) => (
         <section key={rodada} className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-medium">{`Rodada ${rodada}`}</h3>
+            {/* Acento decorativo (aria-hidden, sem nó de texto): o nome
+                acessível do heading permanece estritamente "Rodada N". */}
+            <h3 className="font-display flex items-center gap-2 text-sm font-semibold tracking-tight">
+              <span
+                aria-hidden="true"
+                className="bg-primary/70 h-3.5 w-1 rounded-full"
+              />
+              {`Rodada ${rodada}`}
+            </h3>
             {mostrarEncerrar && tournamentId && rodada === rodadaAtiva ? (
               <FecharRodadaButton tournamentId={tournamentId} rodada={rodada} />
             ) : null}

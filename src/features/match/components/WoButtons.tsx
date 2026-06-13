@@ -59,7 +59,7 @@ export function MarcarWoButton({
   }
 
   return (
-    <span className="flex flex-wrap items-center gap-2">
+    <span className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-md px-2 py-1">
       <span className="text-muted-foreground text-xs">Vitória de:</span>
       <Button
         type="button"
