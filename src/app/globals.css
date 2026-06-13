@@ -316,6 +316,159 @@
   }
 }
 
+/* ===== Hero da landing: ilustração de estádio animada (CSS-only) =====
+   Padrão OPT-OUT (como as demais utilities de movimento desta folha): animam por
+   padrão e são zeradas no bloco @media (prefers-reduced-motion: reduce) lá embaixo.
+   AO ADICIONAR uma classe hs-* nova, inclua-a TAMBÉM naquele bloco. */
+@layer utilities {
+  /* Bola desenhada na origem; translate posiciona, scale dá perspectiva. */
+  .hs-ball {
+    transform: translate(200px, 250px);
+    animation: hs-roll 5.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  .hs-ball-spin {
+    animation: hs-spin 1.8s linear infinite;
+  }
+  .hs-net {
+    transform-box: fill-box;
+    transform-origin: 50% 0%;
+    animation: hs-net 5.5s ease-in-out infinite;
+  }
+  .hs-flash {
+    opacity: 0;
+    animation: hs-flash 5.5s ease-in-out infinite;
+  }
+  /* Placar que vira no gol (1 -> 2), sincronizado com o mesmo período. */
+  .hs-score-a {
+    animation: hs-score-a 5.5s ease-in-out infinite;
+  }
+  .hs-score-b {
+    opacity: 0;
+    animation: hs-score-b 5.5s ease-in-out infinite;
+  }
+  .hs-twinkle {
+    opacity: 0.18;
+    animation: hs-twinkle 3.2s ease-in-out infinite;
+  }
+  .hs-flag {
+    transform-box: fill-box;
+    transform-origin: 0% 100%;
+    animation: hs-flag 2.4s ease-in-out infinite;
+  }
+  .hs-beam {
+    transform-box: fill-box;
+    transform-origin: 50% 0%;
+    animation: hs-beam 9s ease-in-out infinite;
+  }
+  /* Bolinha (emoji) do badge do hero quica. */
+  .ball-bounce {
+    display: inline-block;
+    animation: goliseu-ball-bounce 1.5s ease-in-out infinite;
+  }
+  /* Confete da comemoração (sobe na origem do seu <g>; --cx espalha lateral). */
+  .hs-confetti {
+    opacity: 0;
+    animation: hs-confetti 5.5s ease-in-out infinite;
+  }
+  /* Torcida atrás do gol "vibra" (clareia) no gol. */
+  .hs-cheer {
+    opacity: 0.15;
+    animation: hs-cheer 5.5s ease-in-out infinite;
+  }
+  /* Troca do ranking no gol: o time que sai (out) some, o que sobe (in) entra. */
+  .hs-rank-out {
+    animation: hs-rank-out 5.5s ease-in-out infinite;
+  }
+  .hs-rank-in {
+    opacity: 0;
+    animation: hs-rank-in 5.5s ease-in-out infinite;
+  }
+}
+
+@keyframes hs-score-a {
+  0%, 48% { opacity: 1; }
+  54%, 89% { opacity: 0; }
+  95%, 100% { opacity: 1; }
+}
+@keyframes hs-score-b {
+  0%, 48% { opacity: 0; }
+  54%, 89% { opacity: 1; }
+  95%, 100% { opacity: 0; }
+}
+@keyframes hs-twinkle {
+  0%, 100% { opacity: 0.12; }
+  50% { opacity: 0.3; }
+}
+@keyframes hs-flag {
+  0%, 100% { transform: skewX(0deg) scaleX(1); }
+  50% { transform: skewX(-12deg) scaleX(0.9); }
+}
+@keyframes hs-beam {
+  0%, 100% { transform: rotate(-7deg); }
+  50% { transform: rotate(7deg); }
+}
+@keyframes goliseu-ball-bounce {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  30% { transform: translateY(-3px) rotate(-14deg); }
+  60% { transform: translateY(0) rotate(8deg); }
+}
+@keyframes hs-confetti {
+  0%, 46% { opacity: 0; transform: translate(0px, 0px) rotate(0deg); }
+  50% { opacity: 1; transform: translate(0px, -15px) rotate(40deg); }
+  74% { opacity: 0; transform: translate(var(--cx, 0px), 30px) rotate(260deg); }
+  100% { opacity: 0; transform: translate(var(--cx, 0px), 30px) rotate(260deg); }
+}
+@keyframes hs-cheer {
+  0%, 46% { opacity: 0.15; }
+  52% { opacity: 0.55; }
+  72%, 100% { opacity: 0.15; }
+}
+@keyframes hs-rank-out {
+  0%, 46% { opacity: 1; transform: translateY(0); }
+  52% { opacity: 0; transform: translateY(-6px); }
+  89% { opacity: 0; transform: translateY(-6px); }
+  95%, 100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes hs-rank-in {
+  0%, 46% { opacity: 0; transform: translateY(6px); }
+  52% { opacity: 1; transform: translateY(0); }
+  89% { opacity: 1; transform: translateY(0); }
+  95%, 100% { opacity: 0; transform: translateY(6px); }
+}
+
+/* Bola rola do gramado (perto) até o gol (fundo, menor), comemora e reinicia. */
+@keyframes hs-roll {
+  0% { transform: translate(200px, 250px) scale(1); opacity: 1; }
+  12% { transform: translate(200px, 250px) scale(1); opacity: 1; }
+  48% { transform: translate(200px, 118px) scale(0.62); opacity: 1; }
+  56% { transform: translate(200px, 118px) scale(0.62); opacity: 1; }
+  64% { transform: translate(200px, 110px) scale(0.5); opacity: 0; }
+  65% { transform: translate(200px, 250px) scale(1); opacity: 0; }
+  90% { transform: translate(200px, 250px) scale(1); opacity: 0; }
+  97% { transform: translate(200px, 250px) scale(1); opacity: 1; }
+  100% { transform: translate(200px, 250px) scale(1); opacity: 1; }
+}
+
+@keyframes hs-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Rede estufa quando a bola chega (sincronizado pelo mesmo período de 5.5s). */
+@keyframes hs-net {
+  0%, 45% { transform: none; }
+  49% { transform: scaleY(1.08) skewX(2.5deg); }
+  52% { transform: scaleY(0.96) skewX(-1.8deg); }
+  55% { transform: scaleY(1.03) skewX(0.8deg); }
+  58%, 100% { transform: none; }
+}
+
+@keyframes hs-flash {
+  0%, 44% { opacity: 0; }
+  50% { opacity: 0.6; }
+  70% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
 @keyframes goliseu-rise {
   from {
     opacity: 0;
@@ -371,6 +524,22 @@
   .trophy-sheen::after {
     animation: none;
     opacity: 0;
+  }
+  .hs-ball,
+  .hs-ball-spin,
+  .hs-net,
+  .hs-flash,
+  .hs-score-a,
+  .hs-score-b,
+  .hs-twinkle,
+  .hs-flag,
+  .hs-beam,
+  .ball-bounce,
+  .hs-confetti,
+  .hs-cheer,
+  .hs-rank-out,
+  .hs-rank-in {
+    animation: none;
   }
   .elevate-hover {
     transition: none;

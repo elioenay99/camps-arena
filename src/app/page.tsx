@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Trophy, Swords, Users } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { HeroStadium } from "@/components/hero-stadium";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,13 +34,6 @@ const DESTAQUES = [
   },
 ] as const;
 
-// Mini-classificação decorativa do preview do produto (dados fixos, fake).
-const PREVIEW_TABELA = [
-  { pos: "1º", time: "Os Cracks", pts: 19 },
-  { pos: "2º", time: "Resenha FC", pts: 16 },
-  { pos: "3º", time: "Vapo United", pts: 13 },
-] as const;
-
 export default async function Home() {
   // Landing é material de aquisição: quem já tem sessão vai direto ao painel.
   // Auth indisponível NÃO pode derrubar a página pública — falha vira
@@ -60,7 +54,10 @@ export default async function Home() {
   return (
     <div className="spotlight flex w-full flex-1 flex-col">
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-16 px-6 py-16">
-        <header className="flex w-full items-center justify-between">
+        <header
+          className="animate-rise flex w-full items-center justify-between"
+          style={{ "--stagger": "0ms" } as React.CSSProperties}
+        >
           <span className="font-display text-lg font-bold tracking-[0.25em]">
             GOLISEU<span className="text-primary">.</span>
           </span>
@@ -72,9 +69,12 @@ export default async function Home() {
           </div>
         </header>
 
-        <section className="flex flex-col items-center gap-6 text-center">
+        <section
+          className="animate-rise flex flex-col items-center gap-6 text-center"
+          style={{ "--stagger": "90ms" } as React.CSSProperties}
+        >
           <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
-            <span aria-hidden="true">⚽</span>
+            <span aria-hidden="true" className="ball-bounce">⚽</span>
             Torneios entre amigos, nível profissional
           </span>
           <h1 className="font-display max-w-2xl text-balance text-5xl font-bold tracking-tight sm:text-6xl">
@@ -96,7 +96,20 @@ export default async function Home() {
           </div>
         </section>
 
-        <section aria-hidden="true" className="flex justify-center">
+        {/* -mt aproxima a ilustração do hero (contrabalança o gap-16 do <main>). */}
+        <section
+          aria-hidden="true"
+          className="animate-rise -mt-6 flex justify-center sm:-mt-8"
+          style={{ "--stagger": "180ms" } as React.CSSProperties}
+        >
+          <HeroStadium className="w-full max-w-xl" />
+        </section>
+
+        <section
+          aria-hidden="true"
+          className="animate-rise flex justify-center"
+          style={{ "--stagger": "270ms" } as React.CSSProperties}
+        >
           <span className="sr-only">
             Exemplo de classificação e placar ao vivo
           </span>
@@ -110,49 +123,47 @@ export default async function Home() {
               </span>
             </div>
 
+            {/* Classificação sincronizada com o gol do SVG (HeroStadium): Palmeiras
+                lidera, e quando a bola entra lá em cima o Flamengo sobe pro 1º
+                (troféu) e o placar do jogo vira 1→2 — mesmos times/narrativa do
+                SVG, no mesmo loop de 5.5s. Ao mudar nomes/placar, ajuste os DOIS. */}
             <ul className="mt-4 flex flex-col gap-1">
-              {PREVIEW_TABELA.map((linha, i) => {
-                const campeao = i === 0;
-                return (
-                  <li
-                    key={linha.time}
-                    className={
-                      campeao
-                        ? "flex items-center gap-3 rounded-md border border-gold/30 bg-gold/10 px-3 py-2"
-                        : "flex items-center gap-3 rounded-md px-3 py-2"
-                    }
-                  >
-                    <span
-                      className={
-                        campeao
-                          ? "font-display w-6 text-sm font-bold tabular-nums text-gold-ink"
-                          : "font-display w-6 text-sm font-bold tabular-nums text-muted-foreground"
-                      }
-                    >
-                      {linha.pos}
-                    </span>
-                    {campeao ? (
-                      <Trophy className="size-4 shrink-0 text-gold-ink" />
-                    ) : (
-                      <span className="size-4 shrink-0" />
-                    )}
-                    <span className="flex-1 truncate text-sm font-medium">
-                      {linha.time}
-                    </span>
-                    <span className="font-display text-sm font-bold tabular-nums">
-                      {linha.pts}
-                    </span>
-                  </li>
-                );
-              })}
+              <li className="trophy-sheen flex items-center gap-3 rounded-md border border-gold/30 bg-gold/10 px-3 py-2">
+                <span className="font-display w-6 text-sm font-bold tabular-nums text-gold-ink">
+                  1º
+                </span>
+                <Trophy className="size-4 shrink-0 text-gold-ink" />
+                <NomeQueTroca sai="Palmeiras" entra="Flamengo" />
+                <span className="font-display text-sm font-bold tabular-nums">19</span>
+              </li>
+              <li className="flex items-center gap-3 rounded-md px-3 py-2">
+                <span className="font-display w-6 text-sm font-bold tabular-nums text-muted-foreground">
+                  2º
+                </span>
+                <span className="size-4 shrink-0" />
+                <NomeQueTroca sai="Flamengo" entra="Palmeiras" />
+                <span className="font-display text-sm font-bold tabular-nums">19</span>
+              </li>
+              <li className="flex items-center gap-3 rounded-md px-3 py-2">
+                <span className="font-display w-6 text-sm font-bold tabular-nums text-muted-foreground">
+                  3º
+                </span>
+                <span className="size-4 shrink-0" />
+                <span className="flex-1 truncate text-sm font-medium">Fluminense</span>
+                <span className="font-display text-sm font-bold tabular-nums">13</span>
+              </li>
             </ul>
 
             <div className="mt-4 flex items-center gap-2 border-t pt-4 text-sm">
-              <span className="font-medium">Grêmio</span>
-              <span className="font-display font-bold tabular-nums">2</span>
+              <span className="font-medium">Flamengo</span>
+              {/* Placar muda junto com o do SVG (1 → 2). */}
+              <span className="grid font-display font-bold tabular-nums">
+                <span className="hs-score-a col-start-1 row-start-1 text-center">1</span>
+                <span className="hs-score-b col-start-1 row-start-1 text-center">2</span>
+              </span>
               <span className="text-xs text-muted-foreground">×</span>
               <span className="font-display font-bold tabular-nums">1</span>
-              <span className="font-medium">São Paulo</span>
+              <span className="font-medium">Palmeiras</span>
               <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span className="relative flex size-2">
                   <span className="absolute inline-flex size-full rounded-full bg-primary opacity-75 motion-safe:animate-ping" />
@@ -166,7 +177,8 @@ export default async function Home() {
 
         <section
           aria-label="Destaques do produto"
-          className="grid gap-4 sm:grid-cols-3"
+          className="animate-rise grid gap-4 sm:grid-cols-3"
+          style={{ "--stagger": "360ms" } as React.CSSProperties}
         >
           {DESTAQUES.map((destaque) => {
             const Icone = destaque.icone;
@@ -197,5 +209,25 @@ export default async function Home() {
         </footer>
       </main>
     </div>
+  );
+}
+
+/**
+ * Nome de time que TROCA de posição no gol (sincronizado com o SVG): o time que
+ * sai some sutilmente e o que sobe entra deslizando. Empilhados na MESMA célula
+ * de grid (sem position absoluto) — a célula dimensiona pelo nome maior. Sob
+ * `prefers-reduced-motion` as classes param: o estado base mostra só o "sai"
+ * (classificação inicial: Palmeiras 1º, Flamengo 2º).
+ */
+function NomeQueTroca({ sai, entra }: { sai: string; entra: string }) {
+  return (
+    <span className="grid min-w-0 flex-1">
+      <span className="hs-rank-out col-start-1 row-start-1 truncate text-sm font-medium">
+        {sai}
+      </span>
+      <span className="hs-rank-in col-start-1 row-start-1 truncate text-sm font-medium">
+        {entra}
+      </span>
+    </span>
   );
 }
