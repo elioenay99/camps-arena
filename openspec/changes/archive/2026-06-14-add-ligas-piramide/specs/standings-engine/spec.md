@@ -2,7 +2,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Classificação por pontos corridos com desempate parametrizável
+### Requirement: Motor de classificação por pontos
 
 O motor `computeStandings` SHALL calcular a classificação de pontos corridos de forma PURA (sem IO), acumulando pontos/gols/jogos a partir das partidas encerradas com os dois lados definidos, creditando W.O. como vitória/derrota só nos pontos (zero gols), e atribuindo posição estilo competição (empatados persistentes dividem a posição; o próximo pula). O motor SHALL aceitar um parâmetro de desempate por PRESET que monta a cadeia de comparadores objetivos e define se o confronto direto se aplica só entre exatamente 2 empatados. Nesta entrega os presets disponíveis SHALL ser `cbf` e `ingles` (ambos reordenam comparadores objetivos mantendo o confronto direto restrito a exatamente 2); o preset `custom` e o `espanhol` (que exige mini-tabela entre 3+ empatados) NÃO SHALL ser expostos aqui — ficam para a fase de desempate avançado, que alargará o conjunto de valores. O preset SHALL ter default `cbf`, que reproduz EXATAMENTE o comportamento anterior (pontos → vitórias → saldo → gols pró → confronto direto só entre 2 → divisão de posição), sem regressão para nenhum torneio legado. Cada torneio SHALL persistir o seu preset em `tournaments.desempate_criterio` (default `cbf`, CHECK restrito a `cbf`/`ingles`/`custom` nesta fase), lido por `getTournamentClassificacao` e propagado às chamadas do motor; o tiebreaker final SHALL permanecer determinístico por id (code-point, cross-locale).
 

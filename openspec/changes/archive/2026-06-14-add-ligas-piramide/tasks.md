@@ -261,5 +261,5 @@ ENTREGA: DDL já aplicada no banco (sessão anterior); camada de app auditada po
 - [x] 5.4 Após os 3 sub-blocos: validação integrada; gate completo. 5.3+5.2+5.1 entregues; gate final verde (1019 testes); validação ao vivo integrada da 5.1 ponta-a-ponta.
 
 ## Encerramento
-- [ ] Z.1 Commit (pt-BR, Conventional Commits, sem coautoria de IA) + push.
-- [ ] Z.2 `openspec archive add-ligas-piramide` após validação completa.
+- [x] Z.1 Commit (pt-BR, Conventional Commits, sem coautoria de IA) + push. `c594d50` pushed para main.
+- [x] Z.2 `openspec archive add-ligas-piramide` após validação completa.
