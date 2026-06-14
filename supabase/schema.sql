@@ -1666,10 +1666,10 @@ create table if not exists public.league_competitions (
   is_public        boolean not null default true,
   created_at       timestamptz not null default now(),
   constraint league_competitions_nome_nao_vazio check (length(trim(nome)) > 0),
-  -- Fase 0 entrega apenas 'cbf'|'ingles'|'custom'. 'espanhol' (mini-tabela entre
-  -- 3+ empatados) entra na Fase 5 — o CHECK é alargado nessa fase.
+  -- 'cbf'/'ingles' reordenam a cadeia objetiva; 'espanhol'/'fifa' (Fase 5) usam
+  -- a mini-tabela entre os empatados; 'custom' é reservado (degrada p/ 'cbf').
   constraint league_competitions_desempate_valido
-    check (desempate_padrao in ('cbf', 'ingles', 'custom'))
+    check (desempate_padrao in ('cbf', 'ingles', 'custom', 'espanhol', 'fifa'))
 );
 
 create index if not exists league_competitions_created_by_idx
@@ -1730,7 +1730,7 @@ create table if not exists public.league_division_seasons (
   constraint league_division_seasons_tamanho_valido check (tamanho >= 2 and tamanho <= 20),
   -- Fase 0: 'cbf'|'ingles'|'custom'; 'espanhol' adicionado na Fase 5.
   constraint league_division_seasons_desempate_valido
-    check (desempate in ('cbf', 'ingles', 'custom'))
+    check (desempate in ('cbf', 'ingles', 'custom', 'espanhol', 'fifa'))
 );
 
 create unique index if not exists league_division_seasons_nivel_unico
@@ -1903,16 +1903,16 @@ create index if not exists tournament_slots_competitor_idx
 -- ---------- tournaments.desempate_criterio (preset de desempate por torneio) ----------
 -- Aditivo; idempotente. Default 'cbf' = comportamento atual; legados e torneios
 -- standalone preservam a cadeia CBF simplificada. montar_temporada grava o preset
--- da divisão aqui; getTournamentClassificacao lê. Fase 0 só expõe
--- 'cbf'|'ingles'|'custom'; 'espanhol' (mini-tabela entre 3+ empatados) é
--- incompatível com o motor da Fase 0 — entra na Fase 5, que ALARGA este CHECK.
+-- da divisão aqui; getTournamentClassificacao lê. Presets: 'cbf'/'ingles'
+-- (cadeia objetiva), 'espanhol'/'fifa' (mini-tabela entre os empatados, Fase 5),
+-- 'custom' (reservado, degrada p/ 'cbf').
 alter table public.tournaments
   add column if not exists desempate_criterio text not null default 'cbf';
 
 alter table public.tournaments drop constraint if exists tournaments_desempate_valido;
 alter table public.tournaments
   add constraint tournaments_desempate_valido
-  check (desempate_criterio in ('cbf', 'ingles', 'custom'));
+  check (desempate_criterio in ('cbf', 'ingles', 'custom', 'espanhol', 'fifa'));
 
 -- ---------- RPC: montar_temporada (SECURITY DEFINER) ----------
 -- Único caminho que cria os tournaments das divisões e INSERE os tournament_slots

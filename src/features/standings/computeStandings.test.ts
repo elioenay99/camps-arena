@@ -429,3 +429,82 @@ describe("computeStandings — W.O. (walkover)", () => {
     expect(a.posicao).toBeLessThan(b.posicao)
   })
 })
+
+describe("computeStandings — mini-tabela (espanhol/fifa, Fase 5)", () => {
+  /**
+   * Trio a/b/c empatado em PONTOS (7 cada). Mini-tabela (jogos entre eles):
+   * a beat b, a draw c, b beat c ⇒ mini-pontos a=4 > b=3 > c=1 (ordem limpa,
+   * sem ciclo). Saldo/gols GLOBAIS: a +2; b +1 (2 gols); c +1 (3 gols).
+   * - espanhol (pontos → MINI → saldo/gols): a, b, c (mini decide b>c).
+   * - fifa/cbf (saldo/gols global antes da mini): a, c, b (c tem +gols pró).
+   */
+  const TRIO: PartidaClassificavel[] = [
+    partida("a", "b", 1, 0), // a vence b
+    partida("a", "c", 1, 1), // a empata c
+    partida("b", "c", 1, 0), // b vence c
+    partida("a", "d", 1, 0), // a +3 externo  → 7
+    partida("b", "e", 1, 0), // b +3 externo
+    partida("b", "f", 0, 0), // b +1 externo  → 7
+    partida("c", "d", 1, 0), // c +3 externo
+    partida("c", "e", 1, 0), // c +3 externo  → 7
+  ]
+
+  it("espanhol: o confronto entre os empatados (mini-tabela) decide b acima de c", () => {
+    const r = computeStandings(CBF, TRIO, "espanhol")
+    const pos = (id: string) => r.find((l) => l.participanteId === id)!.posicao
+    expect([pos("a"), pos("b"), pos("c")]).toEqual([1, 2, 3])
+  })
+
+  it("fifa: saldo/gols GLOBAL vem antes da mini-tabela → c acima de b (mais gols pró)", () => {
+    const r = computeStandings(CBF, TRIO, "fifa")
+    const pos = (id: string) => r.find((l) => l.participanteId === id)!.posicao
+    expect(pos("a")).toBe(1)
+    expect(pos("c")).toBeLessThan(pos("b")) // c 2º, b 3º — diverge do espanhol
+  })
+
+  it("espanhol e fifa divergem no mesmo cenário (b×c trocam)", () => {
+    const esp = computeStandings(CBF, TRIO, "espanhol")
+    const fifa = computeStandings(CBF, TRIO, "fifa")
+    const ordemDe = (rs: typeof esp) =>
+      rs.filter((l) => ["a", "b", "c"].includes(l.participanteId)).map((l) => l.participanteId)
+    expect(ordemDe(esp)).toEqual(["a", "b", "c"])
+    expect(ordemDe(fifa)).toEqual(["a", "c", "b"])
+  })
+
+  it("ciclo A>B>C>A não trava: mini-pontos iguais → caem no fallback → dividem a posição", () => {
+    const ciclo: PartidaClassificavel[] = [
+      partida("a", "b", 1, 0), // a vence b
+      partida("b", "c", 1, 0), // b vence c
+      partida("c", "a", 1, 0), // c vence a (ciclo)
+    ]
+    const r = computeStandings(CBF, ciclo, "espanhol")
+    // Todos com 3 pts, 1 gol, saldo 0; mini-tabela tudo igual ⇒ mesma posição.
+    expect(r.every((l) => l.posicao === 1)).toBe(true)
+    expect(r).toHaveLength(3)
+  })
+
+  it("mini-tabela com 2 empatados = confronto direto (generaliza o caso de 2)", () => {
+    // a e b empatam em pontos (3 cada, externo idêntico); a venceu o confronto.
+    const dois: PartidaClassificavel[] = [
+      partida("a", "b", 2, 1), // a vence o confronto direto
+      partida("a", "z", 0, 1), // a perde p/ z
+      partida("b", "z", 0, 1), // b perde p/ z (externo idêntico)
+    ]
+    const r = computeStandings(CBF, dois, "espanhol")
+    const pos = (id: string) => r.find((l) => l.participanteId === id)!.posicao
+    // a e b: 3 pts cada; mini (só a×b): a venceu ⇒ a à frente.
+    expect(pos("a")).toBeLessThan(pos("b"))
+  })
+
+  it("cbf/ingles intactos sob o novo passo 5 (não-regressão)", () => {
+    // Empate simples de 2: confronto direto decide (comportamento legado).
+    const simples: PartidaClassificavel[] = [
+      partida("a", "b", 1, 0), // a vence o confronto
+      partida("a", "c", 0, 0),
+      partida("b", "c", 0, 0),
+    ]
+    const cbf = computeStandings(CBF, simples, "cbf")
+    const posCbf = (id: string) => cbf.find((l) => l.participanteId === id)!.posicao
+    expect(posCbf("a")).toBeLessThan(posCbf("b")) // confronto direto a>b
+  })
+})

@@ -427,12 +427,24 @@ describe("createCompetitionSchema", () => {
       if (r.success) expect(r.data.isPublic).toBe(false)
     })
 
-    it("rejeita desempate fora de cbf/ingles (espanhol/custom só na Fase 5)", () => {
+    it("aceita desempate 'espanhol'/'fifa' (habilitados na Fase 5)", () => {
       expect(
         createCompetitionSchema.safeParse({
-          nome: "Espanha cedo",
+          nome: "La Liga",
           divisoes: [
             { nivel: 1, nome: "A", porNome: false, desempate: "espanhol", tamanho: 4, competidores: clubes(4) },
+          ],
+          fronteiras: [],
+        }).success
+      ).toBe(true)
+    })
+
+    it("rejeita desempate inexistente", () => {
+      expect(
+        createCompetitionSchema.safeParse({
+          nome: "Inválido",
+          divisoes: [
+            { nivel: 1, nome: "A", porNome: false, desempate: "klingon", tamanho: 4, competidores: clubes(4) },
           ],
           fronteiras: [],
         }).success

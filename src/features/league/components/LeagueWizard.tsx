@@ -113,6 +113,8 @@ const ROTULO_PASSO: Record<Passo, string> = {
 const DESEMPATE_ROTULO: Record<(typeof DESEMPATES_DISPONIVEIS)[number], string> = {
   cbf: "CBF (vitórias, saldo, gols pró)",
   ingles: "Inglês (saldo, gols pró, vitórias)",
+  espanhol: "Espanhol (confronto entre empatados, depois saldo)",
+  fifa: "FIFA (saldo, gols pró, depois confronto)",
 }
 
 /** Rótulo da base de ranking de sobe/cai por divisão (Fase 4). */

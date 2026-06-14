@@ -28,10 +28,11 @@ export const DIVISAO_MAX_TAMANHO = LIGA_MAX_PARTICIPANTES // 20
 export const MAX_DIVISOES = 8
 
 /**
- * Presets de desempate disponíveis na Fase 0/1. `custom`/`espanhol` entram na
- * Fase 5 (mini-tabela entre 3+ empatados) — fora do enum aqui de propósito.
+ * Presets de desempate ofertados no wizard. `cbf`/`ingles` reordenam a cadeia
+ * objetiva; `espanhol`/`fifa` (Fase 5) usam a MINI-TABELA entre os empatados.
+ * `custom` é aceito no banco mas degrada para `cbf` — não exposto aqui.
  */
-export const DESEMPATES_DISPONIVEIS = ["cbf", "ingles"] as const
+export const DESEMPATES_DISPONIVEIS = ["cbf", "ingles", "espanhol", "fifa"] as const
 
 /**
  * Bases de ranking de sobe/cai por divisão (Fase 4). 'posicao' (default) = corte

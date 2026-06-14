@@ -49,24 +49,28 @@ interface Acumulado {
 }
 
 /**
- * Preset de desempate. Fase 0: 'cbf' | 'ingles' | 'custom'. 'espanhol'
- * (mini-tabela entre 3+ empatados) entra na Fase 5 — exige uma mecânica nova
- * (sub-classificação só com os jogos entre os empatados) que o motor objetivo
- * desta fase não cobre. 'custom' na Fase 0 ainda NÃO é configurável: cai no
- * comportamento 'cbf'; a cadeia reordenável vem na Fase 5.
+ * Preset de desempate. `cbf`/`ingles` reordenam a cadeia objetiva (confronto
+ * direto só entre EXATAMENTE 2; 3+ dividem). `espanhol`/`fifa` (Fase 5) usam a
+ * MINI-TABELA: sub-classificação só com os jogos ENTRE os empatados, ciclo-segura
+ * (soma pontos numa mini-liga). `custom` é reservado e degrada para `cbf`.
  */
-export type TiebreakerPreset = "cbf" | "ingles" | "custom"
+export type TiebreakerPreset = "cbf" | "ingles" | "custom" | "espanhol" | "fifa"
+
+/** Comparador objetivo (estilo `Array.sort`: negativo/zero/positivo). */
+type Comparador = (a: Acumulado, b: Acumulado) => number
 
 /**
- * Receita de desempate: a cadeia de comparadores objetivos (aplicados em
- * cascata ANTES do confronto direto e do `porId` final) e se o confronto
- * direto fica restrito a EXATAMENTE 2 empatados (evita o ciclo A>B>C>A).
+ * Receita de desempate: a cadeia PRIMÁRIA de comparadores objetivos (define o
+ * grupo de empate), a estratégia de RESOLUÇÃO desse grupo (confronto direto só
+ * entre 2, ou mini-tabela entre 2+) e o FALLBACK objetivo aplicado APÓS a
+ * mini-tabela para os ainda iguais (`[]` no confronto direto, que não tem etapa
+ * posterior).
  */
 export interface TiebreakerSpec {
-  /** Cada comparador retorna negativo/zero/positivo (estilo `Array.sort`). */
-  comparadores: Array<(a: Acumulado, b: Acumulado) => number>
-  /** CBF: confronto direto só entre EXATAMENTE 2 (3+ pulam, dividindo a posição). */
-  confrontoDiretoApenasEm2: boolean
+  comparadores: Comparador[]
+  /** `confrontoDireto2` = legado (cbf/ingles); `miniTabela` = espanhol/fifa. */
+  resolucao: "confrontoDireto2" | "miniTabela"
+  fallback: Comparador[]
 }
 
 const saldoDe = (a: Acumulado) => a.golsPro - a.golsContra
@@ -80,25 +84,162 @@ const cmpGolsPro = (a: Acumulado, b: Acumulado) => b.golsPro - a.golsPro
 /**
  * Tabela de presets → spec. 'cbf' é BYTE-IDÊNTICO à cadeia hardcoded legada
  * (pontos → vitórias → saldo → gols pró, confronto direto só em 2). 'ingles'
- * reordena a cadeia objetiva (pontos → saldo → gols pró → vitórias). 'custom'
- * na Fase 0 ainda não é configurável: degrada para 'cbf' (a cadeia reordenável
- * vem na Fase 5).
+ * reordena a cadeia objetiva (pontos → saldo → gols pró → vitórias). 'espanhol'
+ * (La Liga): pontos → MINI-TABELA (confronto entre os empatados) → saldo/gols
+ * globais. 'fifa' (grupo de Copa): pontos → saldo → gols pró globais →
+ * MINI-TABELA. 'custom' é reservado: degrada para 'cbf'.
  */
 export function obterTiebreakerSpec(preset: TiebreakerPreset): TiebreakerSpec {
   switch (preset) {
     case "ingles":
       return {
         comparadores: [cmpPontos, cmpSaldo, cmpGolsPro, cmpVitorias],
-        confrontoDiretoApenasEm2: true,
+        resolucao: "confrontoDireto2",
+        fallback: [],
+      }
+    case "espanhol":
+      return {
+        comparadores: [cmpPontos],
+        resolucao: "miniTabela",
+        fallback: [cmpSaldo, cmpGolsPro],
+      }
+    case "fifa":
+      return {
+        comparadores: [cmpPontos, cmpSaldo, cmpGolsPro],
+        resolucao: "miniTabela",
+        fallback: [],
       }
     case "cbf":
     case "custom":
     default:
       return {
         comparadores: [cmpPontos, cmpVitorias, cmpSaldo, cmpGolsPro],
-        confrontoDiretoApenasEm2: true,
+        resolucao: "confrontoDireto2",
+        fallback: [],
       }
   }
+}
+
+/** Partida já filtrada por `ehElegivel` (lados definidos, encerrada). */
+type PartidaElegivel = PartidaClassificavel & {
+  participante_1: string
+  participante_2: string
+}
+
+function novoAcumulado(id: string): Acumulado {
+  return {
+    participanteId: id,
+    pontos: 0,
+    vitorias: 0,
+    empates: 0,
+    derrotas: 0,
+    golsPro: 0,
+    golsContra: 0,
+  }
+}
+
+/**
+ * Credita UMA partida elegível nos acumuladores dos dois lados, com as regras do
+ * torneio. W.O.: vitória/derrota SÓ nos pontos (zero gols — o placar é 0x0 no
+ * banco). Fonte ÚNICA de acúmulo — usada na tabela geral E na mini-tabela.
+ */
+function aplicarPartida(
+  lado1: Acumulado,
+  lado2: Acumulado,
+  p: PartidaElegivel,
+  regras: RegrasPontuacao
+): void {
+  if (p.woVencedor != null) {
+    const vencedor = p.woVencedor === p.participante_1 ? lado1 : lado2
+    const perdedor = vencedor === lado1 ? lado2 : lado1
+    vencedor.vitorias += 1
+    vencedor.pontos += regras.vitoria
+    perdedor.derrotas += 1
+    perdedor.pontos += regras.derrota
+    return // não toca golsPro/golsContra
+  }
+
+  lado1.golsPro += p.placar_1
+  lado1.golsContra += p.placar_2
+  lado2.golsPro += p.placar_2
+  lado2.golsContra += p.placar_1
+
+  if (p.placar_1 > p.placar_2) {
+    lado1.vitorias += 1
+    lado1.pontos += regras.vitoria
+    lado2.derrotas += 1
+    lado2.pontos += regras.derrota
+  } else if (p.placar_1 < p.placar_2) {
+    lado2.vitorias += 1
+    lado2.pontos += regras.vitoria
+    lado1.derrotas += 1
+    lado1.pontos += regras.derrota
+  } else {
+    lado1.empates += 1
+    lado2.empates += 1
+    lado1.pontos += regras.empate
+    lado2.pontos += regras.empate
+  }
+}
+
+/** Desempate final estável por id (code-point, cross-locale; determinístico). */
+const porId = (a: Acumulado, b: Acumulado) =>
+  a.participanteId < b.participanteId ? -1 : a.participanteId > b.participanteId ? 1 : 0
+
+/**
+ * Resolve um grupo de empatados pela MINI-TABELA (presets `espanhol`/`fifa`):
+ * sub-classificação usando SÓ os jogos ENTRE os empatados (mini-pontos →
+ * mini-saldo → mini-gols pró), com `fallback` objetivo GLOBAL para os ainda
+ * iguais e `porId` final. Ciclo-segura (soma pontos numa mini-liga, não compara
+ * aos pares). Devolve sub-clusters NA ORDEM (cada sub-cluster divide a posição).
+ */
+function resolverMiniTabela(
+  grupo: Acumulado[],
+  elegiveis: PartidaElegivel[],
+  regras: RegrasPontuacao,
+  fallback: Comparador[]
+): Acumulado[][] {
+  const ids = new Set(grupo.map((g) => g.participanteId))
+  const mini = new Map<string, Acumulado>()
+  for (const g of grupo) mini.set(g.participanteId, novoAcumulado(g.participanteId))
+  for (const p of elegiveis) {
+    if (!ids.has(p.participante_1) || !ids.has(p.participante_2)) continue
+    aplicarPartida(mini.get(p.participante_1)!, mini.get(p.participante_2)!, p, regras)
+  }
+
+  const miniChain: Comparador[] = [cmpPontos, cmpSaldo, cmpGolsPro]
+  const cmpGrupo = (a: Acumulado, b: Acumulado): number => {
+    const ma = mini.get(a.participanteId)!
+    const mb = mini.get(b.participanteId)!
+    for (const cmp of miniChain) {
+      const r = cmp(ma, mb)
+      if (r !== 0) return r
+    }
+    for (const cmp of fallback) {
+      const r = cmp(a, b) // fallback é sobre o acumulado GLOBAL
+      if (r !== 0) return r
+    }
+    return porId(a, b)
+  }
+  // "Iguais" = empatados em TODA a mini-chain E no fallback global (porId não
+  // conta: é ordem de apresentação, não posição).
+  const iguais = (a: Acumulado, b: Acumulado): boolean => {
+    const ma = mini.get(a.participanteId)!
+    const mb = mini.get(b.participanteId)!
+    return (
+      miniChain.every((cmp) => cmp(ma, mb) === 0) &&
+      fallback.every((cmp) => cmp(a, b) === 0)
+    )
+  }
+
+  const ordenado = [...grupo].sort(cmpGrupo)
+  const subClusters: Acumulado[][] = []
+  for (const a of ordenado) {
+    const ultimo = subClusters[subClusters.length - 1]
+    if (ultimo && iguais(ultimo[0], a)) ultimo.push(a)
+    else subClusters.push([a])
+  }
+  return subClusters
 }
 
 /**
@@ -141,62 +282,19 @@ export function computeStandings(
 ): LinhaClassificacao[] {
   const elegiveis = partidas.filter(ehElegivel)
 
-  // 1) Acumula resultados por participante.
+  // 1) Acumula resultados por participante (fonte única `aplicarPartida`).
   const acumulados = new Map<string, Acumulado>()
   const obter = (id: string): Acumulado => {
     let a = acumulados.get(id)
     if (!a) {
-      a = {
-        participanteId: id,
-        pontos: 0,
-        vitorias: 0,
-        empates: 0,
-        derrotas: 0,
-        golsPro: 0,
-        golsContra: 0,
-      }
+      a = novoAcumulado(id)
       acumulados.set(id, a)
     }
     return a
   }
 
   for (const p of elegiveis) {
-    const lado1 = obter(p.participante_1)
-    const lado2 = obter(p.participante_2)
-
-    // W.O.: vitória SÓ nos pontos, ZERO gols (decisão de produto). O placar é
-    // 0x0 no banco — usar o placar marcaria empate; o vencedor é explícito.
-    if (p.woVencedor != null) {
-      const vencedor = p.woVencedor === p.participante_1 ? lado1 : lado2
-      const perdedor = vencedor === lado1 ? lado2 : lado1
-      vencedor.vitorias += 1
-      vencedor.pontos += regras.vitoria
-      perdedor.derrotas += 1
-      perdedor.pontos += regras.derrota
-      continue // não toca golsPro/golsContra
-    }
-
-    lado1.golsPro += p.placar_1
-    lado1.golsContra += p.placar_2
-    lado2.golsPro += p.placar_2
-    lado2.golsContra += p.placar_1
-
-    if (p.placar_1 > p.placar_2) {
-      lado1.vitorias += 1
-      lado1.pontos += regras.vitoria
-      lado2.derrotas += 1
-      lado2.pontos += regras.derrota
-    } else if (p.placar_1 < p.placar_2) {
-      lado2.vitorias += 1
-      lado2.pontos += regras.vitoria
-      lado1.derrotas += 1
-      lado1.pontos += regras.derrota
-    } else {
-      lado1.empates += 1
-      lado2.empates += 1
-      lado1.pontos += regras.empate
-      lado2.pontos += regras.empate
-    }
+    aplicarPartida(obter(p.participante_1), obter(p.participante_2), p, regras)
   }
 
   // 2) Ordena pela cadeia objetiva do preset (id como ordem estável
@@ -204,8 +302,6 @@ export function computeStandings(
   //    locale/ICU do runtime — determinístico em qualquer ambiente.
   const spec = obterTiebreakerSpec(tiebreaker)
   const saldo = saldoDe
-  const porId = (a: Acumulado, b: Acumulado) =>
-    a.participanteId < b.participanteId ? -1 : a.participanteId > b.participanteId ? 1 : 0
   const linhas = [...acumulados.values()].sort((a, b) => {
     for (const cmp of spec.comparadores) {
       const r = cmp(a, b)
@@ -251,12 +347,16 @@ export function computeStandings(
   }
 
   // 5) Resolve cada grupo em "clusters" de indistinguíveis (dividem posição).
-  //    O confronto direto entre EXATAMENTE 2 vale quando o preset o restringe a
-  //    2 (default CBF/inglês). Grupos de 3+ pulam (evita o ciclo A>B>C>A) e
-  //    dividem a posição; grupo de 1 não tem empate.
+  //    `confrontoDireto2` (cbf/inglês): só 2 empatados se resolvem por confronto
+  //    direto; 3+ pulam (evita o ciclo A>B>C>A) e dividem a posição.
+  //    `miniTabela` (espanhol/fifa): sub-classificação ciclo-segura entre 2+.
   const clusters: Acumulado[][] = []
   for (const grupo of grupos) {
-    if (grupo.length === 2 && spec.confrontoDiretoApenasEm2) {
+    if (grupo.length === 1) {
+      clusters.push(grupo)
+    } else if (spec.resolucao === "miniTabela") {
+      clusters.push(...resolverMiniTabela(grupo, elegiveis, regras, spec.fallback))
+    } else if (grupo.length === 2) {
       const [a, b] = grupo
       const pa = pontosConfronto(a.participanteId, b.participanteId)
       const pb = pontosConfronto(b.participanteId, a.participanteId)
@@ -264,7 +364,7 @@ export function computeStandings(
       else if (pb > pa) clusters.push([b], [a])
       else clusters.push(grupo) // persistente: dividem a posição
     } else {
-      // 1 (sem empate) ou 3+ (pula o confronto direto): cluster único.
+      // 3+ no confronto direto: pula (cluster único, dividem a posição).
       clusters.push(grupo)
     }
   }

@@ -780,3 +780,56 @@ UI (componentes folha, mobile-first 390px, 2 temas, tokens Dracula/Canarinho):
 - **Idempotência**: `calcularFluxoTemporada` continua read-only; o promedio é recomputado a cada chamada (estável, pois histórico é imutável e a tabela atual é determinística).
 - **Anti-duplo-conta**: a GUARDA PRINCIPAL é excluir as entries das divisões da temporada ATUAL (`division_season_id ∉ divisões de N`) — o conjunto desses ids JÁ está no escopo (`divisoes`); o filtro `posicao_final NOT NULL` é secundário. As entries da corrente nascem com `posicao_final` NULL (só preenchido no `confirmarFluxoTemporada`) e o cálculo usa a contribuição AO VIVO via `getTournamentClassificacao`, então não há contagem dupla mesmo em reprocessamento de season `em_fluxo`.
 - **DÍVIDA registrada (não-bloqueia, achado low do gate)**: o laço de UPDATE de entries no `confirmarFluxoTemporada` não é transacional com `montarProximaTemporada`; uma falha parcial exata entre o UPDATE e o encerramento poderia deixar uma entry histórica com `posicao_final` NULL, fazendo o promedio de vida toda OMITIR aquela temporada (subcontagem de jogos infla o PPG) — não é duplo-conta, é omissão. O retry reescreve idempotentemente os mesmos valores. Mitigação futura: envolver o UPDATE+montar numa RPC transacional, ou agregar do tournament encerrado quando `posicao_final` NULL em season não-rascunho.
+
+---
+
+## 11. Fase 5.3 — Desempate `espanhol` (+ `fifa`): mini-tabela entre 3+ empatados
+
+Decisão de produto (dono, 2026-06-13): desempate por PRESETS NOMEADOS (sem cadeia jsonb/UI de arrastar). Entrega `'espanhol'` (a mecânica de mini-tabela, headline da task) + `'fifa'` (mesma mecânica em outra posição da cadeia). `'custom'` continua reservado (degrada para `cbf`).
+
+### 11.1 A mecânica nova — mini-tabela (sub-classificação por confronto entre os empatados)
+O `computeStandings` atual resolve empate de EXATAMENTE 2 por confronto direto (pontos somados entre os dois) e deixa 3+ dividirem a posição (evita o ciclo A>B>C>A do confronto pairwise). A mini-tabela generaliza isso para 2+ de forma CICLO-SEGURA: para um grupo de empatados, computa uma sub-classificação usando SÓ os jogos ENTRE eles (mini-pontos → mini-saldo → mini-gols pró), com as MESMAS `regras` do torneio. Como soma pontos numa mini-liga (não compara aos pares), A>B>C>A vira um 3-way com mini-pontos iguais → cai no mini-saldo, depois no fallback objetivo global, depois divide a posição. Nunca trava nem cicla.
+
+### 11.2 Reestruturação de `TiebreakerSpec` (retrocompatível byte-a-byte)
+```ts
+type Comparador = (a: Acumulado, b: Acumulado) => number
+interface TiebreakerSpec {
+  comparadores: Comparador[]                       // cadeia PRIMÁRIA (define o grupo de empate)
+  resolucao: "confrontoDireto2" | "miniTabela"     // como quebrar um grupo empatado
+  fallback: Comparador[]                            // objetivo aplicado APÓS a resolução (só miniTabela; [] em confrontoDireto2)
+}
+```
+- `cbf`: `comparadores=[pontos, vitorias, saldo, golsPro]`, `resolucao="confrontoDireto2"`, `fallback=[]` — IDÊNTICO ao atual (substitui o flag `confrontoDiretoApenasEm2: true`).
+- `ingles`: `comparadores=[pontos, saldo, golsPro, vitorias]`, `resolucao="confrontoDireto2"`, `fallback=[]` — idêntico.
+- `espanhol` (La Liga): `comparadores=[pontos]`, `resolucao="miniTabela"`, `fallback=[saldo, golsPro]` — empata em pontos ⇒ mini-tabela (h2h) ⇒ resíduo por saldo/gols globais.
+- `fifa` (grupo de Copa): `comparadores=[pontos, saldo, golsPro]`, `resolucao="miniTabela"`, `fallback=[]` — saldo/gols GLOBAIS primeiro; mini-tabela como desempate tardio entre os ainda iguais.
+- `custom`: degrada para `cbf` (reservado — dado aceito pelos CHECKs, sem mecânica nova nesta fase).
+
+### 11.3 Algoritmo no `computeStandings` (passo 5 estendido)
+O grupo de empate é formado por quem é igual em TODOS os `comparadores` primários (passo 3, inalterado). No passo 5:
+- `resolucao="confrontoDireto2"` ⇒ comportamento atual (2 ⇒ h2h; 3+ ⇒ dividem).
+- `resolucao="miniTabela"` ⇒ `resolverMiniTabela(grupo, elegiveis, regras, fallback)`:
+  1. mini-Acumulado por time = acumula SÓ as partidas onde AMBOS ∈ grupo (reusa a lógica de W.O./placar/regras).
+  2. ordena o grupo por `[miniPontos, miniSaldo, miniGolsPro, ...fallback(global), porId]`.
+  3. agrupa os ainda-iguais (em mini-chain + fallback) em sub-clusters (dividem a posição).
+  4. devolve os sub-clusters NA ORDEM (o passo 6 atribui posições estilo competição: 1º,1º,3º).
+
+`porId` continua o desempate final estável (determinístico, sem ICU). Nenhuma mudança no acúmulo (passo 1), no sort primário (passo 2) ou na atribuição de posição (passo 6).
+
+### 11.4 DDL (alargar os 3 CHECKs; via MCP, mostrar SQL antes)
+Sem coluna nova. `drop constraint if exists` + `add constraint` (idempotente) nos três:
+- `tournaments_desempate_valido` ⇒ `in ('cbf','ingles','custom','espanhol','fifa')`.
+- `league_competitions_desempate_valido` (em `desempate_padrao`) ⇒ idem.
+- `league_division_seasons_desempate_valido` (em `desempate`) ⇒ idem.
+Espelhar em `schema.sql`. `database.types.ts` não muda (são `text`, não enum). O preset chega ao motor via `tournaments.desempate_criterio` (já lido pelo fetcher — só ampliar o cast `as TiebreakerPreset`).
+
+### 11.5 Propagação e UI
+- `DESEMPATES_DISPONIVEIS` (wizard + Zod `divisaoSchema.desempate`) += `'espanhol'`, `'fifa'` (e `DESEMPATE_ROTULO`). `createCompetition` já persiste `div.desempate` genericamente.
+- `getTournamentClassificacao` passa `desempate_criterio` ao motor (Fase 0); o cast aceita os novos valores naturalmente.
+- A divisão `promedios` (Fase 4) é ortogonal: o desempate ordena a TABELA do ano; o promedio reordena o CORTE. Convivem.
+
+### 11.6 Edge cases / invariantes
+- **Não-regressão**: `cbf`/`ingles` ficam byte-idênticos (mesma cadeia + `confrontoDireto2`); os 25+ testes legados de `computeStandings` passam intactos.
+- **Mini-tabela sem jogos entre os empatados** (ex.: grupos que não se cruzaram — não ocorre numa liga round-robin, mas defensivo): mini-Acumulado zerado ⇒ todos iguais na mini-chain ⇒ cai no fallback global ⇒ dividem a posição. Sem crash.
+- **2 empatados no `espanhol`/`fifa`**: a mini-tabela com 2 = confronto direto (mini-liga de 1-2 jogos) — generaliza o caso atual.
+- **Determinismo**: tudo puro, sem `Math.random`; `porId` final garante ordem total estável.

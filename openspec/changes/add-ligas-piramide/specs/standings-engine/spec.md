@@ -23,7 +23,28 @@ O preset SÓ tem efeito se a propagação for COMPLETA: `getTournamentClassifica
 - **WHEN** um torneio persiste `desempate_criterio = 'ingles'` e a sua classificação é carregada por `getTournamentClassificacao`
 - **THEN** o preset é lido do SELECT, exposto no tipo e repassado às chamadas do motor, de modo que a ordenação reflete a cadeia inglesa (não o CBF), provando que a propagação não foi perdida
 
-#### Scenario: Preset avançado não disponível nesta fase
+#### Scenario: Preset avançado habilitado na fase de desempate avançado
 
-- **WHEN** alguém tenta gravar `desempate_criterio = 'espanhol'` ou `'custom'` em um torneio
-- **THEN** o CHECK `tournaments_desempate_valido` rejeita o valor, pois nesta fase só `cbf`/`ingles`/`custom` constam do conjunto e `espanhol` só será habilitado na fase de desempate avançado
+- **WHEN** a fase de desempate avançado é entregue e alguém grava `desempate_criterio = 'espanhol'` ou `'fifa'`
+- **THEN** os CHECKs de desempate (`tournaments`, `league_competitions`, `league_division_seasons`) aceitam o valor (conjunto alargado para `cbf`/`ingles`/`custom`/`espanhol`/`fifa`), e o motor aplica a mini-tabela; `'custom'` permanece aceito mas degrada para `cbf` (reservado)
+
+## ADDED Requirements
+
+### Requirement: Desempate por mini-tabela entre empatados (`espanhol`/`fifa`)
+
+O motor `computeStandings` SHALL suportar uma RESOLUÇÃO de empate por MINI-TABELA: para um grupo de 2+ competidores empatados na cadeia objetiva primária do preset, o motor SHALL computar uma sub-classificação usando SOMENTE as partidas disputadas ENTRE os empatados (mini-pontos com as mesmas regras do torneio → mini-saldo → mini-gols pró) e, para os ainda iguais na mini-tabela, aplicar um FALLBACK objetivo global e então a divisão de posição. A mini-tabela SHALL ser CICLO-SEGURA (soma pontos numa mini-liga, não compara aos pares — A>B>C>A não trava). O preset `espanhol` SHALL ordenar por pontos e então mini-tabela e então saldo/gols pró globais (estilo La Liga); o preset `fifa` SHALL ordenar por pontos/saldo/gols pró globais e então mini-tabela (estilo fase de grupos de Copa). Os presets `cbf` e `ingles` SHALL permanecer BYTE-IDÊNTICOS (confronto direto só entre exatamente 2, 3+ dividem a posição). O conjunto dos CHECKs de desempate SHALL ser alargado para incluir `'espanhol'` e `'fifa'` nas três tabelas (`tournaments`, `league_competitions`, `league_division_seasons`), espelhado em `supabase/schema.sql`, sem coluna nova. O preset SHALL ser ortogonal à base de ranking `promedios`: o desempate ordena a tabela do ano; o promedio reordena o corte de sobe/cai.
+
+#### Scenario: Mini-tabela decide três empatados pelo confronto entre eles
+
+- **WHEN** três competidores terminam com os mesmos pontos numa divisão com `desempate = 'espanhol'` e os jogos entre eles dão uma ordem clara
+- **THEN** a mini-tabela (só os jogos entre os três) os ordena por mini-pontos/mini-saldo/mini-gols, em vez de dividirem a posição, e o resíduo cai no saldo/gols globais
+
+#### Scenario: Ciclo no confronto entre empatados não trava
+
+- **WHEN** três empatados formam um ciclo (A vence B, B vence C, C vence A) com mini-pontos iguais
+- **THEN** a mini-tabela não entra em laço: empatados em mini-pontos caem no mini-saldo, depois no fallback global, depois dividem a posição — sempre determinístico
+
+#### Scenario: `espanhol` e `fifa` divergem na posição do confronto direto
+
+- **WHEN** um mesmo cenário de empate é classificado com `espanhol` e com `fifa`
+- **THEN** `espanhol` aplica a mini-tabela ANTES do saldo global e `fifa` aplica o saldo global ANTES da mini-tabela, podendo produzir ordens diferentes

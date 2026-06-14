@@ -187,11 +187,26 @@ Decisão de produto (dono, 2026-06-13, AskUserQuestion): janela = **vida toda**;
 - [x] 4.6.2 Validação AO VIVO (chrome-devtools, logado, 390px, 2 temas): pirâmide com divisão de topo `promedios` (multi-temporada p/ o histórico contar) → criar → montar → iniciar → placares (cenário onde promedio diverge da tabela — rebaixado por promedio ≠ último) → calcular fluxo (corte segue o promedio, `posicao_final` REAL, faixa de zona na linha certa) → confirmar → N+1 (`ranking_base` copiado) → página do competidor (histórico/promedio/conquistas; gate público em pirâmide ativa). INCLUIR um cenário `promedios` COM fronteira de playout/barragem (não só direto) conferindo zona-montada == zona-cortada (§10.3).
 - [x] 4.6.3 Revisão adversarial por workflow (lentes paralelas + cético + síntese): promedio de vida toda (soma correta, anti-duplo-conta via NOT IN, recém-chegado, Σjogos=0), rank total/determinístico, **posicaoFinal REAL persistida em TODOS os ramos** (direto/playoff/barragem), **montagem≡cálculo via helper único** nos 3 call-sites, **zona não-contígua nas standings** (faixa na linha certa), conservação intacta, cópia de ranking_base p/ N+1, lock (ranking_base+desempate), **gate de leitura `status='ativa' OR dono`** (ativa=público, arquivada=só dono; nunca vaza placar de partida), drift schema↔wizard. Corrigir HIGH+MEDIUM antes do commit.
 
-## Fase 5 — Ciclos alternativos + formato interno + custom (bloco)
-- [ ] 5.1 Apertura/Clausura/split (meias-temporadas em `league_seasons`/`config_snapshot`).
-- [ ] 5.2 Formato interno por divisão (grupos+mata-mata via `gerarFaseDeGrupos`/`gerarChaveMataMata`).
-- [ ] 5.3 Desempate `custom` + `espanhol` (cadeia configurável + mini-tabela entre 3+ empatados). ALARGA os CHECKs `tournaments_desempate_valido`, `league_competitions_desempate_valido` e `league_division_seasons_desempate_valido` para incluir `'espanhol'`; adiciona `'espanhol'` ao `TiebreakerPreset`. Espelhar em `schema.sql`.
-- [ ] 5.4 Testes; gate completo.
+## Fase 5 — Ciclos alternativos + formato interno + desempate (3 sub-blocos)
+
+Decisões de produto (dono, 2026-06-13, AskUserQuestion): **(5.1)** campeão = GRANDE FINAL anual (Apertura×Clausura); sobe/cai = tabela ANUAL COMBINADA (ranking_base aplica sobre ela). **(5.2)** posição final = FASE DE GRUPOS decide o sobe/cai; mata-mata coroa só o campeão da divisão. **(5.3)** desempate = PRESETS NOMEADOS (`espanhol` mini-tabela + extras), sem cadeia jsonb/UI. Entrega INCREMENTAL: 5.3 → 5.2 → 5.1, um commit por sub-bloco. Detalhe no design §11/§12/§13.
+
+### 5.3 Desempate `espanhol` (+ preset extra) — mini-tabela entre 3+ empatados
+- [x] 5.3.1 DDL via MCP (pré-check + mostrar SQL): ALARGAR os 3 CHECKs `tournaments_desempate_valido`, `league_competitions_desempate_valido`, `league_division_seasons_desempate_valido` p/ incluir `'espanhol'` e `'fifa'` (drop+add idempotente). Espelhar em `schema.sql`. SEM coluna nova.
+- [x] 5.3.2 `computeStandings`: estender `TiebreakerPreset` += `'espanhol' | 'fifa'`. NOVA mecânica de MINI-TABELA: para um grupo de 2+ empatados (mesmos pontos + comparadores objetivos anteriores), computar uma sub-classificação SÓ com os jogos ENTRE os empatados (mini-pontos → mini-saldo → mini-gols pró), com fallback ao objetivo global. `TiebreakerSpec` ganha a posição do passo `mini-tabela` na cadeia.
+- [x] 5.3.3 `obterTiebreakerSpec`: `'espanhol'` = [mini-tabela, saldo, golsPro] (h2h primeiro, estilo La Liga); `'fifa'` = [saldo, golsPro, mini-tabela] (saldo global primeiro, h2h como desempate tardio — WC group). `cbf`/`ingles` intactos (confronto direto só em 2 segue como está). `custom` continua degradando p/ `cbf` (reservado).
+- [x] 5.3.4 Propagação: `TiebreakerPreset` exportado já é lido pelo fetcher (`getTournamentClassificacao`) — só ampliar o cast. Wizard (`DESEMPATES_DISPONIVEIS`) e schema Zod (`league_division_seasons.desempate`, `createCompetition`) ganham `espanhol`/`fifa`. `RANKING`/desempate por divisão flui.
+- [x] 5.3.5 Testes puros: mini-tabela com 3 empatados (h2h decide), ciclo A>B>C>A no h2h (cai no fallback global), `espanhol` vs `fifa` (ordem diferente do mesmo cenário), não-regressão `cbf`/`ingles` byte-idêntica.
+- [x] 5.3.6 Gate: typecheck/lint/test/build verdes; validação ao vivo (preset selecionável no wizard + cenário de 3 empatados resolvido pela mini-tabela). Revisão adversarial do diff. Commit.
+
+### 5.2 Formato interno por divisão (grupos+mata-mata) — grupos decidem sobe/cai
+- [ ] 5.2.x DETALHAR ao iniciar este sub-bloco (design §12). Esboço: `league_division_seasons.formato` (liga|grupos); RPC `montar_temporada` cria torneio `grupos` quando aplicável; fluxo lê a tabela AGREGADA da fase de grupos como `posicao`; mata-mata interno coroa o campeão (sem afetar sobe/cai); wizard escolhe o formato por divisão.
+
+### 5.1 Ciclos Apertura/Clausura — anual combinada + grande final
+- [ ] 5.1.x DETALHAR ao iniciar este sub-bloco (design §13). Esboço: marcar a season como split (config/coluna); cada divisão roda 2 torneios (Apertura+Clausura); fluxo combina as 2 tabelas numa ANUAL; grande final entre os 2 campeões; promedios/posição aplicam sobre a combinada; UI das 2 meias + final.
+
+### 5.4 Encerramento da fase
+- [ ] 5.4 Após os 3 sub-blocos: validação integrada; gate completo.
 
 ## Encerramento
 - [ ] Z.1 Commit (pt-BR, Conventional Commits, sem coautoria de IA) + push.
