@@ -16,6 +16,7 @@ import { toast } from "sonner"
 import { createCompetition } from "@/actions/leaguePyramid"
 import { selectTeam } from "@/actions/teams"
 import { Button } from "@/components/ui/button"
+import { ColorField } from "@/components/ui/color-field"
 import {
   GRUPOS_VALIDOS,
   validarGeometria,
@@ -75,6 +76,10 @@ interface DivisaoRascunho {
   qtdGrupos?: number
   classificadosPorGrupo?: number
   tamanho: number
+  /** Cores PRÓPRIAS da divisão (change add-cores-campeonato): vazias herdam a
+   * cor da pirâmide. Strings controladas; o submit envia hex ou undefined. */
+  corPrimaria: string
+  corSecundaria: string
   competidores: CompetidorRascunho[]
 }
 
@@ -262,6 +267,8 @@ function novaDivisao(
     rankingBase: "posicao",
     formato: "liga",
     tamanho: 20,
+    corPrimaria: "",
+    corSecundaria: "",
     competidores: [],
   }
 }
@@ -603,6 +610,10 @@ export function LeagueWizard() {
   const [passoAtual, setPassoAtual] = React.useState<Passo>("preset")
   const [nome, setNome] = React.useState("")
   const [isPublic, setIsPublic] = React.useState(true)
+  // Cores DEFAULT da pirâmide (change add-cores-campeonato): identidade herdada
+  // pelas divisões sem cor própria. Vazias ⇒ tema base do app.
+  const [corPrimaria, setCorPrimaria] = React.useState("")
+  const [corSecundaria, setCorSecundaria] = React.useState("")
   // Fase 5.1: ciclo da temporada (anual | apertura_clausura). Split é só liga (5.1b).
   const [ciclo, setCiclo] = React.useState<"anual" | "apertura_clausura">("anual")
   const [preset, setPreset] = React.useState<PiramidePresetId | null>(null)
@@ -763,11 +774,17 @@ export function LeagueWizard() {
 
   /* --- Submit ------------------------------------------------------------ */
 
+  // Vazio ⇒ undefined (a action grava null = herda/tema base). O schema também
+  // coage, mas mapeamos aqui para casar com o contrato documentado.
+  const corOuUndefined = (v: string) => (v.trim() === "" ? undefined : v)
+
   function montarInput(): CreateCompetitionInput {
     return {
       nome: nome.trim(),
       isPublic,
       ciclo,
+      corPrimaria: corOuUndefined(corPrimaria),
+      corSecundaria: corOuUndefined(corSecundaria),
       divisoes: divisoes.map((d) => ({
         nivel: d.nivel,
         nome: d.nome.trim() || nomePadraoDivisao(d.nivel),
@@ -779,6 +796,8 @@ export function LeagueWizard() {
         classificadosPorGrupo:
           d.formato === "grupos_mata_mata" ? d.classificadosPorGrupo : undefined,
         tamanho: d.tamanho,
+        corPrimaria: corOuUndefined(d.corPrimaria),
+        corSecundaria: corOuUndefined(d.corSecundaria),
         competidores: d.competidores.map((c) =>
           c.tipo === "nome"
             ? { rotulo: c.rotulo }
@@ -866,6 +885,10 @@ export function LeagueWizard() {
             setIsPublic={setIsPublic}
             ciclo={ciclo}
             setCiclo={setCiclo}
+            corPrimaria={corPrimaria}
+            setCorPrimaria={setCorPrimaria}
+            corSecundaria={corSecundaria}
+            setCorSecundaria={setCorSecundaria}
             preset={preset}
             onEscolher={escolherPreset}
           />
@@ -1006,6 +1029,10 @@ function PassoPreset({
   setIsPublic,
   ciclo,
   setCiclo,
+  corPrimaria,
+  setCorPrimaria,
+  corSecundaria,
+  setCorSecundaria,
   preset,
   onEscolher,
 }: {
@@ -1015,6 +1042,10 @@ function PassoPreset({
   setIsPublic: (v: boolean) => void
   ciclo: "anual" | "apertura_clausura"
   setCiclo: (v: "anual" | "apertura_clausura") => void
+  corPrimaria: string
+  setCorPrimaria: (v: string) => void
+  corSecundaria: string
+  setCorSecundaria: (v: string) => void
   preset: PiramidePresetId | null
   onEscolher: (p: PiramidePresetId) => void
 }) {
@@ -1034,6 +1065,25 @@ function PassoPreset({
           A pirâmide é imortal: as temporadas se sucedem dentro dela.
         </p>
       </div>
+
+      <fieldset className="m-0 grid min-w-0 gap-2.5 border-0 p-0">
+        <legend className="pb-1 text-sm font-medium">
+          Identidade (opcional)
+        </legend>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ColorField
+            label="Cor primária"
+            value={corPrimaria}
+            onChange={setCorPrimaria}
+          />
+          <ColorField
+            label="Cor secundária"
+            value={corSecundaria}
+            onChange={setCorSecundaria}
+            description="Padrão de todas as divisões. Vazio usa o tema do app."
+          />
+        </div>
+      </fieldset>
 
       <fieldset className="m-0 grid min-w-0 gap-2.5 border-0 p-0">
         <legend className="pb-1 text-sm font-medium">Formato base</legend>
@@ -1429,6 +1479,22 @@ function PassoDivisoes({
             </div>
 
             <BlocoFormatoDivisao d={d} idx={idx} onAtualizar={onAtualizar} />
+
+            {/* Identidade da divisão (change add-cores-campeonato): vazias herdam
+                a cor da pirâmide. */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <ColorField
+                label="Cor primária"
+                value={d.corPrimaria}
+                onChange={(v) => onAtualizar(idx, { corPrimaria: v })}
+              />
+              <ColorField
+                label="Cor secundária"
+                value={d.corSecundaria}
+                onChange={(v) => onAtualizar(idx, { corSecundaria: v })}
+                description="Vazio herda a cor da pirâmide."
+              />
+            </div>
 
             <label className="bg-card/40 hover:border-primary/40 has-[:focus-visible]:ring-ring flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors has-[:focus-visible]:ring-2">
               <input

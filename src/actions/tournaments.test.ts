@@ -193,6 +193,9 @@ describe("createTournament", () => {
       pontos_vitoria: 3,
       pontos_empate: 1,
       pontos_derrota: 0,
+      // Identidade (change add-cores-campeonato): sem cor no form ⇒ null.
+      cor_primaria: null,
+      cor_secundaria: null,
     })
     // Sem status explícito: avulso fica com o default 'ativo' do banco.
     expect(insertSpy.mock.calls[0][0]).not.toHaveProperty("status")

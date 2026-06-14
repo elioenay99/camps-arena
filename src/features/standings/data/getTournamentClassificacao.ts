@@ -3,6 +3,7 @@ import "server-only"
 import { cache } from "react"
 
 import { createClient } from "@/lib/supabase/server"
+import { resolverCores } from "@/features/championship/championshipTheme"
 import {
   computeStandings,
   type LinhaClassificacao,
@@ -34,6 +35,10 @@ export interface TorneioClassificacao {
   /** Preset de desempate (default 'cbf' = comportamento legado). Repassado ao
    * `computeStandings` como 3º arg; sem isto o preset seria ignorado. */
   desempate_criterio: string
+  /** Cores do campeonato (change add-cores-campeonato): null = sem cor própria
+   * (a página resolve o fallback de divisão via `resolverCoresTorneio`). */
+  cor_primaria: string | null
+  cor_secundaria: string | null
 }
 
 export interface LinhaComNome extends LinhaClassificacao {
@@ -308,7 +313,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select(
-      "id, titulo, status, formato, ida_e_volta, terceiro_lugar, classificados_por_grupo, created_by, pontos_vitoria, pontos_empate, pontos_derrota, desempate_criterio"
+      "id, titulo, status, formato, ida_e_volta, terceiro_lugar, classificados_por_grupo, created_by, pontos_vitoria, pontos_empate, pontos_derrota, desempate_criterio, cor_primaria, cor_secundaria"
     )
     .eq("id", tournamentId)
     .maybeSingle()
@@ -657,3 +662,75 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     rodadaAtiva,
   }
 })
+
+/** Cores efetivas de um torneio para a tematização da página (change
+ * add-cores-campeonato). `null` quando não há cor (a página usa o tema base). */
+export interface CoresResolvidas {
+  primaria: string | null
+  secundaria: string | null
+}
+
+/**
+ * Resolve a cor EFETIVA do torneio para a página (change add-cores-campeonato).
+ *
+ * - Se o torneio TEM cor própria (`cor_primaria` não-null) ⇒ usa as do torneio
+ *   (0 query extra). A primária é a âncora da identidade: um torneio que setou só
+ *   a secundária é tratado como "sem cor própria" e cai no fallback.
+ * - Senão, o torneio PODE ser uma DIVISÃO de pirâmide (criada pela RPC, que
+ *   nunca recebe cor). Fallback: busca a `league_division_seasons` que aponta
+ *   para este torneio por QUALQUER das 3 FKs (`tournament_id` da Apertura /
+ *   `tournament_id_clausura` da Clausura / `final_tournament_id` da grande final)
+ *   trazendo a cor da divisão E a da competição (embed via `league_seasons →
+ *   league_competitions`). Resolve `divisão.cor ?? competição.cor` com
+ *   `resolverCores`. 1 query extra SÓ quando o torneio não tem cor própria.
+ *
+ * Torneio avulso/normal sem cor ⇒ `{ null, null }` (tema base do app).
+ */
+export async function resolverCoresTorneio(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tournamentId: string,
+  torneio: Pick<TorneioClassificacao, "cor_primaria" | "cor_secundaria">
+): Promise<CoresResolvidas> {
+  // Cor própria é a âncora: a primária presente decide. Sem query extra.
+  if (torneio.cor_primaria) {
+    return { primaria: torneio.cor_primaria, secundaria: torneio.cor_secundaria }
+  }
+
+  // Fallback de DIVISÃO: este torneio pode ser uma divisão de pirâmide. A
+  // divisão é alcançada por uma das 3 FKs → `.or()` cobre as três. Embed da
+  // competição via league_seasons (a cor herdada quando a divisão também é null).
+  const { data: divisao, error } = await supabase
+    .from("league_division_seasons")
+    .select(
+      `cor_primaria, cor_secundaria,
+       league_seasons!inner ( league_competitions!inner ( cor_primaria, cor_secundaria ) )`
+    )
+    .or(
+      `tournament_id.eq.${tournamentId},tournament_id_clausura.eq.${tournamentId},final_tournament_id.eq.${tournamentId}`
+    )
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !divisao) {
+    // Torneio avulso/normal sem cor (ou divisão inacessível pela RLS): tema base.
+    return { primaria: null, secundaria: null }
+  }
+
+  const linha = divisao as unknown as {
+    cor_primaria: string | null
+    cor_secundaria: string | null
+    league_seasons: {
+      league_competitions: {
+        cor_primaria: string | null
+        cor_secundaria: string | null
+      } | null
+    } | null
+  }
+  const competicao = linha.league_seasons?.league_competitions ?? null
+
+  // Herança: cor da divisão ?? cor da competição (?? null = tema base).
+  return resolverCores(
+    { cor_primaria: linha.cor_primaria, cor_secundaria: linha.cor_secundaria },
+    competicao
+  )
+}

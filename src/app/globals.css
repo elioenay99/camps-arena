@@ -545,3 +545,31 @@
     transition: none;
   }
 }
+
+/* ============================================================================
+ * Tema por campeonato (change add-cores-campeonato).
+ * O elemento .champ-theme carrega --brand-primary/--brand-secondary CRUAS
+ * (inline, via champThemeProps) e deriva a marca por TEMA. Sobrescreve só
+ * --primary/--primary-foreground/--ring (marca pervasiva); NÃO remapeia --accent.
+ * Fallback (sem relative-color): cor crua; --primary-foreground vem inline do
+ * helper. Com suporte: normaliza a luminância p/ a faixa legível do tema ativo.
+ * Aninhar .champ-theme dentro de .champ-theme é OK (cada um usa o próprio
+ * --brand-primary inline).
+ * ========================================================================== */
+.champ-theme {
+  --primary: var(--brand-primary, var(--primary));
+  --ring: var(--brand-primary, var(--ring));
+}
+
+@supports (color: oklch(from white l c h)) {
+  .champ-theme {
+    --primary: oklch(from var(--brand-primary) 0.49 c h);
+    --primary-foreground: #ffffff;
+    --ring: oklch(from var(--brand-primary) 0.49 c h);
+  }
+  .dark .champ-theme {
+    --primary: oklch(from var(--brand-primary) 0.74 c h);
+    --primary-foreground: #1c1d26;
+    --ring: oklch(from var(--brand-primary) 0.74 c h);
+  }
+}

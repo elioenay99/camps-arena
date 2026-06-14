@@ -11,6 +11,9 @@ vi.mock("server-only", () => ({}))
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }))
 vi.mock("@/features/standings/data/getTournamentClassificacao", () => ({
   getTournamentClassificacao: vi.fn(),
+  // Cores (change add-cores-campeonato): default tema base — não tematiza, as
+  // asserções de layout/seções seguem válidas.
+  resolverCoresTorneio: vi.fn(async () => ({ primaria: null, secundaria: null })),
 }))
 vi.mock("@/features/tournament/data/getParticipantesDoTorneio", () => ({
   getParticipantesDoTorneio: vi.fn(async () => []),

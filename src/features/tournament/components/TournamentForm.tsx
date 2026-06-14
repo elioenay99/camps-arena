@@ -9,6 +9,7 @@ import { toast } from "sonner"
 import { selectTeam } from "@/actions/teams"
 import { createTournament, type TournamentFormState } from "@/actions/tournaments"
 import { Button } from "@/components/ui/button"
+import { ColorField } from "@/components/ui/color-field"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
@@ -388,6 +389,11 @@ export function TournamentForm() {
   // Modo "competidores por nome": digita nomes em vez de buscar clubes.
   const [porNome, setPorNome] = useState(false)
   const [nomes, setNomes] = useState<string[]>([])
+  // Identidade (change add-cores-campeonato): cores opcionais. Estado local
+  // controlado; o `name` submete o valor via FormData (createTournament lê
+  // corPrimaria/corSecundaria). Vazio ⇒ tema base do app.
+  const [corPrimaria, setCorPrimaria] = useState("")
+  const [corSecundaria, setCorSecundaria] = useState("")
 
   const ehCompetitivo = formato !== "avulso"
   const temChave =
@@ -518,6 +524,25 @@ export function TournamentForm() {
           ) : null}
         </div>
       ) : null}
+
+      <fieldset className="m-0 grid min-w-0 gap-3 border-0 p-0">
+        <legend className="text-sm font-medium">Identidade (opcional)</legend>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ColorField
+            label="Cor primária"
+            name="corPrimaria"
+            value={corPrimaria}
+            onChange={setCorPrimaria}
+          />
+          <ColorField
+            label="Cor secundária"
+            name="corSecundaria"
+            value={corSecundaria}
+            onChange={setCorSecundaria}
+            description="Deixe vazio para usar o tema do app."
+          />
+        </div>
+      </fieldset>
 
       <OpcaoCheckbox
         id="isPublic"

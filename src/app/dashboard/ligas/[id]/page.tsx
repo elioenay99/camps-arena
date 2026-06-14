@@ -1,11 +1,17 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
-import { ExternalLink, Layers } from "lucide-react"
+import { ExternalLink, Layers, Palette } from "lucide-react"
 import { z } from "zod"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
+import {
+  champThemeProps,
+  resolverCores,
+} from "@/features/championship/championshipTheme"
+import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge"
 import { FluxoTemporadaPanel } from "@/features/league/components/FluxoTemporadaPanel"
 import { IniciarDivisaoButton } from "@/features/league/components/IniciarDivisaoButton"
 import { MontarTemporadaButton } from "@/features/league/components/MontarTemporadaButton"
@@ -152,12 +158,14 @@ export default async function TemporadaPage({
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
       <header className="elevate flex flex-col gap-4 rounded-2xl border bg-card/60 p-5 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3.5">
-          <span
-            aria-hidden="true"
-            className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20"
-          >
-            <Layers className="size-6" />
-          </span>
+          {/* Identidade da PIRÂMIDE (change add-cores-campeonato): cor DEFAULT da
+              competição (ou selo neutro se null). */}
+          <ChampionshipBadge
+            icon={<Layers className="size-6" />}
+            primary={temporada.competicao.corPrimaria}
+            secondary={temporada.competicao.corSecundaria}
+            className="size-12 rounded-xl ring-1 ring-primary/20"
+          />
           <div className="flex min-w-0 flex-col gap-2">
             <h1 className="font-display text-2xl font-bold tracking-tight break-words sm:text-3xl">
               {temporada.competicao.nome.trim() || "Pirâmide"}
@@ -173,6 +181,19 @@ export default async function TemporadaPage({
             </div>
           </div>
         </div>
+        {/* Só o dono carrega a página (getSeason filtra por created_by): a
+            edição de identidade fica sempre disponível aqui. */}
+        <Button
+          asChild
+          size="sm"
+          variant="ghost"
+          className="text-muted-foreground shrink-0 rounded-full"
+        >
+          <Link href={`/dashboard/ligas/${id}/cores`}>
+            <Palette aria-hidden="true" />
+            Identidade
+          </Link>
+        </Button>
       </header>
 
       {/* Não montada: a temporada existe mas as divisões ainda não viraram
@@ -203,6 +224,10 @@ export default async function TemporadaPage({
               standings={standingsPorDivisao[i]}
               grandeFinal={grandeFinalPorDivisao[i]}
               seasonId={temporada.seasonId}
+              corCompeticao={{
+                cor_primaria: temporada.competicao.corPrimaria,
+                cor_secundaria: temporada.competicao.corSecundaria,
+              }}
               ordem={i}
             />
           ))}
@@ -301,6 +326,7 @@ function DivisaoCard({
   standings,
   grandeFinal,
   seasonId,
+  corCompeticao,
   ordem,
 }: {
   divisao: DivisaoTemporada
@@ -309,6 +335,8 @@ function DivisaoCard({
   grandeFinal: GrandeFinalDivisao | null
   /** Id da temporada — repassado ao painel da grande final (action recebe seasonId). */
   seasonId: string
+  /** Cor DEFAULT da competição (fallback de herança da divisão sem cor própria). */
+  corCompeticao: { cor_primaria: string | null; cor_secundaria: string | null }
   ordem: number
 }) {
   // Sem torneio (não montada) — não deveria ocorrer fora do rascunho, mas é
@@ -323,23 +351,38 @@ function DivisaoCard({
   // a ANUAL COMBINADA (não coroa líder — o título sai da grande final).
   const ehSplit = divisao.tournamentIdClausura !== null
 
+  // Identidade da divisão (change add-cores-campeonato): cor PRÓPRIA ?? cor da
+  // competição ?? base. `resolverCores` opera em snake_case — converte aqui.
+  const { primaria, secundaria } = resolverCores(
+    { cor_primaria: divisao.corPrimaria, cor_secundaria: divisao.corSecundaria },
+    corCompeticao
+  )
+  const themeProps = champThemeProps(primaria, secundaria)
+  const staggerStyle = {
+    "--stagger": `${ordem * 60}ms`,
+  } as React.CSSProperties
+
   return (
     <section
       aria-labelledby={`div-${divisao.id}`}
-      className="animate-rise flex flex-col gap-3"
-      style={{ "--stagger": `${ordem * 60}ms` } as React.CSSProperties}
+      className={cn("animate-rise flex flex-col gap-3", themeProps?.className)}
+      style={{ ...staggerStyle, ...themeProps?.style }}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2
           id={`div-${divisao.id}`}
           className="font-display flex items-center gap-2 text-lg font-bold tracking-tight"
         >
-          <span
-            aria-hidden="true"
-            className="inline-flex size-6 items-center justify-center rounded-md bg-primary/10 text-sm font-bold text-primary tabular-nums"
-          >
-            {divisao.nivel}
-          </span>
+          <ChampionshipBadge
+            icon={
+              <span className="text-sm font-bold tabular-nums">
+                {divisao.nivel}
+              </span>
+            }
+            primary={primaria}
+            secondary={secundaria}
+            className="size-6 rounded-md"
+          />
           {divisao.nome.trim() || `Divisão ${divisao.nivel}`}
         </h2>
         {/* Split: DOIS links (lançar placares de cada turno). Anual: um só. */}

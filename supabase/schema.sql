@@ -115,6 +115,18 @@ alter table public.tournaments
     and pontos_vitoria <= 100
   );
 
+-- Cores de identidade (aditivo; idempotente — change add-cores-campeonato). Hex
+-- #rrggbb minúsculo OU NULL (NULL = usa o tema base do app). O Zod normaliza p/
+-- minúsculo antes de gravar. ADD CONSTRAINT não aceita IF NOT EXISTS → drop-then-add.
+alter table public.tournaments add column if not exists cor_primaria  text;
+alter table public.tournaments add column if not exists cor_secundaria text;
+alter table public.tournaments drop constraint if exists tournaments_cor_primaria_hex;
+alter table public.tournaments add  constraint tournaments_cor_primaria_hex
+  check (cor_primaria is null or cor_primaria ~ '^#[0-9a-f]{6}$');
+alter table public.tournaments drop constraint if exists tournaments_cor_secundaria_hex;
+alter table public.tournaments add  constraint tournaments_cor_secundaria_hex
+  check (cor_secundaria is null or cor_secundaria ~ '^#[0-9a-f]{6}$');
+
 -- ---------- Tabela: teams (cache de clubes reais buscados via API) ----------
 -- Dados públicos de clube (nome + escudo). 'external_id' + 'provider' permitem
 -- reusar/atualizar o clube sem duplicar. Aditivo: NÃO substitui o participante.
@@ -1677,6 +1689,17 @@ create table if not exists public.league_competitions (
 create index if not exists league_competitions_created_by_idx
   on public.league_competitions (created_by);
 
+-- Cores de identidade da pirâmide (default herdado pelas divisões — change
+-- add-cores-campeonato). Hex #rrggbb minúsculo OU NULL.
+alter table public.league_competitions add column if not exists cor_primaria  text;
+alter table public.league_competitions add column if not exists cor_secundaria text;
+alter table public.league_competitions drop constraint if exists league_competitions_cor_primaria_hex;
+alter table public.league_competitions add  constraint league_competitions_cor_primaria_hex
+  check (cor_primaria is null or cor_primaria ~ '^#[0-9a-f]{6}$');
+alter table public.league_competitions drop constraint if exists league_competitions_cor_secundaria_hex;
+alter table public.league_competitions add  constraint league_competitions_cor_secundaria_hex
+  check (cor_secundaria is null or cor_secundaria ~ '^#[0-9a-f]{6}$');
+
 -- ---------- Tabela: league_seasons (uma temporada da pirâmide) ----------
 create table if not exists public.league_seasons (
   id                 uuid primary key default gen_random_uuid(),
@@ -1784,6 +1807,18 @@ create unique index if not exists league_division_seasons_final_unico
   on public.league_division_seasons (final_tournament_id) where final_tournament_id is not null;
 create index if not exists league_division_seasons_season_idx
   on public.league_division_seasons (season_id);
+
+-- Cores de identidade por DIVISÃO (override do default da pirâmide — change
+-- add-cores-campeonato). Hex #rrggbb minúsculo OU NULL (herda a competição).
+-- Copiadas para a próxima temporada por montarProximaTemporada.
+alter table public.league_division_seasons add column if not exists cor_primaria  text;
+alter table public.league_division_seasons add column if not exists cor_secundaria text;
+alter table public.league_division_seasons drop constraint if exists league_division_seasons_cor_primaria_hex;
+alter table public.league_division_seasons add  constraint league_division_seasons_cor_primaria_hex
+  check (cor_primaria is null or cor_primaria ~ '^#[0-9a-f]{6}$');
+alter table public.league_division_seasons drop constraint if exists league_division_seasons_cor_secundaria_hex;
+alter table public.league_division_seasons add  constraint league_division_seasons_cor_secundaria_hex
+  check (cor_secundaria is null or cor_secundaria ~ '^#[0-9a-f]{6}$');
 
 -- ---------- Tabela: league_boundaries (regra sobe/cai por par adjacente) ----------
 -- Fronteira entre a divisão de nível `nivel_superior` (d) e a de baixo (d+1).

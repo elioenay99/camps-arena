@@ -73,6 +73,8 @@ export interface Database {
           pontos_empate: number
           pontos_derrota: number
           desempate_criterio: string
+          cor_primaria: string | null
+          cor_secundaria: string | null
           created_at: string
         }
         Insert: {
@@ -90,6 +92,8 @@ export interface Database {
           pontos_empate?: number
           pontos_derrota?: number
           desempate_criterio?: string
+          cor_primaria?: string | null
+          cor_secundaria?: string | null
           created_at?: string
         }
         Update: {
@@ -107,6 +111,8 @@ export interface Database {
           pontos_empate?: number
           pontos_derrota?: number
           desempate_criterio?: string
+          cor_primaria?: string | null
+          cor_secundaria?: string | null
           created_at?: string
         }
         Relationships: [
@@ -452,6 +458,8 @@ export interface Database {
           status: LeagueCompetitionStatus
           desempate_padrao: string
           is_public: boolean
+          cor_primaria: string | null
+          cor_secundaria: string | null
           created_at: string
         }
         Insert: {
@@ -461,6 +469,8 @@ export interface Database {
           status?: LeagueCompetitionStatus
           desempate_padrao?: string
           is_public?: boolean
+          cor_primaria?: string | null
+          cor_secundaria?: string | null
           created_at?: string
         }
         Update: {
@@ -470,6 +480,8 @@ export interface Database {
           status?: LeagueCompetitionStatus
           desempate_padrao?: string
           is_public?: boolean
+          cor_primaria?: string | null
+          cor_secundaria?: string | null
           created_at?: string
         }
         Relationships: [
@@ -549,6 +561,8 @@ export interface Database {
           qtd_grupos: number | null
           classificados_por_grupo: number | null
           tamanho: number
+          cor_primaria: string | null
+          cor_secundaria: string | null
           created_at: string
         }
         Insert: {
@@ -566,6 +580,8 @@ export interface Database {
           qtd_grupos?: number | null
           classificados_por_grupo?: number | null
           tamanho: number
+          cor_primaria?: string | null
+          cor_secundaria?: string | null
           created_at?: string
         }
         Update: {
@@ -583,6 +599,8 @@ export interface Database {
           qtd_grupos?: number | null
           classificados_por_grupo?: number | null
           tamanho?: number
+          cor_primaria?: string | null
+          cor_secundaria?: string | null
           created_at?: string
         }
         Relationships: [

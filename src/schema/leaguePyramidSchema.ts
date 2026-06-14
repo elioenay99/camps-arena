@@ -4,6 +4,7 @@ import { MATA_MATA_MAX_PARTICIPANTES } from "@/features/knockout/gerarChaveMataM
 import { validarGeometria } from "@/features/groups/gerarFaseDeGrupos"
 import { LIGA_MAX_PARTICIPANTES } from "@/features/league/gerarTabelaLiga"
 
+import { corOpcional } from "@/schema/corSchema"
 import { NOME_MAX } from "@/schema/tournamentSchema"
 
 /**
@@ -195,6 +196,11 @@ const divisaoSchema = z.object({
   competidores: z
     .array(z.union([competidorClube, competidorNome]))
     .default([]),
+  // Cores da DIVISÃO (change add-cores-campeonato): opcionais; vazias/ausentes
+  // ⇒ undefined (a action grava null). Na leitura, a divisão herda a cor da
+  // competição quando a própria é null (resolverCores: divisão ?? competição).
+  corPrimaria: corOpcional,
+  corSecundaria: corOpcional,
 }).superRefine((d, ctx) => {
   // Coerência do formato interno (Fase 5.2). 'liga' não carrega geometria de
   // grupos; 'grupos_mata_mata' exige uma geometria que FECHE a chave (reusa o
@@ -423,6 +429,10 @@ export const createCompetitionSchema = z
       .min(1, "A pirâmide precisa de ao menos uma divisão.")
       .max(MAX_DIVISOES, `A pirâmide aceita no máximo ${MAX_DIVISOES} divisões.`),
     fronteiras: z.array(fronteiraSchema).default([]),
+    // Cores da PIRÂMIDE (change add-cores-campeonato): default da identidade da
+    // liga. Cada divisão herda estas quando a própria cor é null (resolverCores).
+    corPrimaria: corOpcional,
+    corSecundaria: corOpcional,
   })
   .superRefine((d, ctx) => {
     const divisoes = d.divisoes

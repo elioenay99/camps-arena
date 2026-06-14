@@ -3,6 +3,7 @@ import {
   History,
   ListOrdered,
   Network,
+  Palette,
   Plus,
   Settings2,
   Shield,
@@ -15,7 +16,10 @@ import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
 import { createClient } from "@/lib/supabase/server";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { champThemeProps } from "@/features/championship/championshipTheme";
+import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge";
 import { GerarMataMataButton } from "@/features/groups/components/GerarMataMataButton";
 import { IniciarGruposPanel } from "@/features/groups/components/IniciarGruposPanel";
 import { rotuloGrupo } from "@/features/groups/gerarFaseDeGrupos";
@@ -32,7 +36,10 @@ import { OpenMatchesList } from "@/features/match/components/OpenMatchesList";
 import { ResponderWoButtons } from "@/features/match/components/WoButtons";
 import { getSolicitacoesWO } from "@/features/match/data/getSolicitacoesWO";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
-import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao";
+import {
+  getTournamentClassificacao,
+  resolverCoresTorneio,
+} from "@/features/standings/data/getTournamentClassificacao";
 import { FORMATO_META } from "@/features/tournament/formatoMeta";
 import { StatusPill } from "@/features/tournament/components/StatusPill";
 import { IniciarTorneioPanel } from "@/features/tournament/components/IniciarTorneioPanel";
@@ -205,16 +212,32 @@ export default async function TorneioPage({
   // contra esses mesmos ids.
   const lados = vagas.map((vaga) => ({ id: vaga.id, nome: vaga.clube }));
 
+  // Identidade visual (change add-cores-campeonato): cor EFETIVA com fallback de
+  // divisão (torneio que É uma divisão de pirâmide herda a cor da liga). 1 query
+  // extra só quando o torneio não tem cor própria. `null/null` ⇒ tema base.
+  const { primaria, secundaria } = await resolverCoresTorneio(
+    supabase,
+    id,
+    torneio
+  );
+  const themeProps = champThemeProps(primaria, secundaria);
+
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
+    <main
+      className={cn(
+        "mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10",
+        themeProps?.className
+      )}
+      style={themeProps?.style}
+    >
       <header className="elevate flex flex-col gap-4 rounded-2xl border bg-card/60 p-5 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3.5">
-          <span
-            aria-hidden="true"
-            className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20"
-          >
-            <formatoMeta.Icon className="size-6" />
-          </span>
+          <ChampionshipBadge
+            icon={<formatoMeta.Icon className="size-6" />}
+            primary={primaria}
+            secondary={secundaria}
+            className="size-12 rounded-xl ring-1 ring-primary/20"
+          />
           <div className="flex min-w-0 flex-col gap-2">
             <h1 className="font-display text-2xl font-bold tracking-tight break-words sm:text-3xl">
               {titulo}
@@ -230,15 +253,30 @@ export default async function TorneioPage({
             </div>
           </div>
         </div>
-        {/* Formato gerado não aceita partida manual: as partidas nascem da
-            tabela/chave. */}
-        {podeGerirPartidas && !ehGerado ? (
-          <Button asChild size="sm" className="shrink-0 rounded-full">
-            <Link href={`/dashboard/torneios/${id}/partidas/nova`}>
-              <Plus aria-hidden="true" />
-              Nova partida
-            </Link>
-          </Button>
+        {/* Ações do dono no cabeçalho: identidade (cores) sempre disponível ao
+            dono; "Nova partida" só no avulso (formato gerado nasce da chave). */}
+        {ehDono ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Button
+              asChild
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground rounded-full"
+            >
+              <Link href={`/dashboard/torneios/${id}/cores`}>
+                <Palette aria-hidden="true" />
+                Cores
+              </Link>
+            </Button>
+            {podeGerirPartidas && !ehGerado ? (
+              <Button asChild size="sm" className="rounded-full">
+                <Link href={`/dashboard/torneios/${id}/partidas/nova`}>
+                  <Plus aria-hidden="true" />
+                  Nova partida
+                </Link>
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </header>
 

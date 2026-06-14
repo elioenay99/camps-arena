@@ -33,6 +33,7 @@ import {
 import { gerarCodigoConvite } from "@/lib/invite-code"
 import { randIntCrypto } from "@/lib/rand"
 import { createClient } from "@/lib/supabase/server"
+import { coresOpcionais, type CoresInput } from "@/schema/corSchema"
 import {
   createTournamentSchema,
   iniciarGruposSchema,
@@ -81,6 +82,8 @@ export async function createTournament(
     // Modo por-nome: checkbox + nomes livres (hidden name="nomes").
     porNome: formData.get("porNome") !== null,
     nomes: formData.getAll("nomes").filter((n): n is string => typeof n === "string"),
+    corPrimaria: formData.get("corPrimaria") ?? undefined,
+    corSecundaria: formData.get("corSecundaria") ?? undefined,
   })
 
   if (!parsed.success) {
@@ -134,6 +137,10 @@ export async function createTournament(
         pontos_vitoria: parsed.data.pontosVitoria,
         pontos_empate: parsed.data.pontosEmpate,
         pontos_derrota: parsed.data.pontosDerrota,
+        // Cores do campeonato (change add-cores-campeonato): `undefined` (campo
+        // vazio) ⇒ null = tema base do app. Já normalizadas (minúsculo) pelo Zod.
+        cor_primaria: parsed.data.corPrimaria ?? null,
+        cor_secundaria: parsed.data.corSecundaria ?? null,
       })
       .select("id")
       .single()
@@ -1341,4 +1348,69 @@ export async function gerarMataMataDosGrupos(
   revalidatePath("/dashboard/torneios")
   revalidatePath(`/dashboard/torneios/${parsed.data}`)
   return { ok: true, sorteioUsado }
+}
+
+export type AtualizarCoresResult = { ok: true } | { ok: false; error: string }
+
+/**
+ * Atualiza as cores de exibição de um TORNEIO (change add-cores-campeonato).
+ * Só o dono: a posse é validada pelo FILTRO (`created_by = user.id`) no próprio
+ * UPDATE — 0 linhas cobre inexistente/alheio com a MESMA resposta (sem oráculo).
+ * A RLS `tournaments_update_owner` é a segunda barreira.
+ *
+ * As cores são metadados de exibição (não entram nos campos travados pelos
+ * triggers de lock). Passar uma cor `undefined`/vazia GRAVA null (limpa) — o Zod
+ * normaliza vazio→undefined e o `?? null` persiste a remoção; assim o dono
+ * consegue voltar ao tema base do app.
+ */
+export async function atualizarCoresTorneio(
+  tournamentId: unknown,
+  cores: CoresInput
+): Promise<AtualizarCoresResult> {
+  const parsedId = z.uuid().safeParse(tournamentId)
+  if (!parsedId.success) {
+    return { ok: false, error: "Torneio inválido." }
+  }
+  const parsedCores = coresOpcionais.safeParse(cores)
+  if (!parsedCores.success) {
+    return { ok: false, error: "Cor inválida. Use o formato #rrggbb." }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const { data: atualizados, error: updateError } = await supabase
+    .from("tournaments")
+    .update({
+      // `undefined` (cor vazia) ⇒ null = limpa (volta ao tema base do app).
+      cor_primaria: parsedCores.data.corPrimaria ?? null,
+      cor_secundaria: parsedCores.data.corSecundaria ?? null,
+    })
+    .eq("id", parsedId.data)
+    .eq("created_by", user.id)
+    .select("id")
+  if (updateError) {
+    return {
+      ok: false,
+      error: "Não foi possível atualizar as cores agora. Tente novamente.",
+    }
+  }
+  if (!atualizados || atualizados.length === 0) {
+    return {
+      ok: false,
+      error: "Torneio não encontrado ou você não é o dono dele.",
+    }
+  }
+
+  revalidatePath("/dashboard/torneios")
+  revalidatePath(`/dashboard/torneios/${parsedId.data}`)
+  revalidatePath(`/dashboard/torneios/${parsedId.data}/cores`)
+  return { ok: true }
 }

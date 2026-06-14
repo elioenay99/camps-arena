@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { LIGA_MAX_PARTICIPANTES } from "@/features/league/gerarTabelaLiga"
+import { corOpcional } from "@/schema/corSchema"
 
 /** Defaults de pontuação (convenção do futebol) — compartilhados com o form. */
 export const PONTUACAO_PADRAO = { vitoria: 3, empate: 1, derrota: 0 } as const
@@ -80,6 +81,11 @@ export const createTournamentSchema = z
       )
       .max(TORNEIO_MAX_CLUBES, `Informe no máximo ${TORNEIO_MAX_CLUBES} nomes.`)
       .default([]),
+    // Cores do campeonato (change add-cores-campeonato): opcionais; vazias/ausentes
+    // ⇒ undefined (a action grava null = tema base do app). Gravadas crus em
+    // `tournaments.cor_*`; a página resolve a herança/tematização na leitura.
+    corPrimaria: corOpcional,
+    corSecundaria: corOpcional,
   })
   .refine((d) => d.pontosDerrota <= d.pontosEmpate, {
     error: "A derrota não pode valer mais pontos que o empate.",

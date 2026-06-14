@@ -27,6 +27,10 @@ export interface DivisaoTemporada {
   tournamentIdClausura: string | null
   /** Torneio da GRANDE FINAL (Fase 5.1) — null até a final ser montada. */
   finalTournamentId: string | null
+  /** Cor PRÓPRIA da divisão (change add-cores-campeonato): null = herda a da
+   * competição. A página resolve `divisão.cor ?? competição.cor` por card. */
+  corPrimaria: string | null
+  corSecundaria: string | null
 }
 
 /** Fronteira sobe/cai entre `nivelSuperior` (d) e a divisão de baixo (d+1). */
@@ -47,6 +51,10 @@ export interface TemporadaCompleta {
   competicao: {
     id: string
     nome: string
+    /** Cores DEFAULT da pirâmide (change add-cores-campeonato): herança das
+     * divisões sem cor própria + cor do header/seções cross-divisão. null = base. */
+    corPrimaria: string | null
+    corSecundaria: string | null
   }
   /** Divisões ordenadas por nível ascendente (1 = topo). */
   divisoes: DivisaoTemporada[]
@@ -66,6 +74,8 @@ interface DivisaoEmbed {
   tournament_id: string | null
   tournament_id_clausura: string | null
   final_tournament_id: string | null
+  cor_primaria: string | null
+  cor_secundaria: string | null
 }
 
 interface FronteiraEmbed {
@@ -112,8 +122,8 @@ export const getSeason = cache(async function getSeason(
     .from("league_seasons")
     .select(
       `id, numero, status, ciclo,
-       competition:league_competitions!inner ( id, nome, created_by ),
-       league_division_seasons ( id, nivel, nome, por_nome, desempate, tamanho, tournament_id, tournament_id_clausura, final_tournament_id ),
+       competition:league_competitions!inner ( id, nome, created_by, cor_primaria, cor_secundaria ),
+       league_division_seasons ( id, nivel, nome, por_nome, desempate, tamanho, tournament_id, tournament_id_clausura, final_tournament_id, cor_primaria, cor_secundaria ),
        league_boundaries ( nivel_superior, vagas_acesso, vagas_rebaixamento )`
     )
     .eq("id", seasonId)
@@ -134,7 +144,13 @@ export const getSeason = cache(async function getSeason(
     numero: number
     status: LeagueSeasonStatus
     ciclo: string
-    competition: { id: string; nome: string; created_by: string | null }
+    competition: {
+      id: string
+      nome: string
+      created_by: string | null
+      cor_primaria: string | null
+      cor_secundaria: string | null
+    }
     league_division_seasons: DivisaoEmbed[]
     league_boundaries: FronteiraEmbed[]
   }
@@ -176,6 +192,8 @@ export const getSeason = cache(async function getSeason(
       tournamentId: d.tournament_id,
       tournamentIdClausura: d.tournament_id_clausura,
       finalTournamentId: d.final_tournament_id,
+      corPrimaria: d.cor_primaria,
+      corSecundaria: d.cor_secundaria,
     }))
 
   const fronteiras: FronteiraTemporada[] = [...linha.league_boundaries]
@@ -191,7 +209,12 @@ export const getSeason = cache(async function getSeason(
     numero: linha.numero,
     status: linha.status,
     ciclo: linha.ciclo,
-    competicao: { id: linha.competition.id, nome: linha.competition.nome },
+    competicao: {
+      id: linha.competition.id,
+      nome: linha.competition.nome,
+      corPrimaria: linha.competition.cor_primaria,
+      corSecundaria: linha.competition.cor_secundaria,
+    },
     divisoes,
     fronteiras,
     competidores,

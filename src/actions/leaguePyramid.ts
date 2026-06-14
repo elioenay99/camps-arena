@@ -16,6 +16,7 @@ import {
   type PartidaJogada,
 } from "@/features/knockout/gerarChaveMataMata"
 import { createClient } from "@/lib/supabase/server"
+import { coresOpcionais, type CoresInput } from "@/schema/corSchema"
 import {
   createCompetitionSchema,
   DIVISAO_MAX_TAMANHO,
@@ -124,6 +125,10 @@ export async function createCompetition(
       created_by: user.id,
       // Desempate padrão da pirâmide = o da primeira divisão (atalho de UI).
       desempate_padrao: dados.divisoes[0]?.desempate ?? "cbf",
+      // Cores DEFAULT da pirâmide (change add-cores-campeonato): cada divisão
+      // herda estas quando a própria cor é null (resolvido na leitura).
+      cor_primaria: dados.corPrimaria ?? null,
+      cor_secundaria: dados.corSecundaria ?? null,
     })
     .select("id")
     .single()
@@ -181,6 +186,10 @@ export async function createCompetition(
         qtd_grupos: div.qtdGrupos ?? null,
         classificados_por_grupo: div.classificadosPorGrupo ?? null,
         tamanho: div.tamanho,
+        // Cores da divisão (change add-cores-campeonato): null = herda a cor da
+        // competição na leitura. `montarProximaTemporada` copia nas N+1 (2 pontas).
+        cor_primaria: div.corPrimaria ?? null,
+        cor_secundaria: div.corSecundaria ?? null,
       }))
     )
     .select("id, nivel")
@@ -1874,7 +1883,7 @@ export async function montarProximaTemporada(
 
   const { data: divisoesN, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("nivel, nome, por_nome, desempate, ranking_base, formato, qtd_grupos, classificados_por_grupo")
+    .select("nivel, nome, por_nome, desempate, ranking_base, formato, qtd_grupos, classificados_por_grupo, cor_primaria, cor_secundaria")
     .eq("season_id", seasonId)
     .order("nivel")
   if (divsError || !divisoesN || divisoesN.length === 0) {
@@ -2020,6 +2029,11 @@ export async function montarProximaTemporada(
         qtd_grupos: qtdGrupos,
         classificados_por_grupo: classificados,
         tamanho,
+        // Cores da divisão (change add-cores-campeonato): COPIAR para a N+1 — sem
+        // isto a cor cairia para null na N+1 (a divisão perderia a identidade após
+        // 1 ciclo). 2ª ponta da cópia (a 1ª é o `.select()` de divisoesN acima).
+        cor_primaria: geo?.cor_primaria ?? null,
+        cor_secundaria: geo?.cor_secundaria ?? null,
       }
     })
 
@@ -2098,4 +2112,140 @@ export async function montarProximaTemporada(
   }
 
   return { ok: true, proximaSeasonId }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cores do campeonato (change add-cores-campeonato) — UPDATE só do dono       */
+/* -------------------------------------------------------------------------- */
+
+export type AtualizarCoresResult = { ok: true } | { ok: false; error: string }
+
+/**
+ * Atualiza as cores DEFAULT de uma PIRÂMIDE (`league_competitions`). Só o dono:
+ * a posse é validada pelo FILTRO (`created_by = user.id`) no próprio UPDATE — 0
+ * linhas cobre inexistente/alheio com a MESMA resposta (sem oráculo). A RLS é a
+ * 2ª barreira. Cor `undefined`/vazia GRAVA null (limpa); as divisões que não têm
+ * cor própria voltam a herdar o tema base do app.
+ */
+export async function atualizarCoresPiramide(
+  competitionId: unknown,
+  cores: CoresInput
+): Promise<AtualizarCoresResult> {
+  const parsedId = z.uuid({ error: "Liga inválida." }).safeParse(competitionId)
+  if (!parsedId.success) {
+    return { ok: false, error: "Liga inválida." }
+  }
+  const parsedCores = coresOpcionais.safeParse(cores)
+  if (!parsedCores.success) {
+    return { ok: false, error: "Cor inválida. Use o formato #rrggbb." }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const { data: atualizados, error: updateError } = await supabase
+    .from("league_competitions")
+    .update({
+      cor_primaria: parsedCores.data.corPrimaria ?? null,
+      cor_secundaria: parsedCores.data.corSecundaria ?? null,
+    })
+    .eq("id", parsedId.data)
+    .eq("created_by", user.id)
+    .select("id")
+  if (updateError) {
+    return {
+      ok: false,
+      error: "Não foi possível atualizar as cores agora. Tente novamente.",
+    }
+  }
+  if (!atualizados || atualizados.length === 0) {
+    return { ok: false, error: "Liga não encontrada ou você não é o dono dela." }
+  }
+
+  revalidatePath("/dashboard/ligas")
+  revalidatePath(`/dashboard/ligas/${parsedId.data}/cores`)
+  return { ok: true }
+}
+
+/**
+ * Atualiza as cores de uma DIVISÃO de temporada (`league_division_seasons`).
+ * `league_division_seasons` NÃO tem `created_by`: a posse é TRANSITIVA
+ * (`division → season → competition.created_by`). Por isso a checagem é em DUAS
+ * etapas (PostgREST não filtra UPDATE por coluna de tabela relacionada):
+ *   1. SELECT por filtro transitivo (`!inner` até `created_by = user.id`) —
+ *      0 linhas = inexistente/alheio (mesma resposta, sem oráculo);
+ *   2. UPDATE por id (a posse já foi provada no passo 1; a RLS é a 2ª barreira).
+ * Cor `undefined`/vazia GRAVA null (limpa) → a divisão volta a herdar a cor da
+ * competição. A cópia da N+1 (`montarProximaTemporada`) propaga o valor adiante.
+ */
+export async function atualizarCoresDivisao(
+  divisionSeasonId: unknown,
+  cores: CoresInput
+): Promise<AtualizarCoresResult> {
+  const parsedId = z
+    .uuid({ error: "Divisão inválida." })
+    .safeParse(divisionSeasonId)
+  if (!parsedId.success) {
+    return { ok: false, error: "Divisão inválida." }
+  }
+  const parsedCores = coresOpcionais.safeParse(cores)
+  if (!parsedCores.success) {
+    return { ok: false, error: "Cor inválida. Use o formato #rrggbb." }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const erroPropriedade = "Divisão não encontrada ou você não é o dono da liga."
+
+  // (1) Posse por FILTRO transitivo: a divisão pertence à competição do dono.
+  const { data: divisao, error: divError } = await supabase
+    .from("league_division_seasons")
+    .select("id, season_id, league_seasons!inner(league_competitions!inner(created_by))")
+    .eq("id", parsedId.data)
+    .eq("league_seasons.league_competitions.created_by", user.id)
+    .maybeSingle()
+  if (divError) {
+    return {
+      ok: false,
+      error: "Não foi possível atualizar as cores agora. Tente novamente.",
+    }
+  }
+  if (!divisao) {
+    return { ok: false, error: erroPropriedade }
+  }
+
+  // (2) UPDATE por id (posse já provada acima; RLS é a 2ª barreira).
+  const { error: updateError } = await supabase
+    .from("league_division_seasons")
+    .update({
+      cor_primaria: parsedCores.data.corPrimaria ?? null,
+      cor_secundaria: parsedCores.data.corSecundaria ?? null,
+    })
+    .eq("id", parsedId.data)
+  if (updateError) {
+    return {
+      ok: false,
+      error: "Não foi possível atualizar as cores agora. Tente novamente.",
+    }
+  }
+
+  revalidatePath("/dashboard/ligas")
+  revalidatePath(`/dashboard/ligas/${divisao.season_id}`)
+  revalidatePath(`/dashboard/ligas/${divisao.season_id}/cores`)
+  return { ok: true }
 }
