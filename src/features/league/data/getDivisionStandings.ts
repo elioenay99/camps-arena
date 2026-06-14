@@ -5,6 +5,10 @@ import {
   getTournamentClassificacao,
   type LinhaComNome,
 } from "@/features/standings/data/getTournamentClassificacao"
+import {
+  carregarPosicoesDeCorte,
+  type LinhaReal,
+} from "@/features/league/promedios"
 import type {
   LeagueBoundaryMode,
   TournamentStatus,
@@ -42,8 +46,18 @@ export interface DivisaoStandings {
   linhas: LinhaComNome[]
   /** Status do torneio da divisão (rascunho/ativo/encerrado). */
   status: TournamentStatus
-  /** Posições de acesso/rebaixamento desta divisão (vazias se sem fronteira). */
+  /**
+   * Posições de acesso/rebaixamento desta divisão (vazias se sem fronteira). Em
+   * divisões `promedios` (Fase 4), são as POSIÇÕES REAIS dos competidores no
+   * corte por promedio (lista não-contígua) — a faixa cai na linha certa.
+   */
   zonas: Zonas
+  /**
+   * Promedio por `competitor_id` (= `participanteId` da linha). Presente só em
+   * divisões `promedios` — alimenta a coluna "Pro" da StandingsTable. Ausente nas
+   * divisões `posicao` (comportamento legado).
+   */
+  promedios?: Map<string, number>
 }
 
 /** Empurra `[de, ate]` (1-based, clampado a [1, total]) em `destino`. */
@@ -186,7 +200,7 @@ export async function getDivisionStandings(
   const { data: divisao, error: divError } = await supabase
     .from("league_division_seasons")
     .select(
-      "id, nivel, season_id, tournament_id, league_seasons!inner ( league_competitions!inner ( created_by ) )"
+      "id, nivel, season_id, tournament_id, ranking_base, league_seasons!inner ( league_competitions!inner ( created_by ) )"
     )
     .eq("id", divisionSeasonId)
     .eq("league_seasons.league_competitions.created_by", userId)
@@ -254,11 +268,55 @@ export async function getDivisionStandings(
       competitorPorSlot.get(linha.participanteId) ?? linha.participanteId,
   }))
 
-  const zonas = derivarZonas(divisao.nivel, linhas.length, fronteirasZona)
+  // `derivarZonas` devolve as zonas em ORDINAIS (top-N/bottom-N). Em divisões
+  // 'posicao' o ordinal É a posição real. Em 'promedios' (Fase 4) o ordinal é o
+  // RANK de promedio — traduzimos cada rank de volta à POSIÇÃO REAL do competidor
+  // que o ocupa (lista não-contígua), senão a faixa cairia na linha errada.
+  const zonasRank = derivarZonas(divisao.nivel, linhas.length, fronteirasZona)
+
+  if (divisao.ranking_base !== "promedios") {
+    return { linhas, status: classificacao.torneio.status, zonas: zonasRank }
+  }
+
+  const linhasReais: LinhaReal[] = linhas.map((l) => ({
+    competitorId: l.participanteId,
+    posicaoReal: l.posicao,
+    pontos: l.pontos,
+    jogos: l.jogos,
+  }))
+  const corte = await carregarPosicoesDeCorte(
+    supabase,
+    [divisionSeasonId],
+    "promedios",
+    linhasReais
+  )
+  if (!corte) {
+    // Falha ao computar o promedio: degrada para as zonas por posição (sem
+    // coluna), preservando a renderização da tabela.
+    return { linhas, status: classificacao.torneio.status, zonas: zonasRank }
+  }
+
+  // rank de promedio → posição real (para traduzir as zonas ordinais).
+  const realPosPorRank = new Map<number, number>()
+  for (const l of linhas) {
+    const rank = corte.posicaoCorte.get(l.participanteId)
+    if (rank !== undefined) realPosPorRank.set(rank, l.posicao)
+  }
+  const traduzir = (ranks: number[]): number[] =>
+    ranks
+      .map((r) => realPosPorRank.get(r))
+      .filter((p): p is number => p !== undefined)
+  const zonas: Zonas = {
+    acesso: traduzir(zonasRank.acesso),
+    rebaixamento: traduzir(zonasRank.rebaixamento),
+    playoffAcesso: traduzir(zonasRank.playoffAcesso),
+    playoffRebaixamento: traduzir(zonasRank.playoffRebaixamento),
+  }
 
   return {
     linhas,
     status: classificacao.torneio.status,
     zonas,
+    promedios: corte.promedio,
   }
 }

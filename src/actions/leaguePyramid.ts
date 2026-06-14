@@ -40,6 +40,10 @@ import {
   type LinhaFluxo,
   type PlanoFluxoTemporada,
 } from "@/features/league/flowEngine"
+import {
+  carregarPosicoesDeCorte,
+  type LinhaReal,
+} from "@/features/league/promedios"
 
 /* -------------------------------------------------------------------------- */
 /* Tipos de retorno (padrão do projeto)                                       */
@@ -163,6 +167,7 @@ export async function createCompetition(
         nome: div.nome,
         por_nome: div.porNome,
         desempate: div.desempate,
+        ranking_base: div.rankingBase,
         tamanho: div.tamanho,
       }))
     )
@@ -710,7 +715,7 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
 
   const { data: divisoes, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("id, nivel, tournament_id, tournament:tournaments(status)")
+    .select("id, nivel, tournament_id, ranking_base, tournament:tournaments(status)")
     .eq("season_id", parsed.data)
     .order("nivel")
   if (divsError || !divisoes) {
@@ -727,8 +732,14 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
       }
     }
   }
+  // Guarda anti-duplo-conta do promedio (ids de todas as divisões da corrente).
+  const divisionSeasonIdsAtuais = divisoes.map((d) => d.id)
 
-  // Classificação (best-first) + slot→competidor por divisão, sob demanda.
+  // Classificação ordenada pela base de CORTE da divisão (posição em 'posicao';
+  // rank de promedio em 'promedios') + slot→competidor, sob demanda. A MESMA
+  // fonte (`carregarPosicoesDeCorte`) que `calcularFluxoTemporada` usa — a zona e
+  // o seeding da chave seguem o promedio quando a divisão é 'promedios'
+  // (montagem ≡ cálculo; evita "consumidor órfão"). Fase 4.
   const classificacaoPorNivel = new Map<number, LinhaClassificada[]>()
   const carregarDivisao = async (
     nivel: number
@@ -753,11 +764,29 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
       return null
     }
     if (!classificacao) return null
-    const linhas: LinhaClassificada[] = []
+    const linhasReais: LinhaReal[] = []
     for (const l of classificacao.linhas) {
       const c = compPorSlot.get(l.participanteId)
       if (!c) return null
-      linhas.push({ competitorId: c, posicao: l.posicao })
+      linhasReais.push({
+        competitorId: c,
+        posicaoReal: l.posicao,
+        pontos: l.pontos,
+        jogos: l.jogos,
+      })
+    }
+    const corte = await carregarPosicoesDeCorte(
+      supabase,
+      divisionSeasonIdsAtuais,
+      div.ranking_base,
+      linhasReais
+    )
+    if (!corte) return null
+    const linhas: LinhaClassificada[] = []
+    for (const l of linhasReais) {
+      const posicao = corte.posicaoCorte.get(l.competitorId)
+      if (posicao === undefined) return null
+      linhas.push({ competitorId: l.competitorId, posicao })
     }
     classificacaoPorNivel.set(nivel, linhas)
     return linhas
@@ -980,12 +1009,19 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
 
   const { data: divisoes, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("id, nivel, tournament_id, tournament:tournaments(status)")
+    .select("id, nivel, tournament_id, ranking_base, tournament:tournaments(status)")
     .eq("season_id", parsed.data)
     .order("nivel")
   if (divsError || !divisoes || divisoes.length === 0) {
     return { ok: false, error: erroGenerico }
   }
+  // Ids de TODAS as divisões da temporada atual — guarda anti-duplo-conta do
+  // promedio (exclui as entries da corrente da soma histórica de vida toda).
+  const divisionSeasonIdsAtuais = divisoes.map((d) => d.id)
+  // Posição REAL da tabela por competidor (de TODAS as divisões): base do remap
+  // de `posicaoFinal` (o motor recebe o rank de corte como `posicao`, mas o
+  // histórico esportivo persiste a posição real). Fase 4.
+  const posicaoRealPorCompetidor = new Map<string, number>()
 
   // SELECT de 3 estados (Fase 2): modo + colunas de playoff. Sem isto o ramo
   // não-direto trataria a fronteira como direto (corte por posição, ignorando a
@@ -1043,7 +1079,9 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
       return { ok: false, error: erroGenerico }
     }
 
-    const linhas: LinhaFluxo[] = []
+    // Linhas REAIS (posição da tabela do ano). Alimentam o remap de posicaoFinal,
+    // o promedio (campanha ao vivo) e — quando ranking_base='posicao' — o corte.
+    const linhasReais: LinhaReal[] = []
     for (const linha of classificacao.linhas) {
       // `participanteId` no competitivo É o slot id.
       const competitorId = competitorPorSlot.get(linha.participanteId)
@@ -1051,12 +1089,35 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
         // Slot sem competidor mapeado: divisão fora do trilho da pirâmide.
         return { ok: false, error: erroGenerico }
       }
-      linhas.push({
+      linhasReais.push({
         competitorId,
-        posicao: linha.posicao,
+        posicaoReal: linha.posicao,
         pontos: linha.pontos,
         jogos: linha.jogos,
       })
+      posicaoRealPorCompetidor.set(competitorId, linha.posicao)
+    }
+
+    // Rank de CORTE da divisão (posição real OU rank de promedio, conforme
+    // `ranking_base`). MESMA fonte que `montarPlayoffs` e `getDivisionStandings`
+    // (montagem ≡ cálculo). O motor recebe esse rank como `posicao`; `pontos`/
+    // `jogos` seguem REAIS (persistência + promedio futuro).
+    const corte = await carregarPosicoesDeCorte(
+      supabase,
+      divisionSeasonIdsAtuais,
+      div.ranking_base,
+      linhasReais
+    )
+    if (!corte) {
+      return { ok: false, error: erroGenerico }
+    }
+    const linhas: LinhaFluxo[] = []
+    for (const l of linhasReais) {
+      const posicao = corte.posicaoCorte.get(l.competitorId)
+      if (posicao === undefined) {
+        return { ok: false, error: erroGenerico }
+      }
+      linhas.push({ competitorId: l.competitorId, posicao, pontos: l.pontos, jogos: l.jogos })
     }
     divisoesFluxo.push({ nivel: div.nivel, linhas })
   }
@@ -1197,6 +1258,23 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
   // confirmação é idempotente mesmo quando há empate exato na linha de corte.
   const seed = parsed.data
   const plano = calcularPlanoFluxo(divisoesFluxo, fronteirasFluxo, seed)
+
+  // REMAP de posicaoFinal → posição REAL da tabela (Fase 4). O motor recebeu o
+  // rank de corte como `posicao` (igual à real em divisões 'posicao'; rank de
+  // promedio em 'promedios'), então `posicaoFinal` carregaria o rank. Reescreve
+  // TODOS os itens por competitorId (não por modo/fronteira) para o resultado
+  // ESPORTIVO. Fail-fast: competidor sem posição real = bug, não persiste o rank.
+  for (const item of plano.itens) {
+    const real = posicaoRealPorCompetidor.get(item.competitorId)
+    if (real === undefined) {
+      console.error(
+        "calcularFluxoTemporada: competidor sem posição real no remap",
+        item.competitorId
+      )
+      return { ok: false, error: erroGenerico }
+    }
+    item.posicaoFinal = real
+  }
 
   return { ok: true, plano }
 }
@@ -1512,7 +1590,7 @@ export async function montarProximaTemporada(
 
   const { data: divisoesN, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("nivel, nome, por_nome, desempate")
+    .select("nivel, nome, por_nome, desempate, ranking_base")
     .eq("season_id", seasonId)
     .order("nivel")
   if (divsError || !divisoesN || divisoesN.length === 0) {
@@ -1630,6 +1708,9 @@ export async function montarProximaTemporada(
         nome: geo?.nome ?? `Divisão ${nivel}`,
         por_nome: geo?.por_nome ?? false,
         desempate: geo?.desempate ?? "cbf",
+        // Fase 4: copiar a base de ranking — sem isto a N+1 cairia para 'posicao'
+        // silenciosamente (perdendo o promedio configurado).
+        ranking_base: geo?.ranking_base ?? "posicao",
         tamanho,
       }
     })

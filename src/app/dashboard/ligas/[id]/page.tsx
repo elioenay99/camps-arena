@@ -330,6 +330,8 @@ function DivisaoCard({
           linhas={standings.linhas}
           rotuloLado={divisao.porNome ? "Competidor" : "Clube"}
           zonas={standings.zonas}
+          promedioPorParticipante={standings.promedios}
+          hrefCompetidorBase="/dashboard/ligas/competidor"
         />
       ) : (
         <Card className="elevate" size="sm">

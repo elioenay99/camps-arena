@@ -1,10 +1,11 @@
+import Link from "next/link"
 import { Trophy } from "lucide-react"
 
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { UserAvatar } from "@/features/profile/components/UserAvatar"
 import type { LinhaComNome } from "@/features/standings/data/getTournamentClassificacao"
 
-const COLUNAS = [
+const COLUNAS_BASE = [
   { chave: "pos", rotulo: "Pos", titulo: "Posição" },
   // Rótulo do lado vem por prop: a tabela serve participantes E clubes.
   { chave: "nome", rotulo: null, titulo: null },
@@ -35,6 +36,8 @@ export function StandingsTable({
   linhas,
   rotuloLado = "Participante",
   zonas,
+  promedioPorParticipante,
+  hrefCompetidorBase,
 }: {
   linhas: LinhaComNome[]
   /** Rótulo da coluna de nome ("Participante" ou "Clube"). */
@@ -44,6 +47,18 @@ export function StandingsTable({
    * standalone (comportamento inalterado — nenhum destaque de zona).
    */
   zonas?: StandingsZonas
+  /**
+   * Promedio por `participanteId` (Fase 4 — divisões `promedios`). Quando
+   * presente, exibe a coluna "Pro" (média de pontos-por-jogo, `0.000`) e o rodapé
+   * explica que o corte segue o promédio. Ausente = sem coluna (default).
+   */
+  promedioPorParticipante?: Map<string, number>
+  /**
+   * Base do link do nome (ex.: `/dashboard/ligas/competidor`). Quando presente, o
+   * nome vira um `Link` para `${hrefCompetidorBase}/${participanteId}`. Ausente =
+   * nome em texto (torneios avulsos inalterados).
+   */
+  hrefCompetidorBase?: string
 }) {
   // Conjuntos de posições para lookup O(1). Vazios quando `zonas` é ausente —
   // o destaque some e a tabela volta ao comportamento standalone.
@@ -60,6 +75,17 @@ export function StandingsTable({
     posRebaixamento.size > 0 ||
     temPlayoffAcesso ||
     temPlayoffRebaixamento
+  // Coluna de promédio (Fase 4): inserida logo após "Pos" quando há promedio —
+  // a leitura "posição vs promédio" explica o corte contra-intuitivo.
+  const temPromedio = promedioPorParticipante !== undefined
+  const COLUNAS = temPromedio
+    ? [
+        COLUNAS_BASE[0],
+        { chave: "promedio", rotulo: "Pro", titulo: "Promédio" } as const,
+        ...COLUNAS_BASE.slice(1),
+      ]
+    : COLUNAS_BASE
+  const fmtPromedio = (v: number) => v.toFixed(3)
   return (
     <div className="flex flex-col gap-2">
       <div className="overflow-x-auto rounded-lg border">
@@ -161,6 +187,11 @@ export function StandingsTable({
                     {linha.posicao}º
                   </span>
                 </td>
+                {temPromedio ? (
+                  <td className="px-2 py-2 text-center font-semibold tabular-nums">
+                    {fmtPromedio(promedioPorParticipante.get(linha.participanteId) ?? 0)}
+                  </td>
+                ) : null}
                 <td className="px-3 py-2 text-left">
                   <span className="flex items-center gap-2 whitespace-nowrap">
                     {linha.escudoUrl ? (
@@ -176,7 +207,16 @@ export function StandingsTable({
                         size={24}
                       />
                     )}
-                    {linha.nome}
+                    {hrefCompetidorBase ? (
+                      <Link
+                        href={`${hrefCompetidorBase}/${linha.participanteId}`}
+                        className="rounded underline-offset-2 hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                      >
+                        {linha.nome}
+                      </Link>
+                    ) : (
+                      linha.nome
+                    )}
                   </span>
                 </td>
                 <td className="px-2 py-2 text-center font-semibold tabular-nums">
@@ -195,7 +235,7 @@ export function StandingsTable({
         </tbody>
       </table>
       </div>
-      {temZonas ? (
+      {temZonas || temPromedio ? (
         <ul className="flex list-none flex-wrap gap-x-4 gap-y-1 px-0.5 text-xs text-muted-foreground">
           {posAcesso.size > 0 ? (
             <li className="flex items-center gap-1.5">
@@ -228,6 +268,14 @@ export function StandingsTable({
                 : temPlayoffAcesso
                   ? "Playoff de acesso"
                   : "Playout"}
+            </li>
+          ) : null}
+          {temPromedio ? (
+            <li className="flex items-center gap-1.5">
+              <span aria-hidden="true" className="font-semibold tabular-nums">
+                Pro
+              </span>
+              Corte por promédio (média de pontos por jogo)
             </li>
           ) : null}
         </ul>

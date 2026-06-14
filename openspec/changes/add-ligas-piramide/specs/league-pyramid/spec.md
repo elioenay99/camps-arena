@@ -196,3 +196,46 @@ Para cada fronteira `barragem_cruzada`, o sistema SHALL resolver a ZONA nas DUAS
 
 - **WHEN** todas as divisões e todas as barragens da temporada estão decididas e o dono calcula o fluxo
 - **THEN** o plano sobe/cai usa o resultado das barragens (vencedores de baixo sobem, perdedores de cima caem), com `resolvido_por='playoff'`, conservando o tamanho das divisões na próxima temporada
+
+### Requirement: Sobe/cai por promedio (média plurianual — Fase 4)
+
+Para divisões com `ranking_base = 'promedios'`, o cálculo do fluxo SHALL decidir o corte de sobe/cai pelo **promedio** de cada competidor — `Σpontos ÷ Σjogos` de TODA a sua história na pirâmide (todas as temporadas anteriores, todas as divisões) MAIS a contribuição AO VIVO da temporada corrente — em vez da posição da tabela. O sistema SHALL produzir um rank de corte único e contíguo (`promedio desc`, desempatado pela posição real da tabela do ano e então pelo id do competidor), de modo que o corte por promedio seja DETERMINÍSTICO (sem sorteio). O motor de fluxo SHALL permanecer inalterado: o rank de promedio é injetado como a posição de corte, e a `posicao_final` PERSISTIDA SHALL ser sempre a posição REAL da tabela (resultado esportivo), nunca o rank. A conservação de tamanho SHALL ser preservada (o promedio só reordena QUEM cai/sobe, não QUANTOS). A mesma ordem de corte SHALL alimentar a resolução de zona de playoff/barragem quando a divisão usa `promedios` (montagem e cálculo na mesma base). Um competidor em sua primeira temporada (sem histórico) SHALL ter promedio igual ao PPG da temporada atual; `Σjogos = 0` SHALL render promedio 0 (ordem garantida pelo desempate por posição).
+
+#### Scenario: Promedio decide o rebaixamento contra a tabela do ano
+
+- **WHEN** uma divisão `promedios` encerra com um clube de baixo promedio em posição de tabela segura e um clube de alto promedio em posição de queda
+- **THEN** o corte rebaixa pelo promedio (o de baixo promedio cai mesmo melhor colocado no ano), e a `posicao_final` registrada de cada um é a posição real da tabela
+
+#### Scenario: Promedio de vida toda soma todas as divisões
+
+- **WHEN** um competidor jogou temporadas em divisões diferentes
+- **THEN** o promedio soma pontos e jogos de todas elas (sem reset por promoção/queda) e divide um pelo outro, somando ainda a campanha ao vivo da temporada corrente
+
+#### Scenario: Corte por promedio é determinístico
+
+- **WHEN** o fluxo de uma divisão `promedios` é calculado
+- **THEN** o rank de promedio é total (sem empates) e nenhum sorteio é disparado; empates exatos de promedio são quebrados pela posição da tabela do ano
+
+#### Scenario: Standings de divisão promedios mostram o promedio
+
+- **WHEN** a página da temporada exibe uma divisão `promedios`
+- **THEN** a tabela mostra a coluna de promedio por competidor e destaca a zona de corte pelo rank de promedio (não pela posição), com legenda explicando o critério
+
+### Requirement: Página do competidor com histórico plurianual (Fase 4)
+
+O sistema SHALL oferecer uma página `dashboard/ligas/competidor/[id]` (RSC) que apresenta o histórico completo de um competidor persistente, legível pelo dono da pirâmide e por qualquer USUÁRIO LOGADO enquanto a pirâmide está ATIVA (`status = 'ativa' OR created_by = auth.uid()`, ESPELHANDO exatamente a RLS das tabelas `league_*`; `is_public` NÃO entra — ele controla só `tournaments.is_public`/placares de partida, nunca a estrutura). Como a rota vive sob `/dashboard` (protegida pelo middleware), o acesso exige autenticação — "qualquer um" = qualquer usuário logado, não anônimo (acesso anônimo real exigiria mover a rota para fora de `/dashboard`; fica como follow-up). Esta é a primeira página `league_*` legível por NÃO-DONO, um gate novo e consciente alinhado à decisão de produto "estrutura da pirâmide é pública enquanto ativa; só placares de partida são privados". A página SHALL expor SÓ agregados das entries (pontos/jogos/posição/destino), NUNCA placares de jogo. A página SHALL mostrar: identidade (escudo do clube no modo clube, ou rótulo no modo nome); linha do tempo de temporadas (número da temporada, divisão, posição final, destino sobe/cai/permanece, PPG da temporada) derivada de `league_division_entries`; o promedio de vida toda e sua evolução por temporada; conquistas derivadas das entries (títulos = posição final 1, destaque de campeão da elite no nível 1, contagem de acessos e quedas); e agregados (temporadas disputadas, jogos e pontos totais, promedio). A `StandingsTable` da página da temporada SHALL linkar o nome de cada competidor para a sua página, usando o `competitor_id` já presente em `linha.participanteId` no contexto de pirâmide. A página SHALL ser mobile-first (390px) nos dois temas. A página NÃO mostra V/E/D/saldo histórico por temporada (as entries só guardam pontos/jogos).
+
+#### Scenario: Histórico do competidor visível em pirâmide ativa
+
+- **WHEN** um usuário logado (não o dono) abre a página de um competidor de uma pirâmide ativa
+- **THEN** vê a linha do tempo de temporadas, o promedio e as conquistas (agregados), sem precisar ser o dono e sem ver placares de partida
+
+#### Scenario: Página de competidor de pirâmide arquivada exige o dono
+
+- **WHEN** um não-dono tenta abrir a página de um competidor de uma pirâmide ARQUIVADA (`status = 'arquivada'`)
+- **THEN** o acesso é negado (not-found/sem dados), coerente com a RLS das tabelas (`status='ativa' OR created_by`)
+
+#### Scenario: Conquistas derivadas do histórico
+
+- **WHEN** um competidor terminou em 1º em alguma divisão e subiu/caiu ao longo das temporadas
+- **THEN** a página conta os títulos (posição final 1), marca o campeão da elite (nível 1) e exibe a contagem de acessos e quedas, tudo derivado das entries existentes (sem nova persistência)

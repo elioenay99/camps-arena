@@ -11,10 +11,12 @@ vi.mock("@/features/standings/data/getTournamentClassificacao", () => ({
 import { createCompetition, montarTemporada } from "@/actions/leaguePyramid"
 import {
   calcularPlanoFluxo,
+  calcularPromedio,
   combinarFronteiraBarragem,
   combinarFronteiraPlayoff,
   ordemSorteada,
   prngDeSemente,
+  rankearPorPromedio,
   resolverZonaDeCorte,
   validarFechamentoTamanho,
   zonaBarragemPorPosicao,
@@ -1093,5 +1095,110 @@ describe("combinarFronteiraBarragem (Fase 3)", () => {
     expect(r.caemPorChave.size).toBe(0)
     expect([...r.sobem].sort()).toEqual([cid("inf1"), cid("inf2")].sort())
     expect([...r.caem].sort()).toEqual([cid("sup7"), cid("sup8")].sort())
+  })
+})
+
+/* -------------------------------------------------------------------------- */
+/* Promedios (Fase 4)                                                          */
+/* -------------------------------------------------------------------------- */
+
+describe("calcularPromedio (Fase 4)", () => {
+  it("soma histórico + atual (vida toda) e divide", () => {
+    // 38 + 50 = 88 pontos em 38 + 40 = 78 jogos.
+    expect(
+      calcularPromedio({
+        historicoPontos: 50,
+        historicoJogos: 40,
+        atualPontos: 38,
+        atualJogos: 38,
+      })
+    ).toBeCloseTo(88 / 78, 10)
+  })
+
+  it("recém-chegado (sem histórico) = PPG da temporada atual", () => {
+    expect(
+      calcularPromedio({
+        historicoPontos: 0,
+        historicoJogos: 0,
+        atualPontos: 30,
+        atualJogos: 20,
+      })
+    ).toBeCloseTo(1.5, 10)
+  })
+
+  it("Σjogos = 0 ⇒ 0 (sem divisão por zero)", () => {
+    expect(
+      calcularPromedio({
+        historicoPontos: 0,
+        historicoJogos: 0,
+        atualPontos: 0,
+        atualJogos: 0,
+      })
+    ).toBe(0)
+  })
+
+  it("'0 por ausência de jogos' e 'PPG baixo positivo' são distintos", () => {
+    const ausente = calcularPromedio({
+      historicoPontos: 0,
+      historicoJogos: 0,
+      atualPontos: 0,
+      atualJogos: 0,
+    })
+    const baixo = calcularPromedio({
+      historicoPontos: 0,
+      historicoJogos: 0,
+      atualPontos: 1,
+      atualJogos: 10,
+    })
+    expect(ausente).toBe(0)
+    expect(baixo).toBeGreaterThan(ausente)
+  })
+})
+
+describe("rankearPorPromedio (Fase 4)", () => {
+  it("ordena por promedio desc e gera rank contíguo 1..n", () => {
+    const rank = rankearPorPromedio([
+      { competitorId: cid("a"), promedio: 1.2, posicaoReal: 3 },
+      { competitorId: cid("b"), promedio: 2.0, posicaoReal: 1 },
+      { competitorId: cid("c"), promedio: 1.6, posicaoReal: 2 },
+    ])
+    expect(rank.get(cid("b"))).toBe(1)
+    expect(rank.get(cid("c"))).toBe(2)
+    expect(rank.get(cid("a"))).toBe(3)
+    // contiguidade: exatamente {1,2,3}
+    expect([...rank.values()].sort()).toEqual([1, 2, 3])
+  })
+
+  it("desempata promedio igual pela posição REAL da tabela (asc)", () => {
+    const rank = rankearPorPromedio([
+      { competitorId: cid("x"), promedio: 1.5, posicaoReal: 12 },
+      { competitorId: cid("y"), promedio: 1.5, posicaoReal: 4 },
+    ])
+    // mesmo promedio ⇒ quem foi melhor na tabela (posição menor) vem antes.
+    expect(rank.get(cid("y"))).toBe(1)
+    expect(rank.get(cid("x"))).toBe(2)
+  })
+
+  it("promedio E posição real iguais ⇒ desempate determinístico por competitorId (total order, sem empate)", () => {
+    const rank = rankearPorPromedio([
+      { competitorId: "comp-zzz", promedio: 1.0, posicaoReal: 5 },
+      { competitorId: "comp-aaa", promedio: 1.0, posicaoReal: 5 },
+    ])
+    expect(rank.get("comp-aaa")).toBe(1)
+    expect(rank.get("comp-zzz")).toBe(2)
+    // INVARIANTE DURA: rank total, contíguo, sem buracos nem duplicatas.
+    expect([...rank.values()].sort()).toEqual([1, 2])
+  })
+
+  it("'0 por ausência' vai ao fundo, ordenado por posição real entre os 0", () => {
+    const rank = rankearPorPromedio([
+      { competitorId: cid("forte"), promedio: 2.1, posicaoReal: 1 },
+      { competitorId: cid("zero-pos8"), promedio: 0, posicaoReal: 8 },
+      { competitorId: cid("zero-pos6"), promedio: 0, posicaoReal: 6 },
+    ])
+    expect(rank.get(cid("forte"))).toBe(1)
+    // entre os promedio 0, a posição real decide (6 antes de 8).
+    expect(rank.get(cid("zero-pos6"))).toBe(2)
+    expect(rank.get(cid("zero-pos8"))).toBe(3)
   })
 })

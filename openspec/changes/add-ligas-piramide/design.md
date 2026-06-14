@@ -681,3 +681,102 @@ A GERAÇÃO da chave fica na ACTION (reúso do motor JS), como na Fase 2. Peças
 - **Pontas**: a divisão 1 nunca é inferior; a última nunca é superior (refine de adjacência, independe de modo). Uma fronteira de barragem precisa das duas divisões adjacentes existirem.
 - **Empate de agregado (ida-e-volta)**: barrado na persistência (`valida_resultado_mata_mata`) — vale para o `pares` (cada par é um confronto) e o `chave`. Sem auto-desempate.
 - **Idempotência/retomada**: sentinela `playoff_tournament_id` + gate `jaGeradas` — re-rodar `montarPlayoffs` completa a chave/pares sem regerar.
+
+---
+
+## 10. Fase 4 — Promedios + página do competidor (detalhe)
+
+Decisão de produto (dono, 2026-06-13, AskUserQuestion): (1) **janela = vida toda** (média sobre TODAS as temporadas do competidor na pirâmide); (2) **cross-divisão = todas as divisões da janela** (Σpontos ÷ Σjogos, sem reset por promoção/queda); (3) **página do competidor = completa**. Essas escolhas eliminam parâmetro de janela (N) e lógica de reset — o promedio vira um **agregado simples de vida toda**, sem DDL nova além da coluna de base por divisão.
+
+### 10.1 Conceito (sistema argentino, generalizado)
+`promedio` = média plurianual de pontos-por-jogo, usada para decidir o **rebaixamento** (no clássico, só ele; acesso/título seguem a tabela do ano). Aqui:
+
+```
+promedio(competidor) = (Σ pontos de TODAS as temporadas anteriores + pontos da temporada atual)
+                       ÷ (Σ jogos  de TODAS as temporadas anteriores + jogos  da temporada atual)
+```
+
+- **Vida toda, todas as divisões**: soma direta de `league_division_entries.pontos`/`jogos` de toda a história do competidor (independente da divisão), MAIS a contribuição AO VIVO da temporada corrente (lida de `getTournamentClassificacao`, pois a entry da temporada atual ainda tem `posicao_final` nulo no momento do cálculo).
+- **Recém-chegado** (1ª temporada): sem histórico ⇒ promedio = PPG da temporada atual. Caso `Σjogos = 0` (divisão não disputada / só W.O. sem jogos), promedio = 0 (degrada para a posição como desempate — ver 10.4).
+
+### 10.2 Base de ranking por divisão (snapshot)
+`league_ranking_base` (enum já criado na Fase 0: `'posicao' | 'ppg' | 'promedios'`) ganha uma COLUNA em `league_division_seasons` (snapshot, igual a `desempate`/`por_nome`/`tamanho`):
+
+```sql
+alter table public.league_division_seasons
+  add column if not exists ranking_base public.league_ranking_base not null default 'posicao';
+```
+
+- `'posicao'` (DEFAULT) = comportamento atual byte-idêntico (corte pela posição da tabela). `'ppg'` dentro de uma divisão é equivalente a `'posicao'` (todos jogam o mesmo nº de jogos) — tratado como `'posicao'` no motor; **NÃO exposto no wizard** (valor latente do enum). `'promedios'` = corte pelo rank de promedio.
+- **Escopo via per-divisão**: o promedio governa a ORDENAÇÃO de corte de TODA a divisão (acesso E queda). O caso clássico "promedio só no rebaixamento" se obtém marcando `promedios` só na divisão de TOPO (que só rebaixa — não tem acesso acima). Em divisões do meio, marcar `promedios` aplica a ambos os cortes — escolha consciente do dono.
+- **Imutável após rascunho**: estender `lock_league_division_season` para travar `ranking_base` fora de `rascunho` (snapshot da config).
+- **Cópia para N+1**: `montarProximaTemporada` copia `ranking_base` na geometria (sem isso a N+1 cairia para `posicao` silenciosamente).
+
+### 10.3 Integração no motor SEM regressão (rank-como-posição + remap de `posicaoFinal`)
+**O motor de fluxo (`flowEngine.ts`) NÃO muda** — risco zero de regressão nos 976 testes. A estratégia:
+
+1. Helper PURO `calcularPromedio({ historicoPontos, historicoJogos, atualPontos, atualJogos })` e `rankearPorPromedio(competidores)` (novos exports em `flowEngine.ts` — adições, não alterações).
+2. `rankearPorPromedio` produz um **rank de corte ÚNICO e contíguo** (1..n) ordenando por `(promedio desc, posição-real-da-tabela asc, competitorId asc)`. Total order ⇒ **sem empates ⇒ sem sorteio** para divisões `promedios` (cortes determinísticos: promedio, desempate pela campanha do ano).
+3. As actions (`calcularFluxoTemporada`, `montarPlayoffs`) injetam esse rank COMO o campo `posicao` que já alimentam o motor. Tudo a jusante (cortes diretos, zonas de playoff/barragem, conservação) funciona inalterado.
+4. `calcularFluxoTemporada` mantém um `Map<competitorId, posicaoRealDaTabela>` e, APÓS `calcularPlanoFluxo`, **remapeia `item.posicaoFinal` para a posição real da tabela** (o resultado esportivo). Para divisões `posicao`, o remap é no-op (rank == posição real).
+
+Contrato preciso (action, em `calcularFluxoTemporada` e no helper compartilhado de `montarPlayoffs`):
+```
+para cada divisão:
+  linhasReais = getTournamentClassificacao(...) → { competitorId, posicaoReal, pontos, jogos }
+  se ranking_base ∈ {'posicao','ppg'}:  posicaoCorte(c) = posicaoReal(c)
+  se ranking_base == 'promedios':
+     hist = Σ(pontos,jogos) de league_division_entries do competidor com posicao_final NOT NULL
+            E division_season_id ∉ (divisões da temporada ATUAL)   // GUARDA PRINCIPAL anti-duplo-conta
+     promedio(c) = calcularPromedio(hist.pontos, hist.jogos, atualPontos, atualJogos)
+     posicaoCorte = rankearPorPromedio(...)   // 1..n único
+  alimenta o motor com posicao = posicaoCorte; carrega pontos/jogos REAIS (para persistir + promedio futuro)
+```
+
+**FONTE ÚNICA do rank de corte (evita "consumidor órfão"):** o helper `carregarPosicoesDeCorte(supabase, divisionSeasonIdsDaTemporada, divisao, rankingBase, linhasReais)` é a **única** função que produz `posicaoCorte` + `promedio` por competidor, e é consumido em **TODOS** os pontos que ordenam competidores para sobe/cai:
+1. `calcularFluxoTemporada` — o loop que monta `divisoesFluxo`/`porNivel` (`leaguePyramid.ts:~1046-1073`).
+2. `montarPlayoffs` — `carregarDivisao` (`~733-764`), que alimenta `zonaPlayoffPorPosicao`/`zonaBarragemPorPosicao` E a ordem dos `p_competitor_ids` passados às RPCs `montar_playoff`/`montar_barragem` (o **seeding** passa a ser por rank de promedio quando a divisão-fonte é `promedios`).
+3. `getDivisionStandings` — para exibição (§10.5).
+
+**Por que `montarPlayoffs` também:** uma divisão `promedios` com fronteira de playout/barragem montaria a chave por posição (no mount) mas decidiria o corte por promedio (no fluxo) — competidor diferente entra na zona vs decide o fluxo (classe de bug "consumidor órfão", [[arena-modelo-clube-centrico]]). Mesmo helper nos dois ⇒ montagem ≡ cálculo. **Teste ao vivo (4.6.2) DEVE incluir uma divisão `promedios` com fronteira de playout/barragem** (não só `direto`), validando zona-montada == zona-cortada.
+
+**Remap de `posicaoFinal` — provadamente TOTAL.** `calcularPlanoFluxo` atribui `posicaoFinal: linha.posicao` num ÚNICO ponto (`flowEngine.ts:371`) para TODOS os itens — inclusive `resolvido_por='playoff'`/`'sorteio'` (que herdam da `linha`, não recalculam). Com o rank injetado, `posicaoFinal` carregaria o RANK. Logo, APÓS `calcularPlanoFluxo`, iterar **TODOS os itens do plano por `competitorId`** (não por fronteira/modo) e fazer `item.posicaoFinal = posicaoRealPorCompetidor.get(item.competitorId)`. O `Map<competitorId, posicaoReal>` nasce ANTES da injeção do rank, de `linha.posicao` real. **Fallback explícito:** se um `competitorId` do plano não estiver no Map, FALHAR (`erroGenerico`), nunca persistir o rank. Cada competidor tem exatamente 1 entry por temporada ⇒ chave única.
+
+### 10.4 Desempate do rank de promedio
+Empate EXATO de promedio é quebrado pela **posição real da tabela do ano** (campanha corrente; determinístico, meritocrático). Empate residual (mesmo promedio E mesma posição real — só se a própria tabela empata posição) cai no `competitorId` (estável). Resultado: rank total, sem sorteio. Decisão registrada: promedios é determinístico; sorteio fica reservado a divisões `posicao` (comportamento da Fase 1).
+
+### 10.5 Exibição (sem promedio invisível, zona NÃO-contígua)
+Quando a divisão é `promedios`, o corte "parece errado" na tabela (16º cai, 18º sobrevive) — a UI DEVE mostrar o promedio para explicar, E o destaque de zona DEVE cair nas linhas certas:
+- **GOTCHA do destaque** (`StandingsTable.tsx:106-119`): a tabela destaca acesso/queda por **set-membership de `linha.posicao` REAL** contra os Sets vindos de `derivarZonas`. Hoje `derivarZonas` (`getDivisionStandings.ts:79+`) só emite intervalos **contíguos** via `intervalo()` (ex.: `[total-R+1..total]`). Numa divisão `promedios` o corte é por RANK, que pode não coincidir com as últimas posições da tabela — emitir intervalo contíguo pintaria as linhas ERRADAS.
+- **Mecanismo cravado**: quando `ranking_base == 'promedios'`, `getDivisionStandings` calcula o promedio por competidor (via `carregarPosicoesDeCorte`), deriva o **conjunto de `competitorId` no corte pelo RANK**, e **mapeia esse conjunto de volta às POSIÇÕES REAIS** desses competidores — lista **não-contígua**, SEM `intervalo()` — para preencher os Sets de `Zonas`. A tabela permanece ordenada por posição real; a coluna "Promédio" explica. (O destaque por-linha já tolera Sets esparsos — não assume banda contígua.)
+- `StandingsTable` ganha props ADITIVAS default-off: coluna opcional "Promédio" (`0.000`) renderizada só quando há `promedio` na linha; legenda "corte por promédio". Default ausente preserva todos os usos standalone e as divisões `posicao`.
+- **Teste obrigatório**: divisão `promedios` em que o rebaixado por promedio NÃO é o último da tabela ⇒ a faixa `destructive` cai na linha do 16º, não do 18º.
+
+### 10.6 Página do competidor `dashboard/ligas/competidor/[id]/` (completa, RSC)
+Fetcher `getCompetitorProfile(competitorId)`:
+- Carrega o competidor (`team_id`/`rotulo`, `competition_id`, `holder_user_id`) + competição (`nome`, `status`, `created_by`). **Gate de leitura**: `status == 'ativa' OR created_by == auth.uid()` — ESPELHA exatamente a RLS das tabelas `league_*` (todas as policies de SELECT usam `status='ativa' OR created_by`; o enum `status` é `('ativa','arquivada')`). **CORREÇÃO do achado CRITICAL do gate**: `is_public` NÃO entra aqui — ele só controla `tournaments.is_public` (placares de PARTIDA), nunca a estrutura `league_*`. Alinhado à decisão de produto do dono ("estrutura da pirâmide é visível enquanto ativa; só partidas/placares herdam o sigilo") e à escolha desta fase (página pública enquanto a pirâmide está ativa; só do dono quando arquivada). A página expõe SÓ agregados das entries (pontos/jogos/posição/destino), **nunca placares de jogo** (estes vivem em `matches`, gated por `tournaments.is_public`). Esta é a 1ª página `league_*` legível por não-dono — gate NOVO e consciente (os fetchers existentes `getSeason`/`getDivisionStandings` são owner-only por opção, não por exigência da RLS). NOTA: a rota vive sob `/dashboard` (protegida pelo middleware), então exige autenticação — "qualquer um" significa qualquer usuário LOGADO (não anônimo). Acesso anônimo real exigiria mover a rota para fora de `/dashboard` — follow-up deliberado, não nesta fase.
+- Linha do tempo: TODAS as `league_division_entries` do competidor → join `league_division_seasons` (nivel, nome) → `league_seasons` (numero) — por temporada: `{ numero, nivel, divisaoNome, posicaoFinal, destino, pontos, jogos, ppgTemporada }`, ordenada por `numero`.
+- Promedio: agregado de vida toda (mesmo `calcularPromedio`) + evolução (PPG por temporada).
+- Conquistas (derivadas de entries, sem query nova): `titulos` = nº de `posicao_final == 1`; destaque "campeão da elite" quando `nivel == 1 && posicao_final == 1`; `acessos` = nº `destino=='sobe'`; `quedas` = nº `destino=='cai'`.
+- Agregados: temporadas disputadas, Σjogos, Σpontos, promedio de vida toda.
+- Identidade visual: escudo do clube (reúso do fetch de `teams`) no modo clube; `rotulo` no modo nome.
+
+UI (componentes folha, mobile-first 390px, 2 temas, tokens Dracula/Canarinho):
+- Herói: escudo/nome + chips de destaque (promedio, temporadas, títulos).
+- Linha do tempo de temporadas (divisão, posição final em `font-display`, destino em pílula sobe/cai/permanece, PPG da temporada).
+- Evolução do promedio (lista/sparkline CSS por temporada).
+- Conquistas (badges) + agregados.
+- **Links de entrada**: `StandingsTable` (na página da temporada) linka o nome do competidor → `/dashboard/ligas/competidor/[id]`. O id estável JÁ existe: `getDivisionStandings` reescreve `linha.participanteId` para o `competitor_id` no contexto de pirâmide (`getDivisionStandings.ts:251-255`) — usar `linha.participanteId` como href (sem campo de dados novo). `StandingsTable` ganha prop opcional `hrefCompetidorBase` (default-off → sem link, preserva torneios avulsos). Índice navegável de competidores fica para depois (não obrigatório nesta fase).
+
+### 10.7 Escopo e fronteira deliberada
+- **Inclui**: base `promedios` por divisão; cálculo de vida toda; integração no fluxo (direto + zonas de playoff/barragem via mesmo rank); exibição do promedio nas standings; página completa do competidor; cópia de `ranking_base` para N+1; lock; espelho em `schema.sql` + types.
+- **NÃO inclui** (Fase 5+): janela parametrizável (N), reset por divisão, sorteio/desempate-jogo no empate de promedio, base `ppg` exposta no wizard, índice navegável de competidores; **V/E/D/saldo histórico por temporada** na página do competidor (as `league_division_entries` só guardam `pontos`/`jogos` — V/E/D ao vivo vêm de `getTournamentClassificacao` e se perdem após o fluxo; a página entrega PPG/promedio/posição/destino/títulos). Registrar como dívidas se surgirem.
+
+### 10.8 Edge cases Fase 4 (invariantes precisas)
+- **Σjogos = 0** ⇒ promedio = 0; o desempate por posição real garante ordem estável (não quebra o rank).
+- **Recém-chegado** ⇒ promedio = PPG atual (sem histórico); rankeado normalmente.
+- **`posicaoFinal` persistido** = posição REAL da tabela (resultado esportivo), nunca o rank de promedio (remap em 10.3).
+- **Conservação de tamanho** inalterada (o promedio só reordena QUEM cai/sobe, não QUANTOS — `movimentoEfetivo` intacto).
+- **Idempotência**: `calcularFluxoTemporada` continua read-only; o promedio é recomputado a cada chamada (estável, pois histórico é imutável e a tabela atual é determinística).
+- **Anti-duplo-conta**: a GUARDA PRINCIPAL é excluir as entries das divisões da temporada ATUAL (`division_season_id ∉ divisões de N`) — o conjunto desses ids JÁ está no escopo (`divisoes`); o filtro `posicao_final NOT NULL` é secundário. As entries da corrente nascem com `posicao_final` NULL (só preenchido no `confirmarFluxoTemporada`) e o cálculo usa a contribuição AO VIVO via `getTournamentClassificacao`, então não há contagem dupla mesmo em reprocessamento de season `em_fluxo`.
+- **DÍVIDA registrada (não-bloqueia, achado low do gate)**: o laço de UPDATE de entries no `confirmarFluxoTemporada` não é transacional com `montarProximaTemporada`; uma falha parcial exata entre o UPDATE e o encerramento poderia deixar uma entry histórica com `posicao_final` NULL, fazendo o promedio de vida toda OMITIR aquela temporada (subcontagem de jogos infla o PPG) — não é duplo-conta, é omissão. O retry reescreve idempotentemente os mesmos valores. Mitigação futura: envolver o UPDATE+montar numa RPC transacional, ou agregar do tournament encerrado quando `posicao_final` NULL em season não-rascunho.

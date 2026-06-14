@@ -654,3 +654,55 @@ export function combinarFronteiraBarragem(opts: {
 
   return { sobem, caem, sobemPorChave, caemPorChave }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Promedios (Fase 4) — base de ranking por média plurianual de PPG            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Promedio = média de pontos-por-jogo de VIDA TODA (todas as temporadas, todas as
+ * divisões), somando o histórico consolidado e a contribuição AO VIVO da temporada
+ * corrente. Σjogos = 0 ⇒ 0 (sem divisão por zero; a ordem fica estável pelo
+ * desempate por posição real em `rankearPorPromedio`). Determinístico e puro.
+ */
+export function calcularPromedio(args: {
+  historicoPontos: number
+  historicoJogos: number
+  atualPontos: number
+  atualJogos: number
+}): number {
+  const pontos = args.historicoPontos + args.atualPontos
+  const jogos = args.historicoJogos + args.atualJogos
+  if (jogos <= 0) return 0
+  return pontos / jogos
+}
+
+/** Competidor de uma divisão com o promedio já computado e a posição REAL da tabela. */
+export interface CompetidorPromedio {
+  competitorId: string
+  promedio: number
+  /** Posição real na tabela do ano (campanha corrente) — desempate do rank. */
+  posicaoReal: number
+}
+
+/**
+ * Atribui o RANK DE CORTE de uma divisão `promedios`: ordena por
+ * `(promedio desc, posicaoReal asc, competitorId asc)` e devolve um rank CONTÍGUO
+ * 1..n por competidor. Como a tripla é uma ordem TOTAL, o rank não tem empates —
+ * logo nenhum sorteio é disparado a jusante (o motor recebe posições únicas). O
+ * desempate final pelo `competitorId` (UUID) é estável, porém arbitrário (não
+ * esportivo) e só ocorre se promedio E posição real coincidirem (a própria tabela
+ * empatou a posição) — trade-off consciente da Fase 4 (promedios é determinístico).
+ */
+export function rankearPorPromedio(
+  competidores: readonly CompetidorPromedio[]
+): Map<string, number> {
+  const ordenados = [...competidores].sort((a, b) => {
+    if (b.promedio !== a.promedio) return b.promedio - a.promedio
+    if (a.posicaoReal !== b.posicaoReal) return a.posicaoReal - b.posicaoReal
+    return a.competitorId < b.competitorId ? -1 : a.competitorId > b.competitorId ? 1 : 0
+  })
+  const rank = new Map<string, number>()
+  ordenados.forEach((c, i) => rank.set(c.competitorId, i + 1))
+  return rank
+}

@@ -46,3 +46,22 @@ A tabela `tournament_slots` SHALL ganhar `competitor_id uuid` anulável (FK para
 
 - **WHEN** um torneio recebe `desempate_criterio` fora do conjunto permitido nesta fase (`cbf`/`ingles`/`custom`), incluindo `'espanhol'`
 - **THEN** a CHECK `tournaments_desempate_valido` rejeita, e o default `cbf` preserva o comportamento dos torneios existentes
+
+### Requirement: Base de ranking por divisão (promedios — Fase 4)
+
+A tabela `league_division_seasons` SHALL ganhar `ranking_base public.league_ranking_base not null default 'posicao'` (o enum `('posicao','ppg','promedios')` já existe da fundação) — um snapshot da config da divisão, igual a `desempate`/`por_nome`/`tamanho`. `'posicao'` (default) SHALL preservar byte-a-byte o corte por posição da tabela; `'promedios'` SHALL fazer o corte de sobe/cai pela média plurianual de pontos-por-jogo (vida toda, todas as divisões). O valor `'ppg'` é latente nesta fase (dentro de uma divisão equivale a `'posicao'`). A coluna SHALL ser imutável após o rascunho (trigger `lock_league_division_season` estendido) e SHALL ser copiada para a temporada N+1 por `montarProximaTemporada` (sem a cópia, a N+1 cairia para `posicao` silenciosamente). A DDL SHALL ser aditiva/idempotente e espelhada em `supabase/schema.sql`.
+
+#### Scenario: Divisão por posição preserva o comportamento atual
+
+- **WHEN** uma divisão é criada sem escolher base (ou com `ranking_base = 'posicao'`)
+- **THEN** o corte de sobe/cai segue a posição da tabela exatamente como na Fase 1, e nenhuma coluna de promedio aparece nas standings
+
+#### Scenario: Base de ranking imutável após rascunho
+
+- **WHEN** se tenta alterar `ranking_base` de uma divisão cuja temporada já saiu de `rascunho`
+- **THEN** o trigger `lock_league_division_season` rejeita a alteração (snapshot congelado)
+
+#### Scenario: Base de ranking copiada para a próxima temporada
+
+- **WHEN** `montarProximaTemporada` gera a temporada N+1 de uma pirâmide com uma divisão `promedios`
+- **THEN** a divisão correspondente da N+1 nasce com `ranking_base = 'promedios'` (config preservada entre temporadas)

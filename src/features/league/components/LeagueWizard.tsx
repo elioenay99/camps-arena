@@ -32,6 +32,7 @@ import {
   PIRAMIDE_PRESETS,
   PLAYOFF_VAGAS_COMPLETAS,
   PRESET_PERSONALIZADO,
+  RANKING_BASES_DISPONIVEIS,
   type CreateCompetitionInput,
   type PiramidePresetId,
 } from "@/schema/leaguePyramidSchema"
@@ -63,6 +64,7 @@ interface DivisaoRascunho {
   nome: string
   porNome: boolean
   desempate: (typeof DESEMPATES_DISPONIVEIS)[number]
+  rankingBase: (typeof RANKING_BASES_DISPONIVEIS)[number]
   tamanho: number
   competidores: CompetidorRascunho[]
 }
@@ -111,6 +113,12 @@ const ROTULO_PASSO: Record<Passo, string> = {
 const DESEMPATE_ROTULO: Record<(typeof DESEMPATES_DISPONIVEIS)[number], string> = {
   cbf: "CBF (vitórias, saldo, gols pró)",
   ingles: "Inglês (saldo, gols pró, vitórias)",
+}
+
+/** Rótulo da base de ranking de sobe/cai por divisão (Fase 4). */
+const RANKING_BASE_ROTULO: Record<(typeof RANKING_BASES_DISPONIVEIS)[number], string> = {
+  posicao: "Posição (tabela do ano)",
+  promedios: "Promédio (média plurianual)",
 }
 
 /** Classe compartilhada dos <select> nativos do wizard (espelha o de desempate). */
@@ -167,6 +175,7 @@ function novaDivisao(
     nome: nomePadraoDivisao(nivel),
     porNome: false,
     desempate,
+    rankingBase: "posicao",
     tamanho: 20,
     competidores: [],
   }
@@ -656,6 +665,7 @@ export function LeagueWizard() {
         nome: d.nome.trim() || nomePadraoDivisao(d.nivel),
         porNome: d.porNome,
         desempate: d.desempate,
+        rankingBase: d.rankingBase,
         tamanho: d.tamanho,
         competidores: d.competidores.map((c) =>
           c.tipo === "nome"
@@ -1096,6 +1106,35 @@ function PassoDivisoes({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="grid gap-1.5 sm:col-span-2">
+                <Label htmlFor={`rank-${d.nivel}`} className="text-xs">
+                  Base de sobe/cai
+                </Label>
+                <select
+                  id={`rank-${d.nivel}`}
+                  value={d.rankingBase}
+                  onChange={(e) =>
+                    onAtualizar(idx, {
+                      rankingBase: e.target.value as DivisaoRascunho["rankingBase"],
+                    })
+                  }
+                  className="border-input bg-transparent focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm outline-none focus-visible:ring-3"
+                >
+                  {RANKING_BASES_DISPONIVEIS.map((rb) => (
+                    <option key={rb} value={rb}>
+                      {RANKING_BASE_ROTULO[rb]}
+                    </option>
+                  ))}
+                </select>
+                {d.rankingBase === "promedios" ? (
+                  <p className="text-muted-foreground text-xs">
+                    Promédio: média de pontos por jogo de toda a história do competidor
+                    (vida toda). Decide o sobe/cai no estilo argentino — marque na
+                    divisão de elite para rebaixar por promédio.
+                  </p>
+                ) : null}
               </div>
             </div>
 

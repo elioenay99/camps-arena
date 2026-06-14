@@ -1717,6 +1717,11 @@ create table if not exists public.league_division_seasons (
   -- Preset de desempate desta divisão (snapshot). Passa ao computeStandings via
   -- tournaments.desempate_criterio.
   desempate     text not null default 'cbf',
+  -- Base de cálculo de sobe/cai desta divisão (snapshot — Fase 4). 'posicao'
+  -- (default) = corte pela posição da tabela (byte-idêntico ao legado); 'promedios'
+  -- = corte pela média plurianual de pontos-por-jogo (vida toda, todas as divisões,
+  -- estilo argentino); 'ppg' é latente (== 'posicao' dentro de uma divisão).
+  ranking_base  public.league_ranking_base not null default 'posicao',
   -- Tamanho-alvo da divisão (nº de competidores). Usado na CONSERVAÇÃO de tamanho
   -- ao montar a próxima temporada (sobe == desce nas fronteiras simétricas).
   tamanho       integer not null,
@@ -2493,7 +2498,9 @@ begin
     if (new.tournament_id is distinct from old.tournament_id
         or new.nivel is distinct from old.nivel
         or new.por_nome is distinct from old.por_nome
-        or new.tamanho is distinct from old.tamanho)
+        or new.tamanho is distinct from old.tamanho
+        or new.desempate is distinct from old.desempate
+        or new.ranking_base is distinct from old.ranking_base)
        and exists (
          select 1 from public.league_seasons ls
          where ls.id = old.season_id

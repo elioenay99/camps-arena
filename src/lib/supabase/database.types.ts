@@ -539,6 +539,7 @@ export interface Database {
           tournament_id: string | null
           por_nome: boolean
           desempate: string
+          ranking_base: LeagueRankingBase
           tamanho: number
           created_at: string
         }
@@ -550,6 +551,7 @@ export interface Database {
           tournament_id?: string | null
           por_nome?: boolean
           desempate?: string
+          ranking_base?: LeagueRankingBase
           tamanho: number
           created_at?: string
         }
@@ -561,6 +563,7 @@ export interface Database {
           tournament_id?: string | null
           por_nome?: boolean
           desempate?: string
+          ranking_base?: LeagueRankingBase
           tamanho?: number
           created_at?: string
         }

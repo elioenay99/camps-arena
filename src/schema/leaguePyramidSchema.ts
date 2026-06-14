@@ -33,6 +33,14 @@ export const MAX_DIVISOES = 8
  */
 export const DESEMPATES_DISPONIVEIS = ["cbf", "ingles"] as const
 
+/**
+ * Bases de ranking de sobe/cai por divisão (Fase 4). 'posicao' (default) = corte
+ * pela tabela; 'promedios' = média plurianual de pontos-por-jogo (vida toda,
+ * estilo argentino — usado p/ rebaixamento). 'ppg' do enum do banco é latente
+ * (== 'posicao' dentro de uma divisão) e NÃO é exposto aqui.
+ */
+export const RANKING_BASES_DISPONIVEIS = ["posicao", "promedios"] as const
+
 /** Modos de fronteira (Fase 3 adiciona barragem_cruzada — chave entre 2 divisões). */
 export const MODOS_FRONTEIRA = [
   "direto",
@@ -166,6 +174,10 @@ const divisaoSchema = z.object({
   desempate: z.enum(DESEMPATES_DISPONIVEIS, {
     error: "Critério de desempate inválido.",
   }),
+  // Fase 4: base de corte de sobe/cai. Default 'posicao' (comportamento legado).
+  rankingBase: z.enum(RANKING_BASES_DISPONIVEIS, {
+    error: "Base de ranking inválida.",
+  }).default("posicao"),
   tamanho: z
     .number({ error: "Tamanho inválido." })
     .int("O tamanho deve ser inteiro.")
