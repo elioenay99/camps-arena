@@ -172,6 +172,17 @@ export interface ClassificacaoTorneio {
    * (null = sem partida aberta com rodada, ou avulso). Insumo do botão "Fechar
    * rodada". */
   rodadaAtiva: number | null
+  /**
+   * Estado de liberação por rodada (insumo da seção de liberação do DONO — só
+   * ele vê todas as partidas, liberadas ou não). `liberada` = TODAS as partidas
+   * daquela rodada com `liberada_em <= now()`. Ordenado por rodada asc. Para o
+   * não-dono, a RLS só devolve partidas liberadas, então a lista chega "toda
+   * liberada" — mas a seção é gateada por dono.
+   */
+  rodadasLiberacao: { rodada: number; total: number; liberada: boolean }[]
+  /** Menor rodada ainda NÃO totalmente liberada (insumo dos botões de cadência).
+   * null = não há rodada oculta (tudo liberado, ou avulso). */
+  proximaRodadaOculta: number | null
 }
 
 interface ParticipanteEmbed {
@@ -213,6 +224,7 @@ interface PartidaComNomes {
   grupo: number | null
   wo: boolean
   wo_vencedor: string | null
+  liberada_em: string | null
   created_at: string
   updated_at: string
   p1: ParticipanteEmbed | null
@@ -297,9 +309,11 @@ function projetarLado(
  *   motor) E o embed aliased com o nome (insumo do mapa) — suportado pelo
  *   PostgREST na mesma query, com FK-hint explícito para desambiguar os dois
  *   relacionamentos matches→users (padrão de getActiveMatches).
- * - Se o torneio é visível, a RLS de matches devolve TODAS as partidas dele
- *   (a cláusula de torneio da policy cobre; a de participante só adiciona) —
- *   a classificação nunca é calculada com subconjunto.
+ * - O DONO recebe TODAS as partidas do torneio (a policy tem ramo created_by
+ *   sem gate). O NÃO-DONO recebe SÓ as rodadas LIBERADAS (liberada_em <= now()) —
+ *   logo a classificação/chave/histórico dele refletem só o liberado (parcial),
+ *   por design (não vaza rodada futura). A seção de liberação consome o estado
+ *   por rodada derivado abaixo, e é gateada por dono.
  * - `cache()` (React): generateMetadata e a page compartilham o resultado na
  *   MESMA requisição — uma viagem ao banco, não duas.
  */
@@ -335,7 +349,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const { data: partidas, error: partidasError } = await supabase
     .from("matches")
     .select(
-      `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, wo, wo_vencedor, created_at, updated_at,
+      `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, wo, wo_vencedor, liberada_em, created_at, updated_at,
        p1:users!matches_participante_1_fkey ( id, nome, celular, avatar ),
        p2:users!matches_participante_2_fkey ( id, nome, celular, avatar ),
        t1:teams!matches_time_1_fkey ( id, nome ),
@@ -650,6 +664,24 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     .map((p) => p.rodada as number)
   const rodadaAtiva = rodadasAbertas.length > 0 ? Math.min(...rodadasAbertas) : null
 
+  // Estado de liberação por rodada (só faz sentido para o dono, que vê todas as
+  // partidas). "liberada" = TODA partida da rodada com liberada_em <= now().
+  const agora = Date.now()
+  const estaLiberada = (p: PartidaComNomes) =>
+    p.liberada_em != null && new Date(p.liberada_em).getTime() <= agora
+  const porRodadaLib = new Map<number, { total: number; liberadas: number }>()
+  for (const p of linhasPartidas) {
+    if (typeof p.rodada !== "number") continue
+    const cur = porRodadaLib.get(p.rodada) ?? { total: 0, liberadas: 0 }
+    cur.total += 1
+    if (estaLiberada(p)) cur.liberadas += 1
+    porRodadaLib.set(p.rodada, cur)
+  }
+  const rodadasLiberacao = [...porRodadaLib.entries()]
+    .map(([rodada, v]) => ({ rodada, total: v.total, liberada: v.liberadas === v.total }))
+    .sort((a, b) => a.rodada - b.rodada)
+  const proximaRodadaOculta = rodadasLiberacao.find((r) => !r.liberada)?.rodada ?? null
+
   return {
     torneio,
     linhas,
@@ -660,6 +692,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     grupos,
     linhasFaseGrupos,
     rodadaAtiva,
+    rodadasLiberacao,
+    proximaRodadaOculta,
   }
 })
 

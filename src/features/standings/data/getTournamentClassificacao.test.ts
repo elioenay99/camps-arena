@@ -759,3 +759,85 @@ describe("convocação — celular nos embeds e lados nas partidas abertas", () 
     expect(r?.partidasEncerradas[0]).not.toHaveProperty("participante_1")
   })
 })
+
+/** Partida mínima para exercitar a derivação de liberação por rodada. */
+let idLib = 0
+function partidaLib(
+  rodada: number,
+  liberada_em: string | null,
+  status: "agendada" | "encerrada" = "agendada"
+) {
+  idLib += 1
+  return {
+    id: `lib-${idLib}`,
+    participante_1: null,
+    participante_2: null,
+    vaga_1: null,
+    vaga_2: null,
+    time_1: null,
+    time_2: null,
+    placar_1: 0,
+    placar_2: 0,
+    status,
+    rodada,
+    posicao: null,
+    perna: null,
+    grupo: null,
+    wo: false,
+    wo_vencedor: null,
+    liberada_em,
+    created_at: "2026-05-01T00:00:00Z",
+    updated_at: "2026-05-01T00:00:00Z",
+    p1: null,
+    p2: null,
+    t1: null,
+    t2: null,
+    v1: null,
+    v2: null,
+  }
+}
+
+const PASSADO = "2020-01-01T00:00:00Z"
+const FUTURO = "2999-01-01T00:00:00Z"
+
+describe("getTournamentClassificacao — liberação por rodada", () => {
+  it("deriva estado por rodada e a próxima rodada oculta", async () => {
+    montarClient({
+      torneio: { ...TORNEIO, formato: "liga" },
+      partidas: [
+        partidaLib(1, PASSADO),
+        partidaLib(1, PASSADO),
+        partidaLib(2, PASSADO), // rodada 2 parcial → oculta
+        partidaLib(2, null),
+        partidaLib(3, FUTURO), // agendada no futuro → ainda oculta
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.rodadasLiberacao).toEqual([
+      { rodada: 1, total: 2, liberada: true },
+      { rodada: 2, total: 2, liberada: false },
+      { rodada: 3, total: 1, liberada: false },
+    ])
+    expect(r?.proximaRodadaOculta).toBe(2)
+  })
+
+  it("tudo liberado ⇒ proximaRodadaOculta null", async () => {
+    montarClient({
+      torneio: { ...TORNEIO, formato: "liga" },
+      partidas: [partidaLib(1, PASSADO), partidaLib(2, PASSADO)],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.proximaRodadaOculta).toBeNull()
+    expect(r?.rodadasLiberacao.every((x) => x.liberada)).toBe(true)
+  })
+
+  it("avulso (sem rodada) ⇒ rodadasLiberacao vazio e próxima null", async () => {
+    montarClient({
+      torneio: TORNEIO,
+      partidas: [partidaLib(null as unknown as number, PASSADO)],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.rodadasLiberacao).toEqual([])
+    expect(r?.proximaRodadaOculta).toBeNull()
+  })
+})

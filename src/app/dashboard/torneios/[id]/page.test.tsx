@@ -148,6 +148,9 @@ function montarCenario(c: {
     partidasAbertas: [],
     chave: [],
     grupos: [],
+    rodadaAtiva: null,
+    rodadasLiberacao: [],
+    proximaRodadaOculta: null,
   } as unknown as Awaited<ReturnType<typeof getTournamentClassificacao>>)
 }
 
@@ -235,5 +238,73 @@ describe("TorneioPage — lados por formato (integração das seções)", () => 
     expect(screen.queryByRole("heading", { name: "Vagas" })).toBeNull()
     expect(mockVagas).not.toHaveBeenCalled()
     expect(mockCodigos).not.toHaveBeenCalled()
+  })
+})
+
+describe("TorneioPage — liberação de rodadas (change add-liberacao-rodadas)", () => {
+  it("NÃO-DONO em torneio ATIVO sem nada liberado vê o aviso (não os empty-states)", async () => {
+    montarCenario({
+      user: { id: "visitante" },
+      torneio: { formato: "liga", status: "ativo" },
+    })
+    await renderPage()
+    expect(screen.getByText(/ainda não foram liberadas/i)).toBeInTheDocument()
+    // o empty-state de "não iniciado" da classificação NÃO aparece
+    expect(
+      screen.queryByText(/depois da primeira partida encerrada/i)
+    ).toBeNull()
+  })
+
+  it("AVULSO público vazio (não-dono) NÃO dispara o aviso de liberação", async () => {
+    montarCenario({
+      user: { id: "visitante" },
+      torneio: { formato: "avulso", status: "ativo" },
+    })
+    await renderPage()
+    expect(screen.queryByText(/ainda não foram liberadas/i)).toBeNull()
+  })
+
+  it("DONO de torneio gerado com rodada oculta vê a seção 'Liberação de rodadas'", async () => {
+    montarCenario({ torneio: { formato: "liga", status: "ativo" } })
+    mockClassificacao.mockResolvedValue({
+      torneio: torneioBase({ formato: "liga", status: "ativo" }),
+      linhas: [],
+      partidasEncerradas: [],
+      clubes: [],
+      partidasAbertas: [],
+      chave: [],
+      grupos: [],
+      rodadaAtiva: 1,
+      rodadasLiberacao: [{ rodada: 1, total: 2, liberada: false }],
+      proximaRodadaOculta: 1,
+    } as unknown as Awaited<ReturnType<typeof getTournamentClassificacao>>)
+    await renderPage()
+    expect(
+      screen.getByRole("heading", { name: "Liberação de rodadas" })
+    ).toBeInTheDocument()
+    expect(screen.getByText("Liberar próxima rodada")).toBeInTheDocument()
+  })
+
+  it("NÃO-DONO não vê a seção 'Liberação de rodadas'", async () => {
+    montarCenario({
+      user: { id: "visitante" },
+      torneio: { formato: "liga", status: "ativo" },
+    })
+    mockClassificacao.mockResolvedValue({
+      torneio: torneioBase({ formato: "liga", status: "ativo" }),
+      linhas: [],
+      partidasEncerradas: [],
+      clubes: [],
+      partidasAbertas: [],
+      chave: [],
+      grupos: [],
+      rodadaAtiva: 1,
+      rodadasLiberacao: [{ rodada: 1, total: 2, liberada: false }],
+      proximaRodadaOculta: 1,
+    } as unknown as Awaited<ReturnType<typeof getTournamentClassificacao>>)
+    await renderPage()
+    expect(
+      screen.queryByRole("heading", { name: "Liberação de rodadas" })
+    ).toBeNull()
   })
 })

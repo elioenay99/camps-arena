@@ -34,6 +34,7 @@ import { gerarCodigoConvite } from "@/lib/invite-code"
 import { randIntCrypto } from "@/lib/rand"
 import { createClient } from "@/lib/supabase/server"
 import { coresOpcionais, type CoresInput } from "@/schema/corSchema"
+import { alvoLiberacaoSchema, type AlvoLiberacao } from "@/schema/liberacaoSchema"
 import {
   createTournamentSchema,
   iniciarGruposSchema,
@@ -282,7 +283,12 @@ export type IniciarTorneioResult = { ok: true } | { ok: false; error: string }
  * criaria liga ativa sem partidas, sem caminho de retry.
  */
 export async function iniciarTorneio(
-  tournamentId: unknown
+  tournamentId: unknown,
+  /** Cadência inicial: `true` (default) gera todas as rodadas liberadas
+   * (comportamento atual); `false` gera tudo OCULTO (`liberada_em = null`),
+   * cabendo ao dono liberar. A pirâmide chama sem este arg ⇒ divisões nascem
+   * liberadas (zero regressão). */
+  liberarTudo: boolean = true
 ): Promise<IniciarTorneioResult> {
   const parsed = z.uuid().safeParse(tournamentId)
   if (!parsed.success) {
@@ -372,12 +378,15 @@ export async function iniciarTorneio(
 
     // Um único INSERT em lote: atômico no banco (tabela inteira ou nada).
     // Partidas competitivas usam vaga_1/vaga_2 (NUNCA participante_1/2).
+    // Cadência: liberarTudo ⇒ omite liberada_em (DEFAULT now() do banco, sem skew);
+    // manual ⇒ liberada_em: null (oculta até o dono liberar).
     const partidas = rodadas.flatMap((r) =>
       r.confrontos.map(([p1, p2]) => ({
         tournament_id: parsed.data,
         vaga_1: p1,
         vaga_2: p2,
         rodada: r.rodada,
+        ...(liberarTudo ? {} : { liberada_em: null }),
       }))
     )
     const { error: insertError } = await supabase.from("matches").insert(partidas)
@@ -1006,6 +1015,9 @@ export async function iniciarTorneioGrupos(
   // fase_liga é o caso G=1 do MESMO motor; o form dela fixa qtdGrupos em 1 e
   // a action confere contra o formato real abaixo.
   const qtdGrupos = parsed.data.qtdGrupos
+  // Cadência: o default é liberar tudo (compat + testes). O dono OPTA pelo manual
+  // marcando o checkbox `liberarManual` no painel ⇒ rodadas nascem ocultas.
+  const liberarTudo = formData.get("liberarManual") == null
 
   const supabase = await createClient()
 
@@ -1172,6 +1184,8 @@ export async function iniciarTorneioGrupos(
     vaga_2: p.participante_2,
     grupo: p.grupo,
     rodada: p.rodada,
+    // Cadência: liberarTudo ⇒ DEFAULT now(); manual ⇒ oculta (liberada_em null).
+    ...(liberarTudo ? {} : { liberada_em: null }),
   }))
   const { error: insertError } = await supabase.from("matches").insert(partidas)
   if (insertError) {
@@ -1413,4 +1427,80 @@ export async function atualizarCoresTorneio(
   revalidatePath(`/dashboard/torneios/${parsedId.data}`)
   revalidatePath(`/dashboard/torneios/${parsedId.data}/cores`)
   return { ok: true }
+}
+
+export type LiberarRodadasResult =
+  | { ok: true; liberadas: number }
+  | { ok: false; error: string }
+
+/**
+ * Libera rodadas ocultas de um torneio (cadência manual, change
+ * add-liberacao-rodadas). Só o DONO; só toca partidas com `liberada_em is null`
+ * (idempotente), setando `liberada_em = now()`. O alvo define o filtro: uma
+ * rodada, até uma rodada (próximas N), a fase de grupos inteira, ou tudo. A RLS
+ * `matches_update_tournament_owner` é o backstop; a posse por filtro
+ * `created_by` dá a mensagem precisa (molde de `fecharRodada`).
+ */
+export async function liberarRodadas(
+  tournamentId: unknown,
+  alvo: AlvoLiberacao
+): Promise<LiberarRodadasResult> {
+  const parsedId = z.uuid().safeParse(tournamentId)
+  const parsedAlvo = alvoLiberacaoSchema.safeParse(alvo)
+  if (!parsedId.success || !parsedAlvo.success) {
+    return { ok: false, error: "Dados inválidos." }
+  }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  // Posse + estado por filtro (mesmo padrão das demais actions; sem oráculo).
+  const { data: torneio, error: torneioError } = await supabase
+    .from("tournaments")
+    .select("id")
+    .eq("id", parsedId.data)
+    .eq("created_by", user.id)
+    .neq("status", "encerrado")
+    .maybeSingle()
+  if (torneioError) {
+    return { ok: false, error: "Não foi possível liberar agora. Tente novamente." }
+  }
+  if (!torneio) {
+    return {
+      ok: false,
+      error: "Torneio não encontrado, encerrado ou você não é o dono dele.",
+    }
+  }
+
+  // UPDATE setando SÓ liberada_em, restrito ao torneio + alvo + ocultas
+  // (idempotente). `.select("id")` confirma o efeito (sem ok cego).
+  let query = supabase
+    .from("matches")
+    .update({ liberada_em: new Date().toISOString() })
+    .eq("tournament_id", parsedId.data)
+    .is("liberada_em", null)
+
+  const a = parsedAlvo.data
+  if (a.tipo === "rodada") {
+    query = query.eq("rodada", a.rodada)
+  } else if (a.tipo === "ate") {
+    query = query.lte("rodada", a.rodada)
+  } else if (a.tipo === "faseGrupos") {
+    query = query.not("grupo", "is", null)
+  }
+  // "tudo": sem filtro extra (todas as ocultas do torneio).
+
+  const { data: liberadas, error: updateError } = await query.select("id")
+  if (updateError) {
+    return { ok: false, error: "Não foi possível liberar agora. Tente novamente." }
+  }
+
+  revalidatePath(`/dashboard/torneios/${parsedId.data}`)
+  return { ok: true, liberadas: liberadas?.length ?? 0 }
 }

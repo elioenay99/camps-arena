@@ -26,6 +26,7 @@ interface PartidaInserida {
   vaga_1: string
   vaga_2: string
   rodada: number
+  liberada_em?: string | null
 }
 
 interface Cenario {
@@ -217,6 +218,30 @@ describe("iniciarTorneio", () => {
       rodada: 1,
     })
     expect(updateSpy).toHaveBeenCalledWith({ status: "ativo" })
+  })
+
+  it("cadência padrão (liberarTudo) NÃO seta liberada_em (DEFAULT now() do banco)", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false },
+      vagas: [A, B],
+    })
+    await iniciarTorneio(TORNEIO)
+    const rows = insertSpy.mock.calls[0][0]
+    expect(rows.every((p) => !("liberada_em" in p))).toBe(true)
+  })
+
+  it("cadência manual (liberarTudo=false) gera rodadas OCULTAS (liberada_em null)", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false },
+      vagas: [A, B, C, D],
+    })
+    const r = await iniciarTorneio(TORNEIO, false)
+    expect(r).toEqual({ ok: true })
+    const rows = insertSpy.mock.calls[0][0]
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.every((p) => p.liberada_em === null)).toBe(true)
   })
 
   it("sucesso: gera a tabela completa (ida simples) e promove a ativo", async () => {

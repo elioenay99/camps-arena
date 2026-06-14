@@ -1,7 +1,9 @@
 import {
+  CalendarClock,
   Flag,
   History,
   ListOrdered,
+  Lock,
   Network,
   Palette,
   Plus,
@@ -31,6 +33,7 @@ import {
   tamanhoChaveDasPartidas,
   totalFases,
 } from "@/features/knockout/gerarChaveMataMata";
+import { LiberarRodadasButtons } from "@/features/match/components/LiberarRodadasButtons";
 import { MatchHistoryList } from "@/features/match/components/MatchHistoryList";
 import { OpenMatchesList } from "@/features/match/components/OpenMatchesList";
 import { ResponderWoButtons } from "@/features/match/components/WoButtons";
@@ -111,6 +114,8 @@ export default async function TorneioPage({
     rodadaAtiva,
     chave,
     grupos,
+    rodadasLiberacao,
+    proximaRodadaOculta,
   } = classificacao;
   const titulo = torneio.titulo.trim() || "Torneio";
   // Console do dono para PARTIDAS (encerrar/reabrir partida). O botão é UX —
@@ -127,6 +132,24 @@ export default async function TorneioPage({
   const ehFaseLiga = torneio.formato === "fase_liga";
   const ehGrupos = torneio.formato === "grupos_mata_mata" || ehFaseLiga;
   const ehGerado = ehLiga || ehMataMata || ehGrupos;
+  // Cadência manual (change add-liberacao-rodadas): num torneio ATIVO sem nada
+  // liberado, o NÃO-DONO não enxerga partida/classificação/chave nenhuma. Sem
+  // este aviso, a página cairia nos empty-states de "não iniciado" — que
+  // MENTIRIAM ("aparece quando o torneio for iniciado"): o torneio JÁ está
+  // ativo, só faltam rodadas liberadas. O dono nunca cai aqui (recebe tudo,
+  // inclusive ocultas). Liberação PARCIAL (há algo visível) não dispara.
+  const nadaVisivel =
+    !ehDono &&
+    partidasAbertas.length === 0 &&
+    partidasEncerradas.length === 0 &&
+    linhas.length === 0 &&
+    grupos.length === 0 &&
+    chave.length === 0;
+  // `ehGerado` é essencial: só formatos com rodadas têm cadência a liberar. Um
+  // torneio AVULSO nasce 'ativo' e fica vazio até o dono criar partidas — sem
+  // este gate, o não-dono veria "rodadas não liberadas" num formato sem rodadas.
+  const aguardandoLiberacao =
+    nadaVisivel && ehGerado && torneio.status === "ativo";
   // Grupos: o painel também aparece em ATIVO sem nenhuma partida gerada —
   // estado de RECUPERAÇÃO do fluxo promote-first (crash entre a promoção e o
   // INSERT); a action rebaixa para rascunho e refaz (ver iniciarTorneioGrupos).
@@ -310,9 +333,17 @@ export default async function TorneioPage({
         />
       ) : null}
 
+      {/* Aviso de cadência manual (NÃO-DONO, torneio ATIVO, nada liberado):
+          substitui os empty-states de "não iniciado" — que aqui mentiriam. O
+          torneio rascunho NÃO cai aqui (aguardandoLiberacao exige status
+          ativo): os empty-states atuais seguem corretos no rascunho. */}
+      {aguardandoLiberacao ? (
+        <AvisoAguardandoLiberacao />
+      ) : null}
+
       {/* Mata-mata puro: a CHAVE substitui a classificação por pontos (e a
           de clubes) — pontos corridos não significam nada em eliminatória. */}
-      {ehMataMata ? (
+      {!aguardandoLiberacao && ehMataMata ? (
         <SecaoTorneio
           id="chave-titulo"
           titulo="Chave"
@@ -331,7 +362,7 @@ export default async function TorneioPage({
 
       {/* Formatos de grupos: classificação POR GRUPO (única na fase de
           liga) + a chave quando gerada. */}
-      {ehGrupos ? (
+      {!aguardandoLiberacao && ehGrupos ? (
         <>
           <SecaoTorneio
             id="grupos-titulo"
@@ -390,7 +421,7 @@ export default async function TorneioPage({
         </>
       ) : null}
 
-      {!ehMataMata && !ehGrupos ? (
+      {!aguardandoLiberacao && !ehMataMata && !ehGrupos ? (
         <SecaoTorneio id="classificacao-titulo" titulo="Classificação" Icon={ListOrdered}>
           {linhas.length === 0 ? (
             <EstadoVazioSecao Icon={ListOrdered}>
@@ -399,6 +430,24 @@ export default async function TorneioPage({
           ) : (
             <StandingsTable linhas={linhas} />
           )}
+        </SecaoTorneio>
+      ) : null}
+
+      {/* Liberação de rodadas (DONO, change add-liberacao-rodadas): só quando
+          há controle de cadência a exercer (formato gerado com mapa de
+          rodadas). O console é UX — a action + RLS + posse são a defesa. */}
+      {ehDono && ehGerado && rodadasLiberacao.length > 0 ? (
+        <SecaoTorneio
+          id="liberacao-titulo"
+          titulo="Liberação de rodadas"
+          Icon={CalendarClock}
+        >
+          <LiberarRodadasButtons
+            tournamentId={id}
+            rodadasLiberacao={rodadasLiberacao}
+            proximaRodadaOculta={proximaRodadaOculta}
+            ehGrupos={ehGrupos}
+          />
         </SecaoTorneio>
       ) : null}
 
@@ -581,5 +630,35 @@ function EstadoVazioSecao({
       </span>
       <p className="text-muted-foreground max-w-xs text-sm">{children}</p>
     </div>
+  );
+}
+
+/**
+ * Aviso ao NÃO-DONO quando o torneio está ativo mas nenhuma rodada foi
+ * liberada (cadência manual). Substitui os empty-states de "não iniciado",
+ * que mentiriam aqui — o torneio já começou; só falta o organizador liberar.
+ */
+function AvisoAguardandoLiberacao() {
+  return (
+    <section
+      aria-labelledby="aguardando-titulo"
+      className="bg-muted/10 flex flex-col items-center gap-3 rounded-2xl border border-dashed px-4 py-10 text-center"
+    >
+      <span
+        aria-hidden="true"
+        className="bg-primary/8 text-primary/70 flex size-12 items-center justify-center rounded-full"
+      >
+        <Lock className="size-5" />
+      </span>
+      <h2
+        id="aguardando-titulo"
+        className="font-display text-base font-bold tracking-tight"
+      >
+        As próximas rodadas ainda não foram liberadas pelo organizador.
+      </h2>
+      <p className="text-muted-foreground max-w-xs text-sm">
+        Volte em breve — o organizador vai liberar as rodadas.
+      </p>
+    </section>
   );
 }

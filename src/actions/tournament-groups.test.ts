@@ -34,6 +34,7 @@ interface PartidaInseridaGrupo {
   vaga_2: string
   grupo: number
   rodada: number
+  liberada_em?: string | null
 }
 
 interface PartidaInseridaChave {
@@ -231,8 +232,11 @@ function formGrupos(campos: {
   cabecas?: string[]
   /** Modo manual: par [slot id (vaga), nº do grupo]. */
   atribuicao?: [string, number][]
+  /** Cadência: marcar = rodadas nascem ocultas (liberada_em null). */
+  liberarManual?: boolean
 }): FormData {
   const fd = new FormData()
+  if (campos.liberarManual) fd.set("liberarManual", "on")
   if (campos.tournamentId !== undefined)
     fd.set("tournamentId", campos.tournamentId)
   if (campos.modo !== undefined) fd.set("modo", campos.modo)
@@ -542,6 +546,47 @@ describe("iniciarTorneioGrupos", () => {
     expect(mockRevalidate).toHaveBeenCalledWith(
       `/dashboard/torneios/${TORNEIO}`
     )
+  })
+
+  it("cadência manual (liberarManual) gera grupos OCULTOS (liberada_em null)", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
+      vagas: [A, B, C, D],
+    })
+    const r = await iniciarTorneioGrupos(
+      {},
+      formGrupos({
+        tournamentId: TORNEIO,
+        modo: "sorteio",
+        qtdGrupos: 2,
+        classificadosPorGrupo: 1,
+        liberarManual: true,
+      })
+    )
+    expect(r).toEqual({})
+    const rows = insertSpy.mock.calls[0][0] as PartidaInseridaGrupo[]
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.every((p) => p.liberada_em === null)).toBe(true)
+  })
+
+  it("cadência padrão NÃO seta liberada_em (DEFAULT now() do banco)", async () => {
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, formato: "grupos_mata_mata", ida_e_volta: false },
+      vagas: [A, B, C, D],
+    })
+    await iniciarTorneioGrupos(
+      {},
+      formGrupos({
+        tournamentId: TORNEIO,
+        modo: "sorteio",
+        qtdGrupos: 2,
+        classificadosPorGrupo: 1,
+      })
+    )
+    const rows = insertSpy.mock.calls[0][0] as PartidaInseridaGrupo[]
+    expect(rows.every((p) => !("liberada_em" in p))).toBe(true)
   })
 
   it("modo potes com cabeças != G rejeita (uma cabeça por grupo)", async () => {

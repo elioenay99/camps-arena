@@ -312,6 +312,29 @@ export function IniciarGruposPanel({
             </fieldset>
           ) : null}
 
+          {/* Cadência (change add-liberacao-rodadas): DESMARCADO por padrão ⇒
+              o campo NÃO viaja no FormData ⇒ a action libera tudo (default).
+              MARCADO ⇒ `liberarManual` presente ⇒ rodadas nascem ocultas. */}
+          <label
+            htmlFor="liberarManual"
+            className="flex cursor-pointer items-start gap-2.5 text-sm"
+          >
+            <input
+              id="liberarManual"
+              name="liberarManual"
+              type="checkbox"
+              className="border-input accent-primary mt-0.5 size-4 shrink-0 rounded"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="font-medium">
+                Vou liberar as rodadas manualmente
+              </span>
+              <span className="text-muted-foreground text-xs">
+                No modo manual, as rodadas ficam ocultas até você liberar.
+              </span>
+            </span>
+          </label>
+
           {state.error ? (
             <p className="text-destructive text-sm" role="alert">
               {state.error}

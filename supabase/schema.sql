@@ -317,6 +317,27 @@ create unique index if not exists matches_liga_par_unico
   on public.matches (tournament_id, rodada, participante_1, participante_2)
   where rodada is not null;
 
+-- ---------- Liberação de rodada (aditivo; idempotente) ----------
+-- Gating de visibilidade/jogabilidade por rodada (estilo Brasileirão):
+--   NULL     = oculta (só o dono do torneio vê);
+--   <= now() = liberada (visível e jogável pelos demais ramos de visibilidade);
+--   > now()  = agendada (suportada pelo tipo; sem UI no v1).
+-- DEFAULT now() faz toda inserção futura nascer liberada, salvo quando a action
+-- de geração passar liberada_em = null explicitamente (cadência manual). NÃO
+-- entra em lock_match_relations (a liberação precisa poder mudar após criada).
+alter table public.matches
+  add column if not exists liberada_em timestamptz;
+alter table public.matches alter column liberada_em set default now();
+comment on column public.matches.liberada_em is
+  'Liberacao da partida. NULL = oculta (so o dono ve); <= now() = liberada (visivel/jogavel); > now() = agendada (futuro).';
+
+-- Backfill: tudo que ja existe fica visivel (preserva o comportamento atual).
+update public.matches set liberada_em = now() where liberada_em is null;
+
+-- Indice para o filtro liberada_em <= now() por torneio (RLS do nao-dono e listas).
+create index if not exists matches_liberada_em_idx
+  on public.matches (tournament_id, liberada_em);
+
 -- ---------- Mata-mata: slot na chave (aditivo; idempotente) ----------
 -- `posicao` = slot do confronto dentro da fase (1-based). O pareamento da
 -- fase seguinte é FUNÇÃO da posição: vencedor do slot 2i-1 × vencedor do
@@ -1121,6 +1142,11 @@ create policy teams_insert_authenticated on public.teams
 -- cláusula, participante convidado em torneio privado de terceiro não veria a
 -- própria partida (e o modal de placar quebraria). A subquery contra
 -- `tournaments` espelha a policy tournaments_select_visivel: camadas consistentes.
+-- O DONO do torneio (inclui divisoes de liga, que sao tournaments) ve TUDO, sem
+-- gate de liberacao. Os demais ramos (publico, participante, jogador/tecnico da
+-- partida) so veem a partida quando LIBERADA (liberada_em <= now()) — assim o
+-- adversario de uma rodada futura nao ve o confronto antes da revelacao. anon
+-- tem auth.uid() nulo: cai sempre no ramo "demais" e so ve liberada + is_public.
 drop policy if exists matches_select_public on public.matches;
 drop policy if exists matches_select_visivel on public.matches;
 create policy matches_select_visivel on public.matches
@@ -1128,17 +1154,24 @@ create policy matches_select_visivel on public.matches
   using (
     exists (
       select 1 from public.tournaments t
-      where t.id = tournament_id
-        and (t.is_public
-             or t.created_by = auth.uid()
-             or public.eh_participante(t.id))
+      where t.id = tournament_id and t.created_by = auth.uid()
     )
-    or auth.uid() = participante_1
-    or auth.uid() = participante_2
-    or exists (
-      select 1 from public.tournament_slots s
-      where s.id in (matches.vaga_1, matches.vaga_2)
-        and s.user_id = auth.uid()
+    or (
+      liberada_em is not null and liberada_em <= now()
+      and (
+        exists (
+          select 1 from public.tournaments t
+          where t.id = tournament_id
+            and (t.is_public or public.eh_participante(t.id))
+        )
+        or auth.uid() = participante_1
+        or auth.uid() = participante_2
+        or exists (
+          select 1 from public.tournament_slots s
+          where s.id in (matches.vaga_1, matches.vaga_2)
+            and s.user_id = auth.uid()
+        )
+      )
     )
   );
 
@@ -1188,25 +1221,37 @@ create policy matches_insert_tournament_owner on public.matches
     ))
   );
 
+-- O jogador/tecnico so mexe em partida LIBERADA (liberada_em <= now()), no using
+-- E no with check. Isso barra editar partida oculta e impede ocultar (null) /
+-- agendar (futuro) a propria partida via POST direto — a coluna liberada_em fica
+-- protegida sem trigger novo (residuo inocuo no v1: poderia reescrever para outro
+-- instante passado, sem efeito, pois e lido como booleano). O DONO faz tudo pela
+-- policy matches_update_tournament_owner abaixo (sem gate de liberacao).
 drop policy if exists matches_update_participant on public.matches;
 create policy matches_update_participant on public.matches
   for update to authenticated
   using (
-    auth.uid() = participante_1
-    or auth.uid() = participante_2
-    or exists (
-      select 1 from public.tournament_slots s
-      where s.id in (matches.vaga_1, matches.vaga_2)
-        and s.user_id = auth.uid()
+    liberada_em is not null and liberada_em <= now()
+    and (
+      auth.uid() = participante_1
+      or auth.uid() = participante_2
+      or exists (
+        select 1 from public.tournament_slots s
+        where s.id in (matches.vaga_1, matches.vaga_2)
+          and s.user_id = auth.uid()
+      )
     )
   )
   with check (
-    auth.uid() = participante_1
-    or auth.uid() = participante_2
-    or exists (
-      select 1 from public.tournament_slots s
-      where s.id in (matches.vaga_1, matches.vaga_2)
-        and s.user_id = auth.uid()
+    liberada_em is not null and liberada_em <= now()
+    and (
+      auth.uid() = participante_1
+      or auth.uid() = participante_2
+      or exists (
+        select 1 from public.tournament_slots s
+        where s.id in (matches.vaga_1, matches.vaga_2)
+          and s.user_id = auth.uid()
+      )
     )
   );
 
