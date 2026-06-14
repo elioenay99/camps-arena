@@ -15,6 +15,9 @@ const LINKS: NavLink[] = [
   // prefixo — o antigo item "Novo torneio" virou o botão "Criar torneio" do
   // índice (dois itens do nav ativos ao mesmo tempo confundem).
   { href: "/dashboard/torneios", rotulo: "Torneios" },
+  // "Ligas" cobre o índice das pirâmides e as sub-rotas (nova, temporada,
+  // página do competidor) por prefixo.
+  { href: "/dashboard/ligas", rotulo: "Ligas" },
   { href: "/dashboard/partidas/nova", rotulo: "Nova partida" },
 ];
 
