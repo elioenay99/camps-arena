@@ -1049,11 +1049,13 @@ create policy users_update_self on public.users
   using (auth.uid() = id)
   with check (auth.uid() = id);
 
--- View pública SEM PII: anônimos enxergam só id/nome/avatar (nunca o celular).
--- security_invoker = false (definer) é proposital: a view roda como dona e
--- projeta apenas colunas não-sensíveis, já que anon não tem acesso à tabela.
+-- View pública SEM PII: projeta só id/nome/avatar (nunca o celular).
+-- security_invoker = true (hardening, advisor lint 0010): roda com a RLS/grants
+-- do papel que consulta. Hoje a view está ÓRFÃ (nenhum código do app a consome —
+-- só consta em database.types.ts), então invoker não expõe nada novo; se voltar a
+-- ser usada por anon, exigirá policy/grant de coluna explícito em `users`.
 create or replace view public.users_public
-  with (security_invoker = false)
+  with (security_invoker = true)
   as select id, nome, avatar from public.users;
 
 grant select on public.users_public to anon, authenticated;
@@ -1561,10 +1563,10 @@ insert into storage.buckets (id, name, public)
 values ('avatars', 'avatars', true)
 on conflict (id) do nothing;
 
+-- Hardening (advisor lint 0025): SEM policy SELECT ampla em storage.objects — ela
+-- permitiria LISTAR todos os avatares. O bucket é público, então cada objeto continua
+-- acessível pela sua URL; o app só usa URLs diretas (nunca lista).
 drop policy if exists "avatars leitura publica" on storage.objects;
-create policy "avatars leitura publica" on storage.objects
-  for select to anon, authenticated
-  using (bucket_id = 'avatars');
 
 drop policy if exists "avatars insert do dono" on storage.objects;
 create policy "avatars insert do dono" on storage.objects
@@ -3221,3 +3223,28 @@ create policy league_division_entries_delete_owner on public.league_division_ent
         and public.eh_dono_competition(ls.competition_id)
     )
   );
+
+-- ============================================================================
+-- Hardening de segurança (advisor lints 0010/0025/0028/0029) — fim do arquivo
+-- para todas as funções já existirem. Ver change `hardening-seguranca-supabase`.
+-- ============================================================================
+
+-- Funções de TRIGGER: rodam SÓ via trigger, nunca como RPC. CREATE FUNCTION dá
+-- EXECUTE a PUBLIC → revoga-se de todos os papéis da API (o trigger dispara
+-- independente de grant).
+revoke execute on function public.lock_league_season() from anon, authenticated, public;
+revoke execute on function public.lock_league_division_season() from anon, authenticated, public;
+revoke execute on function public.lock_league_competitor_identity() from anon, authenticated, public;
+revoke execute on function public.lock_division_tournament_reopen() from anon, authenticated, public;
+revoke execute on function public.lock_match_lifecycle() from anon, authenticated, public;
+revoke execute on function public.lock_match_relations() from anon, authenticated, public;
+revoke execute on function public.lock_slot_relations() from anon, authenticated, public;
+revoke execute on function public.handle_new_user() from anon, authenticated, public;
+revoke execute on function public.valida_resultado_mata_mata() from anon, authenticated, public;
+revoke execute on function public.block_slot_invite_por_nome() from anon, authenticated, public;
+
+-- Helper de RLS eh_dono_competition: como eh_participante (832-837), as policies
+-- o avaliam COM O ROLE DA QUERY → revoga-se só PUBLIC e concede-se aos 2 roles
+-- (revogar deles quebraria a RLS — lição do smoke da change de hardening).
+revoke execute on function public.eh_dono_competition(uuid) from public;
+grant execute on function public.eh_dono_competition(uuid) to anon, authenticated;
