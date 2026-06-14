@@ -2,6 +2,7 @@ import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
 import { calcularPromedio } from "@/features/league/flowEngine"
+import { resolverCampeaoDivisaoSplit } from "@/features/league/data/getGrandeFinal"
 
 /** Uma temporada na linha do tempo do competidor (já consolidada). */
 export interface TemporadaHistorico {
@@ -16,6 +17,12 @@ export interface TemporadaHistorico {
   jogos: number
   /** Pontos por jogo da temporada (0 se jogos = 0). */
   ppg: number
+  /**
+   * true = campeão DA DIVISÃO nessa temporada. Em divisão de season split, é o
+   * vencedor da grande final (ou campeão direto), NÃO o líder da combinada; em
+   * divisão anual, equivale a `posicaoFinal === 1`.
+   */
+  campeao: boolean
 }
 
 /** Perfil completo de um competidor persistente (página da Fase 4). */
@@ -107,48 +114,107 @@ export async function getCompetitorProfile(
 
   // Entries consolidadas (posicao_final preenchida = temporada encerrada) com a
   // geometria (nível/nome da divisão) e o número da temporada.
+  // Fase 5.1: + ciclo da season e os torneios da divisão (resolução do campeão de
+  // season split). NÃO embeda `tournaments` (3 FKs ⇒ ambíguo) — o resolver lê os
+  // torneios por id em queries próprias.
   const { data: entries, error: entriesError } = await supabase
     .from("league_division_entries")
     .select(
       `posicao_final, destino, pontos, jogos,
        division:league_division_seasons!inner (
-         nivel, nome,
-         season:league_seasons!inner ( numero )
+         id, nivel, nome, tournament_id, tournament_id_clausura, final_tournament_id,
+         season:league_seasons!inner ( numero, ciclo )
        )`
     )
     .eq("competitor_id", competitorId)
     .not("posicao_final", "is", null)
   if (entriesError) return null
 
-  const historico: TemporadaHistorico[] = []
+  interface EntradaConsolidada {
+    posicaoFinal: number
+    destino: TemporadaHistorico["destino"]
+    pontos: number
+    jogos: number
+    numero: number
+    nivel: number
+    divisaoNome: string
+    divisionSeasonId: string
+    ciclo: string
+    tournamentId: string | null
+    tournamentIdClausura: string | null
+    finalTournamentId: string | null
+  }
+
+  const entradas: EntradaConsolidada[] = []
   for (const e of entries ?? []) {
     const division = e.division as unknown as {
+      id: string
       nivel: number
       nome: string
-      season: { numero: number } | null
+      tournament_id: string | null
+      tournament_id_clausura: string | null
+      final_tournament_id: string | null
+      season: { numero: number; ciclo: string } | null
     } | null
     if (!division || !division.season) continue
-    const pontos = e.pontos ?? 0
-    const jogos = e.jogos ?? 0
-    historico.push({
+    entradas.push({
+      posicaoFinal: e.posicao_final as number,
+      destino: (e.destino as TemporadaHistorico["destino"]) ?? null,
+      pontos: e.pontos ?? 0,
+      jogos: e.jogos ?? 0,
       numero: division.season.numero,
       nivel: division.nivel,
       divisaoNome: division.nome,
-      posicaoFinal: e.posicao_final as number,
-      destino: (e.destino as TemporadaHistorico["destino"]) ?? null,
-      pontos,
-      jogos,
-      ppg: jogos > 0 ? pontos / jogos : 0,
+      divisionSeasonId: division.id,
+      ciclo: division.season.ciclo,
+      tournamentId: division.tournament_id,
+      tournamentIdClausura: division.tournament_id_clausura,
+      finalTournamentId: division.final_tournament_id,
     })
   }
-  historico.sort((a, b) => a.numero - b.numero)
 
-  const totalPontos = historico.reduce((s, t) => s + t.pontos, 0)
-  const totalJogos = historico.reduce((s, t) => s + t.jogos, 0)
-  const titulos = historico.filter((t) => t.posicaoFinal === 1).length
-  const titulosElite = historico.filter((t) => t.nivel === 1 && t.posicaoFinal === 1).length
-  const acessos = historico.filter((t) => t.destino === "sobe").length
-  const quedas = historico.filter((t) => t.destino === "cai").length
+  // CAMPEÃO por entrada (5.1c): em divisão de season split, o título é do VENCEDOR
+  // da grande final (ou campeão direto), NUNCA `posicao_final===1` (líder da
+  // combinada). Em divisão anual, o legado: posicao_final===1.
+  const ehCampeaoPorEntrada = await Promise.all(
+    entradas.map(async (en) => {
+      const ehSplit =
+        en.ciclo === "apertura_clausura" &&
+        en.tournamentId != null &&
+        en.tournamentIdClausura != null
+      if (!ehSplit) return en.posicaoFinal === 1
+      const campeao = await resolverCampeaoDivisaoSplit(supabase, {
+        divisionSeasonId: en.divisionSeasonId,
+        tournamentId: en.tournamentId as string,
+        tournamentIdClausura: en.tournamentIdClausura as string,
+        finalTournamentId: en.finalTournamentId,
+      })
+      return campeao?.competitorId === competitorId
+    })
+  )
+
+  const historico: TemporadaHistorico[] = entradas
+    .map((en, i) => ({
+      numero: en.numero,
+      nivel: en.nivel,
+      divisaoNome: en.divisaoNome,
+      posicaoFinal: en.posicaoFinal,
+      destino: en.destino,
+      pontos: en.pontos,
+      jogos: en.jogos,
+      ppg: en.jogos > 0 ? en.pontos / en.jogos : 0,
+      campeao: ehCampeaoPorEntrada[i],
+    }))
+    .sort((a, b) => a.numero - b.numero)
+
+  const totalPontos = entradas.reduce((s, t) => s + t.pontos, 0)
+  const totalJogos = entradas.reduce((s, t) => s + t.jogos, 0)
+  const titulos = ehCampeaoPorEntrada.filter(Boolean).length
+  const titulosElite = entradas.filter(
+    (en, i) => en.nivel === 1 && ehCampeaoPorEntrada[i]
+  ).length
+  const acessos = entradas.filter((t) => t.destino === "sobe").length
+  const quedas = entradas.filter((t) => t.destino === "cai").length
 
   return {
     id: comp.id,

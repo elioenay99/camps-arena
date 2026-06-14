@@ -48,3 +48,17 @@ O motor `computeStandings` SHALL suportar uma RESOLUÇÃO de empate por MINI-TAB
 
 - **WHEN** um mesmo cenário de empate é classificado com `espanhol` e com `fifa`
 - **THEN** `espanhol` aplica a mini-tabela ANTES do saldo global e `fifa` aplica o saldo global ANTES da mini-tabela, podendo produzir ordens diferentes
+
+### Requirement: Tabela anual combinada de uma divisão split (Fase 5.1)
+
+Numa temporada split, o sistema SHALL produzir a TABELA ANUAL COMBINADA de cada divisão SEM tocar o motor puro `flowEngine.ts`: um fetcher dedicado SHALL unir as PARTIDAS dos dois turnos (Apertura + Clausura) re-chaveando cada lado da Clausura por `slot Clausura → competitor_id → slot Apertura` (inclusive o vencedor de W.O.) e rodar `computeStandings` UMA vez com o preset de desempate da divisão, devolvendo linhas no mesmo contrato `LinhaComNome[]` chaveadas pelo SLOT da Apertura (para o remap `slot→competidor` dos consumidores funcionar sem alteração, já que `entries.slot_id` aponta para a Apertura). Como a combinada une as partidas reais do ano inteiro, o confronto direto (`cbf`) e a mini-tabela (`espanhol`/`fifa`) SHALL operar sobre TODOS os jogos entre os empatados nos dois turnos (não sobre agregados somados, que perderiam o h2h). A combinada SHALL ser a FONTE ÚNICA de `posição`/`pontos`/`jogos` para o sobe/cai, o promédio (Fase 4) e a página, exatamente como `linhasFaseGrupos` na Fase 5.2 — encadeada `linhasAnualCombinada ?? linhasFaseGrupos ?? linhas`. Em temporada não-split a combinada SHALL estar ausente e o comportamento SHALL ser byte-idêntico ao legado.
+
+#### Scenario: Combinada soma os dois turnos com o desempate da divisão
+
+- **WHEN** uma divisão split tem Apertura e Clausura encerrados
+- **THEN** a tabela combinada apresenta, por competidor, pontos/jogos/saldo/gols somados dos dois turnos, ordenados pelo preset de desempate da divisão, com a mini-tabela (se `espanhol`/`fifa`) considerando os confrontos diretos dos dois turnos
+
+#### Scenario: Não-regressão sem split
+
+- **WHEN** a temporada é `anual` (sem split)
+- **THEN** nenhuma combinada é produzida e a classificação da divisão é exatamente a do torneio único (byte-idêntica à Fase 1/5.2)

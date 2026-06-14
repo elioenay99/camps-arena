@@ -488,6 +488,7 @@ export interface Database {
           competition_id: string
           numero: number
           status: LeagueSeasonStatus
+          ciclo: string
           config_snapshot: Json
           previous_season_id: string | null
           created_at: string
@@ -498,6 +499,7 @@ export interface Database {
           competition_id: string
           numero: number
           status?: LeagueSeasonStatus
+          ciclo?: string
           config_snapshot?: Json
           previous_season_id?: string | null
           created_at?: string
@@ -508,6 +510,7 @@ export interface Database {
           competition_id?: string
           numero?: number
           status?: LeagueSeasonStatus
+          ciclo?: string
           config_snapshot?: Json
           previous_season_id?: string | null
           created_at?: string
@@ -537,6 +540,8 @@ export interface Database {
           nivel: number
           nome: string
           tournament_id: string | null
+          tournament_id_clausura: string | null
+          final_tournament_id: string | null
           por_nome: boolean
           desempate: string
           ranking_base: LeagueRankingBase
@@ -552,6 +557,8 @@ export interface Database {
           nivel: number
           nome: string
           tournament_id?: string | null
+          tournament_id_clausura?: string | null
+          final_tournament_id?: string | null
           por_nome?: boolean
           desempate?: string
           ranking_base?: LeagueRankingBase
@@ -567,6 +574,8 @@ export interface Database {
           nivel?: number
           nome?: string
           tournament_id?: string | null
+          tournament_id_clausura?: string | null
+          final_tournament_id?: string | null
           por_nome?: boolean
           desempate?: string
           ranking_base?: LeagueRankingBase
@@ -587,6 +596,20 @@ export interface Database {
           {
             foreignKeyName: "league_division_seasons_tournament_id_fkey"
             columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_division_seasons_tournament_id_clausura_fkey"
+            columns: ["tournament_id_clausura"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_division_seasons_final_tournament_id_fkey"
+            columns: ["final_tournament_id"]
             isOneToOne: false
             referencedRelation: "tournaments"
             referencedColumns: ["id"]
@@ -820,6 +843,10 @@ export interface Database {
       }
       montar_barragem: {
         Args: { p_boundary_id: string; p_competitor_ids: string[] }
+        Returns: string
+      }
+      montar_grande_final: {
+        Args: { p_division_season_id: string; p_competitor_ids: string[] }
         Returns: string
       }
     }

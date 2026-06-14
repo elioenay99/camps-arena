@@ -18,6 +18,11 @@ import {
   getDivisionStandings,
   type DivisaoStandings,
 } from "@/features/league/data/getDivisionStandings"
+import {
+  getGrandeFinal,
+  type GrandeFinalDivisao,
+} from "@/features/league/data/getGrandeFinal"
+import { GrandeFinalPanel } from "@/features/league/components/GrandeFinalPanel"
 import { getPlayoffs } from "@/features/league/data/getPlayoffs"
 import {
   getSeason,
@@ -94,16 +99,29 @@ export default async function TemporadaPage({
         )
       )
 
+  // Grande final (Fase 5.1): só nas divisões SPLIT (com Clausura). As demais
+  // ficam `null` — o DivisaoCard só renderiza o painel quando não-nulo. Em
+  // paralelo com o resto (não bloqueia o render das divisões anuais).
+  const grandeFinalPorDivisao = await Promise.all(
+    temporada.divisoes.map((div) =>
+      div.tournamentIdClausura !== null
+        ? getGrandeFinal(div.id, user.id)
+        : Promise.resolve<GrandeFinalDivisao | null>(null)
+    )
+  )
+
   // Mapa nível → nome (para o FluxoTemporadaPanel rotular as divisões).
   const nivelNomes: Record<number, string> = {}
   for (const div of temporada.divisoes) nivelNomes[div.nivel] = div.nome
 
-  // Fim de temporada: ATIVA com todas as divisões já encerradas (torneios
-  // encerrados) → habilita a sequência de fim de temporada (playoffs → fluxo).
+  // Fim de temporada: ATIVA com todas as divisões já encerradas → habilita a
+  // sequência de fim de temporada (playoffs → fluxo). NÃO usa `status` (só da
+  // Apertura): no split a Apertura pode estar 'encerrado' enquanto a Clausura
+  // ainda joga — só `encerradaParaFluxo` (ambas as meias) libera o fluxo.
   const todasEncerradas =
     temporada.status === "ativa" &&
     standingsPorDivisao.length > 0 &&
-    standingsPorDivisao.every((s) => s?.status === "encerrado")
+    standingsPorDivisao.every((s) => s?.encerradaParaFluxo)
 
   // PLAYOFFS (Fase 2): só relevante quando as divisões já encerraram. A SEQUÊNCIA
   // nova é: divisões encerram → MONTAR playoffs → jogar/encerrar as chaves →
@@ -183,6 +201,8 @@ export default async function TemporadaPage({
               key={div.id}
               divisao={div}
               standings={standingsPorDivisao[i]}
+              grandeFinal={grandeFinalPorDivisao[i]}
+              seasonId={temporada.seasonId}
               ordem={i}
             />
           ))}
@@ -279,17 +299,29 @@ function Chip({ children }: { children: React.ReactNode }) {
 function DivisaoCard({
   divisao,
   standings,
+  grandeFinal,
+  seasonId,
   ordem,
 }: {
   divisao: DivisaoTemporada
   standings: DivisaoStandings | null
+  /** Grande final desta divisão (Fase 5.1) — `null` fora do split. */
+  grandeFinal: GrandeFinalDivisao | null
+  /** Id da temporada — repassado ao painel da grande final (action recebe seasonId). */
+  seasonId: string
   ordem: number
 }) {
   // Sem torneio (não montada) — não deveria ocorrer fora do rascunho, mas é
   // defesa. Montada mas não iniciada (rascunho do torneio): botão de iniciar.
+  // No split, `status` é só da APERTURA — e o backend inicia AS DUAS meias num
+  // clique, então o gate de "não iniciada" continua sendo o status da Apertura.
   const naoIniciada =
     divisao.tournamentId !== null &&
     (standings === null || standings.status === "rascunho")
+
+  // Divisão SPLIT (Apertura + Clausura): a divisão roda dois turnos e a tabela é
+  // a ANUAL COMBINADA (não coroa líder — o título sai da grande final).
+  const ehSplit = divisao.tournamentIdClausura !== null
 
   return (
     <section
@@ -310,29 +342,71 @@ function DivisaoCard({
           </span>
           {divisao.nome.trim() || `Divisão ${divisao.nivel}`}
         </h2>
+        {/* Split: DOIS links (lançar placares de cada turno). Anual: um só. */}
         {divisao.tournamentId ? (
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground rounded-full"
-          >
-            <Link href={`/dashboard/torneios/${divisao.tournamentId}`}>
-              <ExternalLink aria-hidden="true" />
-              Abrir torneio
-            </Link>
-          </Button>
+          ehSplit ? (
+            <div className="flex flex-wrap items-center justify-end gap-1">
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground rounded-full"
+              >
+                <Link href={`/dashboard/torneios/${divisao.tournamentId}`}>
+                  <ExternalLink aria-hidden="true" />
+                  Abrir Apertura
+                </Link>
+              </Button>
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground rounded-full"
+              >
+                <Link
+                  href={`/dashboard/torneios/${divisao.tournamentIdClausura}`}
+                >
+                  <ExternalLink aria-hidden="true" />
+                  Abrir Clausura
+                </Link>
+              </Button>
+            </div>
+          ) : (
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground rounded-full"
+            >
+              <Link href={`/dashboard/torneios/${divisao.tournamentId}`}>
+                <ExternalLink aria-hidden="true" />
+                Abrir torneio
+              </Link>
+            </Button>
+          )
         ) : null}
       </div>
 
       {standings && standings.status !== "rascunho" ? (
-        <StandingsTable
-          linhas={standings.linhas}
-          rotuloLado={divisao.porNome ? "Competidor" : "Clube"}
-          zonas={standings.zonas}
-          promedioPorParticipante={standings.promedios}
-          hrefCompetidorBase="/dashboard/ligas/competidor"
-        />
+        <>
+          <StandingsTable
+            linhas={standings.linhas}
+            rotuloLado={divisao.porNome ? "Competidor" : "Clube"}
+            zonas={standings.zonas}
+            promedioPorParticipante={standings.promedios}
+            hrefCompetidorBase="/dashboard/ligas/competidor"
+            ocultarCampeao={ehSplit}
+          />
+          {/* Grande final: só no split, com o estado já resolvido no servidor. */}
+          {ehSplit && grandeFinal ? (
+            <GrandeFinalPanel
+              divisionSeasonId={divisao.id}
+              seasonId={seasonId}
+              grandeFinal={grandeFinal}
+              bracket={<BracketView partidas={grandeFinal.partidas} />}
+            />
+          ) : null}
+        </>
       ) : (
         <Card className="elevate" size="sm">
           <CardContent className="flex flex-col items-center gap-4 py-8 text-center">

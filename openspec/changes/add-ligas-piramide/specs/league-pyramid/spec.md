@@ -239,3 +239,32 @@ O sistema SHALL oferecer uma página `dashboard/ligas/competidor/[id]` (RSC) que
 
 - **WHEN** um competidor terminou em 1º em alguma divisão e subiu/caiu ao longo das temporadas
 - **THEN** a página conta os títulos (posição final 1), marca o campeão da elite (nível 1) e exibe a contagem de acessos e quedas, tudo derivado das entries existentes (sem nova persistência)
+
+### Requirement: Temporada em ciclos Apertura/Clausura (Fase 5.1)
+
+O sistema SHALL oferecer um modo de temporada em CICLOS (Apertura/Clausura): ao criar a pirâmide, o dono SHALL poder marcar a temporada como split (`ciclo = 'apertura_clausura'`), válido SOMENTE quando todas as divisões são `formato = 'liga'` (o schema REJEITA split com `grupos_mata_mata` — follow-up). Numa temporada split, cada divisão SHALL rodar DOIS torneios de liga (Apertura e Clausura) com o mesmo elenco; `iniciarDivisao` SHALL iniciar ambos e a season só vira `ativa` quando todas as meias de todas as divisões saírem de rascunho. O sobe/cai (e o `ranking_base`) SHALL operar sobre a TABELA ANUAL COMBINADA (soma dos dois turnos), nunca sobre um turno isolado; o gate de fluxo SHALL exigir AMBAS as meias encerradas por divisão. As colunas `league_division_entries.pontos/jogos/posicao_final` SHALL persistir os valores da COMBINADA (a grande final NUNCA entra), sob pena de corromper o promédio plurianual de forma irreversível. O CAMPEÃO da divisão SHALL ser o vencedor de uma GRANDE FINAL ida-e-volta entre o campeão da Apertura e o da Clausura (decisão de produto 5.1a/5.1c); a grande final é DECORATIVA para o sobe/cai (não gateia nem altera o fluxo, é jogável mesmo após o fluxo) e, quando o MESMO competidor vence os dois turnos, há campeão DIRETO (sem montar a final). A tabela combinada NÃO SHALL marcar o líder (posição 1) como campeão (a `StandingsTable` recebe `ocultarCampeao` no split); o título na página do competidor SHALL ser derivado do vencedor da grande final (ou campeão direto), não de `posicao_final = 1`. A UI da temporada SHALL, por divisão split, oferecer links para os dois turnos, exibir a tabela combinada com as zonas de sobe/cai e um painel da grande final, tudo mobile-first (390px) nos dois temas. Temporadas `anual` (default) SHALL permanecer byte-idênticas ao comportamento atual.
+
+#### Scenario: Sobe/cai pela tabela anual combinada
+
+- **WHEN** uma divisão split tem Apertura e Clausura encerrados e o fluxo é calculado
+- **THEN** o corte de acesso/rebaixamento usa a soma dos dois turnos (posição/pontos/jogos combinados), e `league_division_entries` persiste pontos/jogos da combinada — a grande final, mesmo jogada, não altera esses valores
+
+#### Scenario: Gate exige as duas meias encerradas
+
+- **WHEN** a Apertura de uma divisão está encerrada mas a Clausura ainda em andamento
+- **THEN** o fluxo de fim de temporada é bloqueado com mensagem específica (decidir o corte com um turno faltando é irreversível)
+
+#### Scenario: Campeão pela grande final
+
+- **WHEN** Apertura e Clausura têm campeões DISTINTOS numa divisão split
+- **THEN** o sistema oferece montar a grande final ida-e-volta entre eles; o vencedor é o campeão da divisão (título), enquanto o líder da tabela combinada NÃO recebe troféu automático
+
+#### Scenario: Campeão direto quando o mesmo vence os dois turnos
+
+- **WHEN** o mesmo competidor vence Apertura e Clausura
+- **THEN** não há grande final e ele é campeão direto da divisão
+
+#### Scenario: Ciclo preservado entre temporadas
+
+- **WHEN** o fluxo de uma temporada split gera a N+1
+- **THEN** a N+1 nasce split e cada divisão volta a rodar dois turnos (o ciclo não some após uma temporada)

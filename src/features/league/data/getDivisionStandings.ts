@@ -1,14 +1,12 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
-import {
-  getTournamentClassificacao,
-  type LinhaComNome,
-} from "@/features/standings/data/getTournamentClassificacao"
+import type { LinhaComNome } from "@/features/standings/data/getTournamentClassificacao"
 import {
   carregarPosicoesDeCorte,
   type LinhaReal,
 } from "@/features/league/promedios"
+import { carregarLinhasBaseDivisao } from "@/features/league/data/carregarLinhasBaseDivisao"
 import type {
   LeagueBoundaryMode,
   TournamentStatus,
@@ -44,8 +42,14 @@ export interface FronteiraZona {
 export interface DivisaoStandings {
   /** Linhas já com nome resolvido (rótulo = identidade do competidor). */
   linhas: LinhaComNome[]
-  /** Status do torneio da divisão (rascunho/ativo/encerrado). */
+  /** Status do torneio da divisão = APERTURA (rascunho/ativo/encerrado). */
   status: TournamentStatus
+  /**
+   * Divisão pronta para o FLUXO (gate de nível de página). No split exige AS DUAS
+   * meias encerradas; em `grupos_mata_mata` exige os grupos completos. A página usa
+   * isto (não o `status`, que é só da Apertura) para liberar montar playoffs/fluxo.
+   */
+  encerradaParaFluxo: boolean
   /**
    * Posições de acesso/rebaixamento desta divisão (vazias se sem fronteira). Em
    * divisões `promedios` (Fase 4), são as POSIÇÕES REAIS dos competidores no
@@ -197,10 +201,11 @@ export async function getDivisionStandings(
   // Divisão + posse por FILTRO transitivo (divisão → season → competition).
   // `season_id` alimenta o fetch de metadados de playoff das fronteiras (modo/
   // estilo/vagas) — a página passa só o sobe/cai DIRETO, então enriquecemos aqui.
+  // Fase 5.1: + tournament_id_clausura/formato/desempate + ciclo da season (split).
   const { data: divisao, error: divError } = await supabase
     .from("league_division_seasons")
     .select(
-      "id, nivel, season_id, tournament_id, ranking_base, league_seasons!inner ( league_competitions!inner ( created_by ) )"
+      "id, nivel, season_id, tournament_id, tournament_id_clausura, ranking_base, formato, desempate, league_seasons!inner ( ciclo, league_competitions!inner ( created_by ) )"
     )
     .eq("id", divisionSeasonId)
     .eq("league_seasons.league_competitions.created_by", userId)
@@ -255,20 +260,32 @@ export async function getDivisionStandings(
     if (e.slot_id) competitorPorSlot.set(e.slot_id, e.competitor_id)
   }
 
-  const classificacao = await getTournamentClassificacao(divisao.tournament_id)
-  if (!classificacao) {
+  // Fase 5.1: FONTE ÚNICA da linhasBase + do encerramento. No split é a tabela
+  // ANUAL COMBINADA (chaveada pelo slot da Apertura — o remap abaixo segue); no
+  // anual é `linhasFaseGrupos ?? linhas` (5.2), byte-idêntico. As tabelas POR GRUPO
+  // não são repassadas aqui (follow-up de UI; o agregado/combinada já é a fonte).
+  const base = await carregarLinhasBaseDivisao(
+    supabase,
+    {
+      tournament_id: divisao.tournament_id,
+      tournament_id_clausura: divisao.tournament_id_clausura,
+      formato: divisao.formato,
+      desempate: divisao.desempate,
+      ciclo:
+        (divisao.league_seasons as unknown as { ciclo: string } | null)?.ciclo ??
+        "anual",
+    },
+    // DISPLAY: falha de IO no gate de grupos degrada `encerradaParaFluxo=false`
+    // (não aborta a render). O legado não chamava esse gate — preserva a tabela.
+    true
+  )
+  if (!base) {
     return null
   }
 
-  // Fase 5.2: numa divisão grupos+mata-mata a tabela que DECIDE o sobe/cai é o
-  // AGREGADO da fase de grupos (posição-no-grupo) — é ele que a página exibe e
-  // alimenta o sobe/cai. As tabelas POR GRUPO (`classificacao.grupos`) NÃO são
-  // repassadas aqui — exibi-las separadamente na página é follow-up de UI (não
-  // afeta a corretude do corte; o agregado já é a fonte de verdade).
-  const linhasBase = classificacao.linhasFaseGrupos ?? classificacao.linhas
   // Reescreve a chave da linha para o competitor_id (estável); o nome/escudo do
   // motor já é o do clube/rótulo do slot — preservado.
-  const linhas: LinhaComNome[] = linhasBase.map((linha) => ({
+  const linhas: LinhaComNome[] = base.linhasBase.map((linha) => ({
     ...linha,
     participanteId:
       competitorPorSlot.get(linha.participanteId) ?? linha.participanteId,
@@ -281,7 +298,8 @@ export async function getDivisionStandings(
   const zonasRank = derivarZonas(divisao.nivel, linhas.length, fronteirasZona)
 
   if (divisao.ranking_base !== "promedios") {
-    return { linhas, status: classificacao.torneio.status, zonas: zonasRank }
+    return { linhas, status: base.statusApertura,
+    encerradaParaFluxo: base.encerradaParaFluxo, zonas: zonasRank }
   }
 
   const linhasReais: LinhaReal[] = linhas.map((l) => ({
@@ -299,7 +317,8 @@ export async function getDivisionStandings(
   if (!corte) {
     // Falha ao computar o promedio: degrada para as zonas por posição (sem
     // coluna), preservando a renderização da tabela.
-    return { linhas, status: classificacao.torneio.status, zonas: zonasRank }
+    return { linhas, status: base.statusApertura,
+    encerradaParaFluxo: base.encerradaParaFluxo, zonas: zonasRank }
   }
 
   // rank de promedio → posição real (para traduzir as zonas ordinais).
@@ -321,7 +340,8 @@ export async function getDivisionStandings(
 
   return {
     linhas,
-    status: classificacao.torneio.status,
+    status: base.statusApertura,
+    encerradaParaFluxo: base.encerradaParaFluxo,
     zonas,
     promedios: corte.promedio,
   }

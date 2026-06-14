@@ -533,6 +533,22 @@ export async function reabrirTorneio(
     return { ok: false, error: erroPropriedade }
   }
 
+  // FREEZE — camada (a) também para a CLAUSURA (Fase 5.1): a meia da Clausura
+  // decide a combinada → o sobe/cai, igual à Apertura. A GRANDE FINAL fica DE FORA
+  // (decorativa, jogável após o fluxo). Defesa real = trigger (ramo da clausura).
+  const { data: clausuraCongelada, error: clausuraError } = await supabase
+    .from("league_division_seasons")
+    .select("id, league_seasons!inner(status)")
+    .eq("tournament_id_clausura", parsed.data)
+    .in("league_seasons.status", ["em_fluxo", "encerrada"])
+    .limit(1)
+  if (clausuraError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (clausuraCongelada && clausuraCongelada.length > 0) {
+    return { ok: false, error: erroPropriedade }
+  }
+
   // FREEZE — camada (a) também para a CHAVE de playoff (Fase 2): se este torneio
   // é a chave de uma fronteira cuja temporada está congelada, reabrir mudaria o
   // resultado que já gerou a N+1. Mesmo motivo/mensagem da divisão; o trigger

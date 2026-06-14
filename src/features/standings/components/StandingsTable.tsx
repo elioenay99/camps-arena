@@ -38,6 +38,7 @@ export function StandingsTable({
   zonas,
   promedioPorParticipante,
   hrefCompetidorBase,
+  ocultarCampeao = false,
 }: {
   linhas: LinhaComNome[]
   /** Rótulo da coluna de nome ("Participante" ou "Clube"). */
@@ -59,6 +60,13 @@ export function StandingsTable({
    * nome em texto (torneios avulsos inalterados).
    */
   hrefCompetidorBase?: string
+  /**
+   * Tabela que NÃO coroa líder (Fase 5.1 — tabela ANUAL COMBINADA do split). Quando
+   * `true`, a posição 1 não recebe o destaque de campeão (sem fundo dourado, sem
+   * troféu): o título da divisão sai da GRANDE FINAL, não da combinada. Ausente/false
+   * = comportamento atual (1º lugar destacado como campeão).
+   */
+  ocultarCampeao?: boolean
 }) {
   // Conjuntos de posições para lookup O(1). Vazios quando `zonas` é ausente —
   // o destaque some e a tabela volta ao comportamento standalone.
@@ -125,7 +133,9 @@ export function StandingsTable({
           {linhas.map((linha) => {
             // 1º lugar é CONQUISTA: linha tingida de dourado + troféu. Empates
             // podem repetir posicao===1 — o destaque vale para toda linha líder.
-            const ehLider = linha.posicao === 1
+            // `ocultarCampeao` (combinada do split) suprime o destaque: o título
+            // da divisão sai da grande final, não desta tabela.
+            const ehLider = !ocultarCampeao && linha.posicao === 1
             // Zonas da pirâmide (posicionais). O ouro do líder tem prioridade
             // sobre qualquer faixa de zona (a pos. 1 mora numa zona de acesso/
             // playoff). Por isso o `tom` de zona só pinta quando NÃO é líder.

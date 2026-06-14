@@ -8,7 +8,8 @@ import { DestinoPill } from "./DestinoPill"
  * Linha do tempo de temporadas: a mais RECENTE primeiro (o histórico chega
  * ordenado asc, então invertemos). Cada item traz temporada nº, divisão
  * (nome + nível, com badge dourado quando campeão), posição final em
- * `font-display`, a pílula de destino e P/J · PPG. Campeão (posição 1) recebe o
+ * `font-display`, a pílula de destino e P/J · PPG. Campeão (flag `campeao` —
+ * vencedor da grande final em season split, NÃO o líder da combinada) recebe o
  * tratamento dourado da StandingsTable (faixa gold + troféu). RSC puro.
  */
 export function TemporadaTimeline({
@@ -31,7 +32,7 @@ export function TemporadaTimeline({
       </h2>
       <ol className="flex list-none flex-col gap-3">
         {ordenado.map((t, i) => {
-          const ehCampeao = t.posicaoFinal === 1
+          const ehCampeao = t.campeao
           return (
             <li
               key={t.numero}

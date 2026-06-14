@@ -65,3 +65,32 @@ A tabela `league_division_seasons` SHALL ganhar `ranking_base public.league_rank
 
 - **WHEN** `montarProximaTemporada` gera a temporada N+1 de uma pirâmide com uma divisão `promedios`
 - **THEN** a divisão correspondente da N+1 nasce com `ranking_base = 'promedios'` (config preservada entre temporadas)
+
+### Requirement: Ciclos Apertura/Clausura — split season (Fase 5.1)
+
+A tabela `league_seasons` SHALL ganhar `ciclo text not null default 'anual'` com CHECK `in ('anual','apertura_clausura')` — marcador POR TEMPORADA (o split mistura os dois turnos de uma season inteira; não é por divisão). `'anual'` (default) SHALL preservar byte-a-byte o caminho de um torneio por divisão. A tabela `league_division_seasons` SHALL ganhar `tournament_id_clausura uuid` e `final_tournament_id uuid` (ambos FK para `tournaments` `on delete restrict`, nullable): `tournament_id` passa a ser o torneio da APERTURA (segue sendo o liga único quando `anual`), `tournament_id_clausura` o da CLAUSURA (gravado na montagem, em rascunho), e `final_tournament_id` o da GRANDE FINAL (mata_mata ida-e-volta, gravado APÓS as duas meias encerrarem). Cada coluna SHALL ter índice único parcial próprio (`where not null`), espelhando `league_division_seasons_tournament_unico` (um torneio em um papel). Um CHECK `split_so_liga` (`tournament_id_clausura is null or formato = 'liga'`) SHALL reforçar que o split só se aplica a divisões de pontos corridos (decisão de produto 5.1b; `grupos_mata_mata` em split é follow-up). A RPC `montar_temporada` SHALL, quando `ciclo = 'apertura_clausura'`, criar DOIS torneios por divisão (Apertura e Clausura) com sentinelas idempotentes INDEPENDENTES, inserindo os slots da Clausura sobre TODAS as entries da divisão sem alterar `entries.slot_id` (que permanece único, ligado à Apertura). Uma RPC nova `montar_grande_final(p_division_season_id uuid, p_competitor_ids uuid[])` `SECURITY DEFINER` SHALL criar a grande final ida-e-volta entre os dois campeões (espelhando `montar_playoff`: posse transitiva, advisory lock, sentinela `final_tournament_id`, degradação de `user_id`, `revoke/grant`). O trigger `lock_league_division_season` SHALL congelar `tournament_id_clausura` pós-rascunho (como `tournament_id`) mas NÃO `final_tournament_id` (gravada pós-rascunho). O trigger `lock_division_tournament_reopen` SHALL barrar reabrir o torneio da Clausura de season `em_fluxo`/`encerrada` (como faz com a Apertura), mas NÃO o da grande final (decorativa, jogável após o fluxo). `montarProximaTemporada` SHALL copiar `ciclo` para a N+1 (sem a cópia, a pirâmide degrada para single-stage). A DDL SHALL ser aditiva/idempotente, sem backfill, espelhada em `supabase/schema.sql`.
+
+#### Scenario: Temporada split monta dois torneios por divisão
+
+- **WHEN** `montar_temporada` roda numa season com `ciclo = 'apertura_clausura'`
+- **THEN** cada divisão recebe um torneio de Apertura (`tournament_id`) e um de Clausura (`tournament_id_clausura`), ambos liga, com os mesmos competidores; re-rodar após falha parcial completa só a meia que faltou (duas sentinelas independentes)
+
+#### Scenario: Reabrir a Clausura de temporada congelada é barrado
+
+- **WHEN** o dono tenta reabrir (`encerrado`→`ativo`) o torneio da Clausura de uma divisão cuja season está `em_fluxo`/`encerrada`
+- **THEN** o trigger `lock_division_tournament_reopen` rejeita (a Clausura decide a tabela combinada que já gerou o sobe/cai)
+
+#### Scenario: Grande final é decorativa e não congela
+
+- **WHEN** a season já está `em_fluxo`/`encerrada` e a grande final ainda não foi jogada
+- **THEN** o torneio da grande final pode ser montado/jogado normalmente (não entra no freeze de reabertura nem no lock de geometria via `final_tournament_id`)
+
+#### Scenario: Split só em divisões liga
+
+- **WHEN** se tenta marcar `ciclo = 'apertura_clausura'` com alguma divisão `grupos_mata_mata`
+- **THEN** a criação é rejeitada (superRefine do schema) e, no banco, uma divisão com `tournament_id_clausura` preenchido exige `formato = 'liga'` (CHECK `split_so_liga`)
+
+#### Scenario: Ciclo copiado para a próxima temporada
+
+- **WHEN** `montarProximaTemporada` gera a N+1 de uma pirâmide split
+- **THEN** a season N+1 nasce com `ciclo = 'apertura_clausura'` e a RPC recria os dois torneios por divisão (o ciclo não degrada após um turno)

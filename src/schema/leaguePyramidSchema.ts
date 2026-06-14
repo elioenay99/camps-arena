@@ -415,6 +415,9 @@ export const createCompetitionSchema = z
       .min(2, "Informe um nome com ao menos 2 caracteres.")
       .max(80, "Nome muito longo."),
     isPublic: z.boolean().default(true),
+    // Fase 5.1: ciclo da temporada (propriedade da SEASON, não por divisão).
+    // 'apertura_clausura' = temporada dividida (dois turnos por divisão).
+    ciclo: z.enum(["anual", "apertura_clausura"]).default("anual"),
     divisoes: z
       .array(divisaoSchema)
       .min(1, "A pirâmide precisa de ao menos uma divisão.")
@@ -424,6 +427,20 @@ export const createCompetitionSchema = z
   .superRefine((d, ctx) => {
     const divisoes = d.divisoes
     const n = divisoes.length
+
+    // (0) Fase 5.1: split (apertura_clausura) é RESTRITO a divisões 'liga' (5.1b).
+    // Somar duas fases de grupos com partições distintas por turno é ambíguo.
+    if (d.ciclo === "apertura_clausura") {
+      divisoes.forEach((div, idx) => {
+        if (div.formato !== "liga") {
+          ctx.addIssue({
+            code: "custom",
+            message: `Apertura/Clausura só aceita divisões de liga: "${div.nome}" usa grupos+mata-mata.`,
+            path: ["divisoes", idx, "formato"],
+          })
+        }
+      })
+    }
 
     // (1) Níveis contínuos 1..N — sem buracos nem duplicatas. Ordenamos por
     // nível para validar a sequência e usamos o índice ORDENADO ao apontar

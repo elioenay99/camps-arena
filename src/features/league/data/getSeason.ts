@@ -21,8 +21,12 @@ export interface DivisaoTemporada {
   porNome: boolean
   desempate: string
   tamanho: number
-  /** Torneio da divisão — null enquanto a temporada é rascunho (não montada). */
+  /** Torneio da divisão = APERTURA — null enquanto a temporada é rascunho. */
   tournamentId: string | null
+  /** Torneio da CLAUSURA (Fase 5.1) — null fora do split. */
+  tournamentIdClausura: string | null
+  /** Torneio da GRANDE FINAL (Fase 5.1) — null até a final ser montada. */
+  finalTournamentId: string | null
 }
 
 /** Fronteira sobe/cai entre `nivelSuperior` (d) e a divisão de baixo (d+1). */
@@ -38,6 +42,8 @@ export interface TemporadaCompleta {
   seasonId: string
   numero: number
   status: LeagueSeasonStatus
+  /** Ciclo da temporada (Fase 5.1): 'anual' | 'apertura_clausura'. */
+  ciclo: string
   competicao: {
     id: string
     nome: string
@@ -58,6 +64,8 @@ interface DivisaoEmbed {
   desempate: string
   tamanho: number
   tournament_id: string | null
+  tournament_id_clausura: string | null
+  final_tournament_id: string | null
 }
 
 interface FronteiraEmbed {
@@ -103,9 +111,9 @@ export const getSeason = cache(async function getSeason(
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
     .select(
-      `id, numero, status,
+      `id, numero, status, ciclo,
        competition:league_competitions!inner ( id, nome, created_by ),
-       league_division_seasons ( id, nivel, nome, por_nome, desempate, tamanho, tournament_id ),
+       league_division_seasons ( id, nivel, nome, por_nome, desempate, tamanho, tournament_id, tournament_id_clausura, final_tournament_id ),
        league_boundaries ( nivel_superior, vagas_acesso, vagas_rebaixamento )`
     )
     .eq("id", seasonId)
@@ -125,6 +133,7 @@ export const getSeason = cache(async function getSeason(
     id: string
     numero: number
     status: LeagueSeasonStatus
+    ciclo: string
     competition: { id: string; nome: string; created_by: string | null }
     league_division_seasons: DivisaoEmbed[]
     league_boundaries: FronteiraEmbed[]
@@ -165,6 +174,8 @@ export const getSeason = cache(async function getSeason(
       desempate: d.desempate,
       tamanho: d.tamanho,
       tournamentId: d.tournament_id,
+      tournamentIdClausura: d.tournament_id_clausura,
+      finalTournamentId: d.final_tournament_id,
     }))
 
   const fronteiras: FronteiraTemporada[] = [...linha.league_boundaries]
@@ -179,6 +190,7 @@ export const getSeason = cache(async function getSeason(
     seasonId: linha.id,
     numero: linha.numero,
     status: linha.status,
+    ciclo: linha.ciclo,
     competicao: { id: linha.competition.id, nome: linha.competition.nome },
     divisoes,
     fronteiras,

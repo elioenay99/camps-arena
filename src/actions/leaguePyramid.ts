@@ -6,6 +6,7 @@ import { z } from "zod"
 
 import { iniciarTorneio } from "@/actions/tournaments"
 import { gerarChaveSemeada } from "@/features/knockout/data/gerarChaveSemeada"
+import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao"
 import {
   gerarBarragemPares,
   resultadoBarragemPares,
@@ -14,7 +15,6 @@ import {
   type ConfrontoChave,
   type PartidaJogada,
 } from "@/features/knockout/gerarChaveMataMata"
-import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao"
 import { createClient } from "@/lib/supabase/server"
 import {
   createCompetitionSchema,
@@ -46,9 +46,10 @@ import {
   type LinhaReal,
 } from "@/features/league/promedios"
 import {
-  faseDeGruposIncompleta,
-  gerarFaseGruposSemeada,
-} from "@/features/groups/montarFaseGruposPiramide"
+  carregarLinhasBaseDivisao,
+  type LinhasBaseDivisao,
+} from "@/features/league/data/carregarLinhasBaseDivisao"
+import { gerarFaseGruposSemeada } from "@/features/groups/montarFaseGruposPiramide"
 import { validarGeometria } from "@/features/groups/gerarFaseDeGrupos"
 
 /* -------------------------------------------------------------------------- */
@@ -145,13 +146,14 @@ export async function createCompetition(
     }
   }
 
-  // (2) Temporada 1 (rascunho).
+  // (2) Temporada 1 (rascunho). Fase 5.1: grava o `ciclo` (anual/apertura_clausura).
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
     .insert({
       competition_id: competitionId,
       numero: 1,
       status: "rascunho",
+      ciclo: dados.ciclo,
     })
     .select("id")
     .single()
@@ -368,6 +370,23 @@ function mensagemDaMontagem(error: { message?: string; code?: string }): string 
   if (m.includes("ZONA_VAZIA")) {
     return "A zona do playoff ficou sem competidores suficientes."
   }
+  // Erros específicos da Fase 5.1 (split + grande final).
+  if (m.includes("SPLIT_SO_LIGA")) {
+    return "Apertura/Clausura só aceita divisões de liga. Ajuste a liga antes de montar."
+  }
+  if (m.includes("GRANDE_FINAL_IDS_INVALIDOS")) {
+    return "A grande final precisa de dois campeões distintos."
+  }
+  if (m.includes("FINAL_POR_NOME_INCOERENTE")) {
+    return "A divisão da final mistura clube e nome — incoerente."
+  }
+  if (m.includes("COMPETIDOR_INEXISTENTE")) {
+    return "Competidor não encontrado."
+  }
+  // DIVISAO_INVALIDA por ÚLTIMO (após DIVISAO_SEM_*/DIVISAO_FONTE_* já testados acima).
+  if (m.includes("DIVISAO_INVALIDA")) {
+    return "Divisão não encontrada."
+  }
   return "Não foi possível montar a temporada agora. Tente novamente."
 }
 
@@ -442,12 +461,16 @@ export async function iniciarDivisao(input: unknown): Promise<LeaguePyramidResul
   const erroPropriedade = "Divisão não encontrada ou você não é o dono da liga."
 
   // Carrega a divisão + season + posse por FILTRO transitivo (inner joins).
-  // Fase 5.2: traz formato/qtd_grupos/classificados_por_grupo + ida_e_volta do
-  // torneio (para a fase de grupos semeada).
+  // Fase 5.2: formato/qtd_grupos/classificados_por_grupo + ida_e_volta da Apertura.
+  // Fase 5.1: ciclo da season + tournament_id_clausura + status das DUAS meias
+  // (embeds DESAMBIGUADOS por FK — há 3 FKs league_division_seasons→tournaments).
   const { data: divisao, error: divError } = await supabase
     .from("league_division_seasons")
     .select(
-      "id, tournament_id, season_id, formato, qtd_grupos, classificados_por_grupo, tournament:tournaments(ida_e_volta), league_seasons!inner(id, status, league_competitions!inner(created_by))"
+      `id, tournament_id, tournament_id_clausura, season_id, formato, qtd_grupos, classificados_por_grupo,
+       apertura:tournaments!league_division_seasons_tournament_id_fkey(status, ida_e_volta),
+       clausura:tournaments!league_division_seasons_tournament_id_clausura_fkey(status),
+       league_seasons!inner(ciclo, league_competitions!inner(created_by))`
     )
     .eq("id", parsed.data)
     .eq("league_seasons.league_competitions.created_by", user.id)
@@ -460,42 +483,76 @@ export async function iniciarDivisao(input: unknown): Promise<LeaguePyramidResul
     return { ok: false, error: erroPropriedade }
   }
 
-  // Fase 5.2: ramifica por FORMATO. `liga` reusa iniciarTorneio (round-robin).
-  // `grupos_mata_mata` gera a FASE DE GRUPOS por sorteio SEMEADO (id da temporada
-  // + divisão) — determinístico/auditável; o mata-mata é gerado depois pela UI de
-  // torneio. iniciarTorneio rejeita formato≠liga, por isso a ramificação.
-  if (divisao.formato === "grupos_mata_mata") {
-    const tourn = divisao.tournament as unknown as { ida_e_volta: boolean } | null
-    const rng = prngDeSemente(`${divisao.season_id}:${divisao.id}`)
-    const r = await gerarFaseGruposSemeada(supabase, divisao.tournament_id, {
-      qtdGrupos: divisao.qtd_grupos ?? 0,
-      classificadosPorGrupo: divisao.classificados_por_grupo ?? 0,
-      idaEVolta: tourn?.ida_e_volta ?? false,
-      randInt: (n: number) => Math.floor(rng() * n),
-    })
-    if (!r.ok) return r
-  } else {
-    // Reúso total: iniciarTorneio valida dono (o dono da pirâmide É o created_by
-    // do torneio da divisão), gera a tabela e promove o torneio a 'ativo'.
-    const r = await iniciarTorneio(divisao.tournament_id)
-    if (!r.ok) {
-      return r
+  const apertura = divisao.apertura as unknown as
+    | { status: string; ida_e_volta: boolean }
+    | null
+  const clausura = divisao.clausura as unknown as { status: string } | null
+  const ciclo =
+    (divisao.league_seasons as unknown as { ciclo: string } | null)?.ciclo ?? "anual"
+  const ehSplit = ciclo === "apertura_clausura" && divisao.tournament_id_clausura != null
+
+  // Inicia UMA meia. O ramo de grupos (`grupos_mata_mata`, 5.2) gera a fase SEMEADA
+  // via `gerarFaseGruposSemeada`, que é idempotente E AUTO-RECUPERA de crash (torneio
+  // 'ativo' SEM partidas ⇒ rebaixa p/ rascunho e regenera) — por isso NÃO leva
+  // pré-check: chamamos sempre, mesmo com status 'ativo' (regressão MEDIUM: o
+  // pré-check matava essa recuperação). `grupos_mata_mata` só ocorre em season ANUAL
+  // (split é liga-only via SPLIT_SO_LIGA), logo o ramo split nunca cai aqui.
+  //
+  // O ramo liga/clausura usa `iniciarTorneio`, que NÃO é idempotente para torneio já
+  // fora de rascunho (filtra `.eq status 'rascunho'` e retorna erro) — daí o PRÉ-CHECK
+  // de status que pula a meia já iniciada (= sucesso), permitindo que um retry de start
+  // PARCIAL (Apertura ok, Clausura falhou) complete só o que falta. Split é só liga ⇒
+  // a Clausura é sempre liga.
+  const iniciarMeia = async (
+    tournamentId: string,
+    status: string | undefined
+  ): Promise<LeaguePyramidResult> => {
+    if (divisao.formato === "grupos_mata_mata") {
+      const rng = prngDeSemente(`${divisao.season_id}:${divisao.id}`)
+      return gerarFaseGruposSemeada(supabase, tournamentId, {
+        qtdGrupos: divisao.qtd_grupos ?? 0,
+        classificadosPorGrupo: divisao.classificados_por_grupo ?? 0,
+        idaEVolta: apertura?.ida_e_volta ?? false,
+        randInt: (n: number) => Math.floor(rng() * n),
+      })
     }
+    if (status !== "rascunho") return { ok: true } // já iniciada — pula (idempotente)
+    return iniciarTorneio(tournamentId)
   }
 
-  // Se TODAS as divisões da temporada já saíram de rascunho, a temporada vira
-  // 'ativa'. Conta as divisões e as que ainda estão em rascunho.
+  // Apertura.
+  let r = await iniciarMeia(divisao.tournament_id, apertura?.status)
+  if (!r.ok) return r
+  // Clausura (só split): bloco INDEPENDENTE.
+  if (ehSplit && divisao.tournament_id_clausura) {
+    r = await iniciarMeia(divisao.tournament_id_clausura, clausura?.status)
+    if (!r.ok) return r
+  }
+
+  // Se TODAS as divisões já saíram de rascunho, a temporada vira 'ativa'. No split,
+  // EXIGE as DUAS meias fora de rascunho (HIGH-1: a season não pode flipar para
+  // 'ativa' com alguma Clausura ainda em rascunho).
   const seasonId = divisao.season_id
   const { data: divisoes, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("tournament_id, tournaments!inner(status)")
+    .select(
+      `tournament_id, tournament_id_clausura,
+       apertura:tournaments!league_division_seasons_tournament_id_fkey(status),
+       clausura:tournaments!league_division_seasons_tournament_id_clausura_fkey(status)`
+    )
     .eq("season_id", seasonId)
   if (!divsError && divisoes) {
     const todasIniciadas =
       divisoes.length > 0 &&
       divisoes.every((d) => {
-        const t = d.tournaments as unknown as { status: string } | null
-        return d.tournament_id !== null && t !== null && t.status !== "rascunho"
+        const ap = d.apertura as unknown as { status: string } | null
+        const cl = d.clausura as unknown as { status: string } | null
+        const aperturaOk =
+          d.tournament_id !== null && ap !== null && ap.status !== "rascunho"
+        const clausuraOk =
+          d.tournament_id_clausura === null ||
+          (cl !== null && cl.status !== "rascunho")
+        return aperturaOk && clausuraOk
       })
     if (todasIniciadas) {
       // Transição idempotente (filtra status 'rascunho' → só dispara uma vez).
@@ -702,10 +759,11 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
   const erroGenerico = "Não foi possível montar os playoffs agora. Tente novamente."
   const erroPropriedade = "Temporada não encontrada ou você não é o dono da liga."
 
-  // Posse + status: a temporada precisa estar 'ativa' (em disputa).
+  // Posse + status: a temporada precisa estar 'ativa' (em disputa). Fase 5.1:
+  // `ciclo` alimenta `carregarLinhasBaseDivisao` (split).
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
-    .select("id, status, league_competitions!inner(created_by)")
+    .select("id, status, ciclo, league_competitions!inner(created_by)")
     .eq("id", parsed.data)
     .eq("league_competitions.created_by", user.id)
     .maybeSingle()
@@ -741,40 +799,42 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
     return { ok: true }
   }
 
+  // Fase 5.1: o status/encerramento (e a linhasBase) vêm de
+  // `carregarLinhasBaseDivisao` — sem o embed `tournament`.
   const { data: divisoes, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("id, nivel, tournament_id, formato, ranking_base, tournament:tournaments(status)")
+    .select("id, nivel, tournament_id, tournament_id_clausura, formato, ranking_base, desempate")
     .eq("season_id", parsed.data)
     .order("nivel")
   if (divsError || !divisoes) {
     return { ok: false, error: erroGenerico }
   }
-  // GATE: todas as divisões encerradas (a chave usa a classificação final).
+  // GATE: todas as divisões encerradas para o fluxo (a chave usa a classificação
+  // final = combinada no split). FONTE ÚNICA — e CACHEIA a linhasBase por divisão
+  // para `carregarDivisao` (evita re-fetch da combinada). MESMO gate do fluxo.
+  const baseCache = new Map<string, LinhasBaseDivisao>()
   for (const div of divisoes) {
-    const status = (div.tournament as { status: string } | null)?.status
-    if (status !== "encerrado") {
+    if (!div.tournament_id) {
+      return { ok: false, error: "Encerre todas as divisões antes de montar os playoffs." }
+    }
+    const base = await carregarLinhasBaseDivisao(supabase, {
+      tournament_id: div.tournament_id,
+      tournament_id_clausura: div.tournament_id_clausura,
+      formato: div.formato,
+      desempate: div.desempate,
+      ciclo: season.ciclo,
+    })
+    if (!base) {
+      return { ok: false, error: erroGenerico }
+    }
+    if (!base.encerradaParaFluxo) {
       return {
         ok: false,
         error:
-          "Encerre todas as divisões antes de montar os playoffs.",
+          "Encerre todas as divisões (e as duas meias, no caso de Apertura/Clausura) antes de montar os playoffs.",
       }
     }
-    // Fase 5.2: a zona/seeding da chave sobre uma divisão grupos+mata-mata usa o
-    // AGREGADO da fase de grupos — exige os grupos 100% encerrados (a chave é
-    // idempotente; semear sobre agregado PARCIAL a travaria). MESMO gate do fluxo.
-    if (div.formato === "grupos_mata_mata" && div.tournament_id) {
-      const incompleta = await faseDeGruposIncompleta(supabase, div.tournament_id)
-      if (incompleta === null) {
-        return { ok: false, error: erroGenerico }
-      }
-      if (incompleta) {
-        return {
-          ok: false,
-          error:
-            "Encerre todos os jogos da fase de grupos antes de montar os playoffs.",
-        }
-      }
-    }
+    baseCache.set(div.id, base)
   }
   // Guarda anti-duplo-conta do promedio (ids de todas as divisões da corrente).
   const divisionSeasonIdsAtuais = divisoes.map((d) => d.id)
@@ -801,16 +861,11 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
     for (const e of entries ?? []) {
       if (e.slot_id) compPorSlot.set(e.slot_id, e.competitor_id)
     }
-    let classificacao
-    try {
-      classificacao = await getTournamentClassificacao(div.tournament_id)
-    } catch {
-      return null
-    }
-    if (!classificacao) return null
-    // Fase 5.2: numa divisão grupos+mata-mata o sobe/cai usa o AGREGADO da fase de
-    // grupos (posição+pontos+jogos), nunca a tabela cheia (que somaria o mata-mata).
-    const linhasBase = classificacao.linhasFaseGrupos ?? classificacao.linhas
+    // Fase 5.1: a linhasBase (combinada no split; agregado/liga no anual) já foi
+    // computada no GATE acima e cacheada — mesma fonte do fluxo (montagem ≡ cálculo).
+    const base = baseCache.get(div.id)
+    if (!base) return null
+    const linhasBase = base.linhasBase
     const linhasReais: LinhaReal[] = []
     for (const l of linhasBase) {
       const c = compPorSlot.get(l.participanteId)
@@ -1000,6 +1055,181 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
 }
 
 /* -------------------------------------------------------------------------- */
+/* montarGrandesFinais — Fase 5.1: a grande final (decorativa) por divisão split */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Monta a GRANDE FINAL (mata-mata ida-e-volta) entre o campeão da Apertura e o da
+ * Clausura de cada divisão split com as DUAS meias encerradas, sem final e com
+ * campeões DISTINTOS. Decorativa: NÃO entra no sobe/cai (combinada) nem gateia o
+ * fluxo — só coroa o campeão da divisão (5.1c). Campeão Apertura == Clausura ⇒
+ * campeão DIRETO (não monta). Idempotente (sentinela `final_tournament_id` na RPC +
+ * `gerarChaveSemeada`). Divisões ainda não prontas (meia em aberto) são puladas em
+ * silêncio (outras montam). Posse por FILTRO transitivo + RLS.
+ *
+ * Resolução DUAL do campeão: Apertura via `entries.slot_id` (slot canônico);
+ * Clausura via `tournament_slots.competitor_id` do slot vencedor (a entry aponta só
+ * para a Apertura). Empate na posição 1 ⇒ `.find(l => l.posicao===1)` (linhas já
+ * ordenadas por id) garante exatamente 1 id por meia.
+ */
+export async function montarGrandesFinais(input: unknown): Promise<LeaguePyramidResult> {
+  const parsed = seasonIdSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: "Temporada inválida." }
+  }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const erroGenerico = "Não foi possível montar as grandes finais agora. Tente novamente."
+  const erroPropriedade = "Temporada não encontrada ou você não é o dono da liga."
+
+  // Posse + ciclo: só faz sentido numa temporada split.
+  const { data: season, error: seasonError } = await supabase
+    .from("league_seasons")
+    .select("id, ciclo, league_competitions!inner(created_by)")
+    .eq("id", parsed.data)
+    .eq("league_competitions.created_by", user.id)
+    .maybeSingle()
+  if (seasonError) {
+    return { ok: false, error: erroGenerico }
+  }
+  if (!season) {
+    return { ok: false, error: erroPropriedade }
+  }
+  if (season.ciclo !== "apertura_clausura") {
+    return { ok: false, error: "Esta temporada não é de Apertura/Clausura." }
+  }
+
+  // Divisões SPLIT (têm a Clausura).
+  const { data: divisoes, error: divsError } = await supabase
+    .from("league_division_seasons")
+    .select("id, tournament_id, tournament_id_clausura, final_tournament_id")
+    .eq("season_id", parsed.data)
+    .not("tournament_id_clausura", "is", null)
+  if (divsError || !divisoes) {
+    return { ok: false, error: erroGenerico }
+  }
+
+  for (const div of divisoes) {
+    if (!div.tournament_id || !div.tournament_id_clausura) continue
+
+    // Classificação por TURNO (o campeão = posição 1 de cada meia).
+    let apClass, clClass
+    try {
+      apClass = await getTournamentClassificacao(div.tournament_id)
+      clClass = await getTournamentClassificacao(div.tournament_id_clausura)
+    } catch (e) {
+      console.error("montarGrandesFinais: classificação", e instanceof Error ? e.message : e)
+      return { ok: false, error: erroGenerico }
+    }
+    if (!apClass || !clClass) {
+      return { ok: false, error: erroGenerico }
+    }
+    // Só monta quando AS DUAS meias estão encerradas (gate da divisão). Outras
+    // divisões podem montar mesmo que esta ainda não esteja pronta.
+    if (apClass.torneio.status !== "encerrado" || clClass.torneio.status !== "encerrado") {
+      continue
+    }
+
+    const campeaoApSlot = apClass.linhas.find((l) => l.posicao === 1)?.participanteId
+    const campeaoClSlot = clClass.linhas.find((l) => l.posicao === 1)?.participanteId
+    if (!campeaoApSlot || !campeaoClSlot) continue
+
+    // Resolução DUAL: Apertura via entries.slot_id; Clausura via competitor_id do slot.
+    const { data: entries, error: entriesError } = await supabase
+      .from("league_division_entries")
+      .select("competitor_id, slot_id")
+      .eq("division_season_id", div.id)
+    if (entriesError) {
+      return { ok: false, error: erroGenerico }
+    }
+    const compPorAperturaSlot = new Map<string, string>()
+    for (const e of entries ?? []) {
+      if (e.slot_id) compPorAperturaSlot.set(e.slot_id, e.competitor_id)
+    }
+    const { data: clSlots, error: clSlotsError } = await supabase
+      .from("tournament_slots")
+      .select("id, competitor_id")
+      .eq("tournament_id", div.tournament_id_clausura)
+    if (clSlotsError) {
+      return { ok: false, error: erroGenerico }
+    }
+    const compPorClausuraSlot = new Map<string, string>()
+    for (const s of clSlots ?? []) {
+      if (s.competitor_id) compPorClausuraSlot.set(s.id, s.competitor_id)
+    }
+
+    const campeaoAp = compPorAperturaSlot.get(campeaoApSlot)
+    const campeaoCl = compPorClausuraSlot.get(campeaoClSlot)
+    if (!campeaoAp || !campeaoCl) {
+      return { ok: false, error: erroGenerico }
+    }
+
+    // Campeão DIRETO: o mesmo competidor venceu os dois turnos → sem final.
+    if (campeaoAp === campeaoCl) continue
+
+    // RPC cria (ou retorna) o tournaments da final + 2 slots na ordem [Ap, Cl].
+    const { data: finalId, error: rpcError } = await supabase.rpc("montar_grande_final", {
+      p_division_season_id: div.id,
+      p_competitor_ids: [campeaoAp, campeaoCl],
+    })
+    if (rpcError || !finalId) {
+      return { ok: false, error: mensagemDaMontagem(rpcError ?? { message: "" }) }
+    }
+
+    // Slots da final → confronto semeado (campeão Apertura é o lado 1; ida-e-volta).
+    const { data: finalSlots, error: finalSlotsError } = await supabase
+      .from("tournament_slots")
+      .select("id, competitor_id")
+      .eq("tournament_id", finalId)
+    if (finalSlotsError || !finalSlots) {
+      return { ok: false, error: erroGenerico }
+    }
+    const slotPorComp = new Map<string, string>()
+    for (const s of finalSlots) {
+      if (s.competitor_id) slotPorComp.set(s.competitor_id, s.id)
+    }
+    const s1 = slotPorComp.get(campeaoAp)
+    const s2 = slotPorComp.get(campeaoCl)
+    if (!s1 || !s2) {
+      return { ok: false, error: erroGenerico }
+    }
+
+    let confrontos
+    try {
+      confrontos = semearPlayoffPorPosicao([s1, s2])
+    } catch (e) {
+      console.error("montarGrandesFinais: seeding", e instanceof Error ? e.message : e)
+      return { ok: false, error: erroGenerico }
+    }
+    // IDA E VOLTA (decisão 5.1a): a grande final tem UM confronto, então o
+    // `gerarFaseInicial` padrão o trataria como `ehFinal` → jogo único, ignorando
+    // ida-e-volta. Passamos `gerarBarragemPares` (mesma saída da barragem `pares`)
+    // para FORÇAR as duas pernas — idêntico ao furo de `ehFinal` da Fase 3.
+    const r = await gerarChaveSemeada(
+      supabase,
+      finalId,
+      confrontos,
+      true,
+      gerarBarragemPares
+    )
+    if (!r.ok) {
+      return { ok: false, error: r.error }
+    }
+  }
+
+  revalidatePath(`/dashboard/ligas/${parsed.data}`)
+  return { ok: true }
+}
+
+/* -------------------------------------------------------------------------- */
 /* calcularFluxoTemporada — READ-ONLY: deriva o PLANO de sobe/cai               */
 /* -------------------------------------------------------------------------- */
 
@@ -1041,9 +1271,10 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
   const erroPropriedade = "Temporada não encontrada ou você não é o dono da liga."
 
   // Posse + carrega divisões (com tournament_id) e fronteiras por FILTRO.
+  // Fase 5.1: `ciclo` da season alimenta `carregarLinhasBaseDivisao` (split).
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
-    .select("id, status, league_competitions!inner(created_by)")
+    .select("id, status, ciclo, league_competitions!inner(created_by)")
     .eq("id", parsed.data)
     .eq("league_competitions.created_by", user.id)
     .maybeSingle()
@@ -1054,9 +1285,11 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
     return { ok: false, error: erroPropriedade }
   }
 
+  // Fase 5.1: o status/encerramento da divisão é resolvido por
+  // `carregarLinhasBaseDivisao` (que cobre o split) — sem o embed `tournament`.
   const { data: divisoes, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("id, nivel, tournament_id, ranking_base, formato, tournament:tournaments(status)")
+    .select("id, nivel, tournament_id, tournament_id_clausura, ranking_base, formato, desempate")
     .eq("season_id", parsed.data)
     .order("nivel")
   if (divsError || !divisoes || divisoes.length === 0) {
@@ -1091,34 +1324,30 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
       return { ok: false, error: "Há divisão ainda não montada. Monte a temporada antes." }
     }
 
-    // GATE: todas as divisões precisam estar ENCERRADAS. O embed `tournament` é
-    // to-one (FK division.tournament_id); 'ativo'/'rascunho' = jogos pendentes.
-    const statusTorneio = (div.tournament as { status: string } | null)?.status
-    if (statusTorneio !== "encerrado") {
+    // Fase 5.1: FONTE ÚNICA da linhasBase + do gate de encerramento. No split a
+    // linhasBase é a tabela ANUAL COMBINADA e `encerradaParaFluxo` exige AS DUAS
+    // meias encerradas; no anual é byte-idêntico ao 5.2 (linhasFaseGrupos ?? linhas
+    // + gate de grupos completos).
+    const base = await carregarLinhasBaseDivisao(supabase, {
+      tournament_id: div.tournament_id,
+      tournament_id_clausura: div.tournament_id_clausura,
+      formato: div.formato,
+      desempate: div.desempate,
+      ciclo: season.ciclo,
+    })
+    if (!base) {
+      return { ok: false, error: erroGenerico }
+    }
+    if (!base.encerradaParaFluxo) {
       return {
         ok: false,
         error:
-          "Há divisão ainda em andamento. Encerre todas as divisões antes de calcular o fluxo.",
+          "Há divisão ainda em andamento. Encerre todas as divisões (e as duas meias, no caso de Apertura/Clausura) antes de calcular o fluxo.",
       }
     }
 
-    // Fase 5.2: numa divisão grupos+mata-mata o sobe/cai vem do AGREGADO da fase
-    // de grupos (gate compartilhado com montarPlayoffs — `faseDeGruposIncompleta`).
-    if (div.formato === "grupos_mata_mata") {
-      const incompleta = await faseDeGruposIncompleta(supabase, div.tournament_id)
-      if (incompleta === null) {
-        return { ok: false, error: erroGenerico }
-      }
-      if (incompleta) {
-        return {
-          ok: false,
-          error:
-            "Há divisão com a fase de grupos incompleta. Encerre todos os jogos dos grupos antes de calcular o fluxo.",
-        }
-      }
-    }
-
-    // slot_id → competitor_id (via entries da divisão).
+    // slot_id → competitor_id (via entries da divisão). No split as entries seguem
+    // ligadas ao slot da APERTURA (a combinada também chaveia por ele).
     const { data: entries, error: entriesError } = await supabase
       .from("league_division_entries")
       .select("competitor_id, slot_id")
@@ -1131,23 +1360,11 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
       if (e.slot_id) competitorPorSlot.set(e.slot_id, e.competitor_id)
     }
 
-    let classificacao
-    try {
-      classificacao = await getTournamentClassificacao(div.tournament_id)
-    } catch (e) {
-      console.error("calcularFluxoTemporada: classificação", e instanceof Error ? e.message : e)
-      return { ok: false, error: erroGenerico }
-    }
-    if (!classificacao) {
-      return { ok: false, error: erroGenerico }
-    }
-
     // Linhas REAIS (posição da tabela do ano). Alimentam o remap de posicaoFinal,
     // o promedio (campanha ao vivo) e — quando ranking_base='posicao' — o corte.
-    // Fase 5.2: numa divisão grupos+mata-mata usa o AGREGADO da fase de grupos
-    // (posição+pontos+jogos), nunca a tabela cheia (que somaria o mata-mata e
-    // contaminaria a campanha do ano E o promedio plurianual).
-    const linhasBase = classificacao.linhasFaseGrupos ?? classificacao.linhas
+    // `linhasBase` = combinada (split) ou agregado de grupos/liga (anual). Os
+    // pontos/jogos são SOMA do ano no split (NUNCA um turno só nem a grande final).
+    const linhasBase = base.linhasBase
     const linhasReais: LinhaReal[] = []
     for (const linha of linhasBase) {
       // `participanteId` no competitivo É o slot id.
@@ -1648,7 +1865,7 @@ export async function montarProximaTemporada(
   // a copiar: nível → {nome, por_nome, desempate}).
   const { data: seasonAtual, error: seasonError } = await supabase
     .from("league_seasons")
-    .select("id, numero, competition_id")
+    .select("id, numero, competition_id, ciclo")
     .eq("id", seasonId)
     .maybeSingle()
   if (seasonError || !seasonAtual) {
@@ -1675,6 +1892,9 @@ export async function montarProximaTemporada(
       numero: seasonAtual.numero + 1,
       previous_season_id: seasonAtual.id,
       status: "rascunho",
+      // Fase 5.1: COPIA o ciclo (senão a pirâmide degrada para single-stage após 1
+      // ciclo — mesma classe dos achados ranking_base/formato).
+      ciclo: seasonAtual.ciclo,
     })
     .select("id")
     .single()

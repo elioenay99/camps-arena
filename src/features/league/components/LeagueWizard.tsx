@@ -603,6 +603,8 @@ export function LeagueWizard() {
   const [passoAtual, setPassoAtual] = React.useState<Passo>("preset")
   const [nome, setNome] = React.useState("")
   const [isPublic, setIsPublic] = React.useState(true)
+  // Fase 5.1: ciclo da temporada (anual | apertura_clausura). Split é só liga (5.1b).
+  const [ciclo, setCiclo] = React.useState<"anual" | "apertura_clausura">("anual")
   const [preset, setPreset] = React.useState<PiramidePresetId | null>(null)
   const [divisoes, setDivisoes] = React.useState<DivisaoRascunho[]>([])
   const [fronteiras, setFronteiras] = React.useState<FronteiraRascunho[]>([])
@@ -660,18 +662,18 @@ export function LeagueWizard() {
   }
 
   function adicionarDivisao() {
-    setDivisoes((atual) => {
-      if (atual.length >= MAX_DIVISOES) return atual
-      const nivel = atual.length + 1
-      const desempate = atual[atual.length - 1]?.desempate ?? "cbf"
-      const nova = novaDivisao(nivel, desempate)
-      // Toda nova divisão (>1) ganha uma fronteira "direto" 0/0 com a de cima;
-      // o dono ajusta as vagas/modo no passo de fronteiras.
-      if (nivel > 1) {
-        setFronteiras((fAtual) => [...fAtual, novaFronteira(nivel - 1, 0)])
-      }
-      return [...atual, nova]
-    })
+    // Lê o estado do render atual (clique único — sem concorrência). NÃO aninhar
+    // `setFronteiras` dentro do updater de `setDivisoes`: o updater precisa ser PURO
+    // e o StrictMode (dev) o invoca 2×, o que duplicaria a fronteira anexada.
+    if (divisoes.length >= MAX_DIVISOES) return
+    const nivel = divisoes.length + 1
+    const desempate = divisoes[divisoes.length - 1]?.desempate ?? "cbf"
+    setDivisoes((atual) => [...atual, novaDivisao(nivel, desempate)])
+    // Toda nova divisão (>1) ganha uma fronteira "direto" 0/0 com a de cima;
+    // o dono ajusta as vagas/modo no passo de fronteiras.
+    if (nivel > 1) {
+      setFronteiras((fAtual) => [...fAtual, novaFronteira(nivel - 1, 0)])
+    }
   }
 
   function removerDivisao(idx: number) {
@@ -765,6 +767,7 @@ export function LeagueWizard() {
     return {
       nome: nome.trim(),
       isPublic,
+      ciclo,
       divisoes: divisoes.map((d) => ({
         nivel: d.nivel,
         nome: d.nome.trim() || nomePadraoDivisao(d.nivel),
@@ -861,6 +864,8 @@ export function LeagueWizard() {
             setNome={setNome}
             isPublic={isPublic}
             setIsPublic={setIsPublic}
+            ciclo={ciclo}
+            setCiclo={setCiclo}
             preset={preset}
             onEscolher={escolherPreset}
           />
@@ -999,6 +1004,8 @@ function PassoPreset({
   setNome,
   isPublic,
   setIsPublic,
+  ciclo,
+  setCiclo,
   preset,
   onEscolher,
 }: {
@@ -1006,6 +1013,8 @@ function PassoPreset({
   setNome: (v: string) => void
   isPublic: boolean
   setIsPublic: (v: boolean) => void
+  ciclo: "anual" | "apertura_clausura"
+  setCiclo: (v: "anual" | "apertura_clausura") => void
   preset: PiramidePresetId | null
   onEscolher: (p: PiramidePresetId) => void
 }) {
@@ -1074,6 +1083,23 @@ function PassoPreset({
             Qualquer pessoa acompanha as partidas e os placares ao vivo. As
             divisões e a classificação ficam visíveis enquanto a temporada está
             em disputa.
+          </span>
+        </span>
+      </label>
+
+      <label className="bg-card/40 hover:border-primary/40 has-[:focus-visible]:ring-ring flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2">
+        <input
+          type="checkbox"
+          checked={ciclo === "apertura_clausura"}
+          onChange={(e) => setCiclo(e.target.checked ? "apertura_clausura" : "anual")}
+          className="border-input accent-primary size-4 rounded"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-sm">Apertura/Clausura (temporada dividida)</span>
+          <span className="text-muted-foreground text-xs">
+            Cada divisão roda dois turnos; o sobe/cai sai da soma anual e o campeão
+            de uma grande final entre os campeões dos turnos. Só para divisões de
+            liga (sem grupos+mata-mata).
           </span>
         </span>
       </label>

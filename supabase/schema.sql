@@ -1681,6 +1681,12 @@ create table if not exists public.league_seasons (
   competition_id     uuid not null references public.league_competitions (id) on delete cascade,
   numero             integer not null,                 -- 1-based; sequencial na pirâmide
   status             public.league_season_status not null default 'rascunho',
+  -- Ciclo da temporada (Fase 5.1). 'anual' (default) = um torneio por divisão
+  -- (byte-idêntico ao legado). 'apertura_clausura' = temporada DIVIDIDA: cada
+  -- divisão roda Apertura + Clausura; sobe/cai pela tabela ANUAL COMBINADA;
+  -- campeão = grande final entre os campeões dos dois turnos. montarProximaTemporada
+  -- COPIA o ciclo para a N+1 (senão a pirâmide degrada para single-stage).
+  ciclo              text not null default 'anual',
   -- Cópia imutável da config no momento da montagem (nº divisões, fronteiras,
   -- toggles nome/clube, desempate por divisão). jsonb: a config evolui por fase
   -- sem nova coluna; a temporada já gerada nunca é re-lida da config-mãe.
@@ -1689,7 +1695,8 @@ create table if not exists public.league_seasons (
   previous_season_id uuid references public.league_seasons (id) on delete set null,
   created_at         timestamptz not null default now(),
   encerrada_em       timestamptz,
-  constraint league_seasons_numero_positivo check (numero >= 1)
+  constraint league_seasons_numero_positivo check (numero >= 1),
+  constraint league_seasons_ciclo_valido check (ciclo in ('anual', 'apertura_clausura'))
 );
 
 -- SENTINELA de dupla criação de temporada (23505 em corrida → retry encontra a
@@ -1711,6 +1718,14 @@ create table if not exists public.league_division_seasons (
   nivel         integer not null,                  -- 1 = topo (1ª divisão); cresce p/ baixo
   nome          text not null,                     -- ex.: "Série A", "Premier"
   tournament_id uuid references public.tournaments (id) on delete restrict,
+  -- Fase 5.1 — split season. tournament_id passa a ser a APERTURA; estes dois são
+  -- a CLAUSURA (gravada na montagem, espelha tournament_id) e a GRANDE FINAL
+  -- (decorativa, gravada pós-encerramento por montar_grande_final). FKs
+  -- auto-nomeadas (..._tournament_id_clausura_fkey / ..._final_tournament_id_fkey)
+  -- — usadas como FK-hint nos embeds PostgREST (3 FKs lds->tournaments seriam
+  -- ambíguas e quebrariam em runtime sem o hint).
+  tournament_id_clausura uuid references public.tournaments (id) on delete restrict,
+  final_tournament_id    uuid references public.tournaments (id) on delete restrict,
   -- Toggle POR DIVISÃO: false = clubes; true = por nome (texto livre OU
   -- competidor persistente). Espelha tournaments.por_nome.
   por_nome      boolean not null default false,
@@ -1747,7 +1762,12 @@ create table if not exists public.league_division_seasons (
          and qtd_grupos is null and classificados_por_grupo is null)
       or (formato = 'grupos_mata_mata'
          and qtd_grupos >= 2 and classificados_por_grupo >= 1)
-    )
+    ),
+  -- Fase 5.1: reforço intra-linha da decisão "split só liga" (a Clausura só pode
+  -- existir em divisão liga). A coerência "clausura ⇒ season split" é garantida
+  -- pela RPC/action (CHECK cross-table exigiria trigger).
+  constraint league_division_seasons_split_so_liga
+    check (tournament_id_clausura is null or formato = 'liga')
 );
 
 create unique index if not exists league_division_seasons_nivel_unico
@@ -1755,6 +1775,11 @@ create unique index if not exists league_division_seasons_nivel_unico
 -- Um torneio pertence a no máximo uma divisão (quando atribuído).
 create unique index if not exists league_division_seasons_tournament_unico
   on public.league_division_seasons (tournament_id) where tournament_id is not null;
+-- Fase 5.1: cada torneio em UM papel (espelham league_division_seasons_tournament_unico).
+create unique index if not exists league_division_seasons_clausura_unico
+  on public.league_division_seasons (tournament_id_clausura) where tournament_id_clausura is not null;
+create unique index if not exists league_division_seasons_final_unico
+  on public.league_division_seasons (final_tournament_id) where final_tournament_id is not null;
 create index if not exists league_division_seasons_season_idx
   on public.league_division_seasons (season_id);
 
@@ -1967,6 +1992,7 @@ declare
   v_competition  uuid;
   v_is_public    boolean;
   v_dono         uuid;
+  v_ciclo        text;
   v_div          record;
   v_comp         record;
   v_tournament   uuid;
@@ -1979,9 +2005,10 @@ begin
     raise exception 'AUTH_REQUIRED';
   end if;
 
-  -- (1) Posse: só o dono da pirâmide monta a temporada dela.
-  select ls.competition_id, lc.created_by, lc.is_public
-    into v_competition, v_dono, v_is_public
+  -- (1) Posse: só o dono da pirâmide monta a temporada dela. Lê também o ciclo
+  -- (Fase 5.1): 'apertura_clausura' cria DOIS torneios por divisão.
+  select ls.competition_id, lc.created_by, lc.is_public, ls.ciclo
+    into v_competition, v_dono, v_is_public, v_ciclo
     from public.league_seasons ls
     join public.league_competitions lc on lc.id = ls.competition_id
    where ls.id = p_season_id;
@@ -1993,113 +2020,186 @@ begin
     raise exception 'NAO_DONO';
   end if;
 
-  -- (1.1) Serializa a montagem por temporada: a sentinela tournament_id só é
-  -- gravada após o INSERT do torneio, então duas chamadas concorrentes (ex.: duas
-  -- abas) leriam tournament_id NULL e ambas criariam torneios+slots duplicados. O
-  -- advisory lock transacional força a 2ª chamada a esperar o commit da 1ª e então
-  -- ver a sentinela preenchida (continue). Liberado automaticamente no fim da tx.
+  -- (1.1) Serializa a montagem por temporada: as sentinelas (tournament_id e, no
+  -- split, tournament_id_clausura) só são gravadas após o INSERT do torneio, então
+  -- duas chamadas concorrentes (ex.: duas abas) leriam NULL e ambas criariam
+  -- torneios+slots duplicados. O advisory lock transacional força a 2ª chamada a
+  -- esperar o commit da 1ª e então ver as sentinelas preenchidas (pula os blocos
+  -- já feitos). Liberado automaticamente no fim da tx. Cobre os 2 torneios do split.
   perform pg_advisory_xact_lock(hashtextextended(p_season_id::text, 0));
 
-  -- (2) Para cada divisão da temporada, criar o torneio + slots se ainda não
-  -- existe (sentinela = tournament_id).
+  -- (2) Para cada divisão, criar o(s) torneio(s) que faltam. Fase 5.1 [NIT]: SEM
+  -- continue de curto-circuito — Apertura e Clausura são blocos guardados
+  -- INDEPENDENTES (cada um com sua sentinela e seu v_holders_usados), para que o
+  -- retry de uma montagem parcial complete só o que faltou.
   for v_div in
     select id, nivel, nome, por_nome, desempate, formato,
-           classificados_por_grupo, tournament_id
+           classificados_por_grupo, tournament_id, tournament_id_clausura
       from public.league_division_seasons
      where season_id = p_season_id
      order by nivel
   loop
-    if v_div.tournament_id is not null then
-      continue;  -- já montada (promote-first idempotente)
+    -- Fase 5.1 [MEDIUM]: backstop da decisão "split só liga". Antes de criar nada.
+    if v_ciclo = 'apertura_clausura' and v_div.formato <> 'liga' then
+      raise exception 'SPLIT_SO_LIGA';
     end if;
 
+    -- ===== BLOCO A — APERTURA (= tournament_id; caminho legado quando anual) =====
     -- (3) Cria o tournament da divisão com o FORMATO da divisão (liga ou
     -- grupos_mata_mata) e o K dos grupos (null em liga; FONTE ÚNICA — Fase 5.2).
     -- is_public herdado da pirâmide. CAST text→enum: league_division_seasons.formato
     -- é text (com CHECK); tournaments.formato é o enum tournament_format (variável
-    -- text NÃO auto-coage para enum — sem o cast a RPC inteira falha).
-    insert into public.tournaments
-      (titulo, status, created_by, formato, classificados_por_grupo,
-       por_nome, desempate_criterio, is_public)
-    values
-      (v_div.nome, 'rascunho', v_uid,
-       v_div.formato::public.tournament_format, v_div.classificados_por_grupo,
-       v_div.por_nome, v_div.desempate, v_is_public)
-    returning id into v_tournament;
+    -- text NÃO auto-coage para enum — sem o cast a RPC inteira falha). No split o
+    -- título ganha o sufixo " — Apertura"; anual mantém o nome puro (byte-idêntico).
+    if v_div.tournament_id is null then
+      insert into public.tournaments
+        (titulo, status, created_by, formato, classificados_por_grupo,
+         por_nome, desempate_criterio, is_public)
+      values
+        (case when v_ciclo = 'apertura_clausura'
+              then v_div.nome || ' — Apertura' else v_div.nome end,
+         'rascunho', v_uid,
+         v_div.formato::public.tournament_format, v_div.classificados_por_grupo,
+         v_div.por_nome, v_div.desempate, v_is_public)
+      returning id into v_tournament;
 
-    update public.league_division_seasons
-       set tournament_id = v_tournament
-     where id = v_div.id;
+      update public.league_division_seasons
+         set tournament_id = v_tournament
+       where id = v_div.id;
 
-    -- (4)+(5) Insere os slots preenchidos, um por competidor da divisão. Os
-    -- competidores da divisão são os que já têm league_division_entries para
-    -- esta division_season (criadas pela action de montagem ANTES da RPC, sem
-    -- slot_id ainda).
-    v_holders_usados := array[]::uuid[];
-    v_vagas := 0;
-    for v_comp in
-      select lde.id as entry_id, lc.id as competitor_id, lc.team_id, lc.rotulo,
-             lc.holder_user_id, lc.competition_id
-        from public.league_division_entries lde
-        join public.league_competitors lc on lc.id = lde.competitor_id
-       where lde.division_season_id = v_div.id
-         and lde.slot_id is null
-       order by lde.created_at, lc.created_at
-    loop
-      -- Integridade cross-pirâmide: o competidor referenciado pela entry tem de
-      -- pertencer à MESMA competição da temporada (a cascata de posse por si só não
-      -- garante isso — o FK só exige existência).
-      if v_comp.competition_id is distinct from v_competition then
-        raise exception 'COMPETIDOR_DE_OUTRA_PIRAMIDE';
-      end if;
-
-      if v_div.por_nome then
-        -- Por NOME: a divisão exige competidor de rótulo (XOR clube/rótulo do slot).
-        if v_comp.rotulo is null then
-          raise exception 'COMPETIDOR_INCOMPATIVEL_COM_DIVISAO';
+      -- (4)+(5) Insere os slots preenchidos, um por competidor da divisão. Os
+      -- competidores são os que já têm league_division_entries para esta
+      -- division_season (criadas pela action ANTES da RPC, sem slot_id ainda). A
+      -- Apertura LIGA entries.slot_id (o lado canônico do remap slot→competidor).
+      v_holders_usados := array[]::uuid[];
+      v_vagas := 0;
+      for v_comp in
+        select lde.id as entry_id, lc.id as competitor_id, lc.team_id, lc.rotulo,
+               lc.holder_user_id, lc.competition_id
+          from public.league_division_entries lde
+          join public.league_competitors lc on lc.id = lde.competitor_id
+         where lde.division_season_id = v_div.id
+           and lde.slot_id is null
+         order by lde.created_at, lc.created_at
+      loop
+        -- Integridade cross-pirâmide: o competidor da entry tem de pertencer à
+        -- MESMA competição da temporada (a cascata de posse não garante; o FK só
+        -- exige existência).
+        if v_comp.competition_id is distinct from v_competition then
+          raise exception 'COMPETIDOR_DE_OUTRA_PIRAMIDE';
         end if;
-        -- rotulo + competitor_id, sem técnico.
-        insert into public.tournament_slots
-          (tournament_id, team_id, rotulo, user_id, competitor_id)
-        values
-          (v_tournament, null, v_comp.rotulo, null, v_comp.competitor_id)
-        returning id into v_slot;
-      else
-        -- Por CLUBE: a divisão exige competidor de clube (XOR clube/rótulo do slot).
-        if v_comp.team_id is null then
-          raise exception 'COMPETIDOR_INCOMPATIVEL_COM_DIVISAO';
-        end if;
-        -- team_id + competitor_id + user_id com degradação na colisão
-        -- com slots_um_clube_por_tecnico (mesmo holder já usado nesta divisão).
-        if v_comp.holder_user_id is not null
-           and not (v_comp.holder_user_id = any (v_holders_usados))
-        then
-          v_user_id := v_comp.holder_user_id;
-          v_holders_usados := array_append(v_holders_usados, v_comp.holder_user_id);
+
+        if v_div.por_nome then
+          if v_comp.rotulo is null then
+            raise exception 'COMPETIDOR_INCOMPATIVEL_COM_DIVISAO';
+          end if;
+          insert into public.tournament_slots
+            (tournament_id, team_id, rotulo, user_id, competitor_id)
+          values
+            (v_tournament, null, v_comp.rotulo, null, v_comp.competitor_id)
+          returning id into v_slot;
         else
-          v_user_id := null;  -- vaga gerida pelo dono
+          if v_comp.team_id is null then
+            raise exception 'COMPETIDOR_INCOMPATIVEL_COM_DIVISAO';
+          end if;
+          if v_comp.holder_user_id is not null
+             and not (v_comp.holder_user_id = any (v_holders_usados))
+          then
+            v_user_id := v_comp.holder_user_id;
+            v_holders_usados := array_append(v_holders_usados, v_comp.holder_user_id);
+          else
+            v_user_id := null;
+          end if;
+
+          insert into public.tournament_slots
+            (tournament_id, team_id, rotulo, user_id, competitor_id)
+          values
+            (v_tournament, v_comp.team_id, null, v_user_id, v_comp.competitor_id)
+          returning id into v_slot;
         end if;
 
-        insert into public.tournament_slots
-          (tournament_id, team_id, rotulo, user_id, competitor_id)
-        values
-          (v_tournament, v_comp.team_id, null, v_user_id, v_comp.competitor_id)
-        returning id into v_slot;
+        update public.league_division_entries
+           set slot_id = v_slot
+         where id = v_comp.entry_id;
+
+        v_vagas := v_vagas + 1;
+      end loop;
+
+      -- (6) Uma liga precisa de 2..20 (iniciarTorneio). Falha explícita ANTES de
+      -- consolidar a sentinela em estado inválido (o raise reverte a tx toda,
+      -- restaurando tournament_id = NULL para re-montagem).
+      if v_vagas < 2 then
+        raise exception 'DIVISAO_SEM_COMPETIDORES_SUFICIENTES';
       end if;
+    end if;
 
-      -- (5) Liga a entry à vaga recém-criada.
-      update public.league_division_entries
-         set slot_id = v_slot
-       where id = v_comp.entry_id;
+    -- ===== BLOCO B — CLAUSURA (só split; itera TODAS as entries) =====
+    -- A Clausura é um segundo torneio independente. Os slots iteram TODAS as
+    -- entries da divisão (NÃO filtram slot_id, que já aponta para a Apertura) e
+    -- NÃO tocam entries.slot_id (a entry continua ligada só à Apertura — modelo de
+    -- entries intocado). O competitor_id do slot da Clausura é o que a combinada
+    -- usa para mapear o lado → competidor (slot Clausura → competidor → slot
+    -- Apertura). Split é só liga (5.1b) ⇒ formato/K herdados são liga/null.
+    if v_ciclo = 'apertura_clausura' and v_div.tournament_id_clausura is null then
+      insert into public.tournaments
+        (titulo, status, created_by, formato, classificados_por_grupo,
+         por_nome, desempate_criterio, is_public)
+      values
+        (v_div.nome || ' — Clausura', 'rascunho', v_uid,
+         v_div.formato::public.tournament_format, v_div.classificados_por_grupo,
+         v_div.por_nome, v_div.desempate, v_is_public)
+      returning id into v_tournament;
 
-      v_vagas := v_vagas + 1;
-    end loop;
+      update public.league_division_seasons
+         set tournament_id_clausura = v_tournament
+       where id = v_div.id;
 
-    -- (6) Uma liga precisa de 2..20 (iniciarTorneio). Falha explícita ANTES de
-    -- consolidar a sentinela em estado inválido (o raise reverte a transação toda,
-    -- restaurando tournament_id = NULL para re-montagem).
-    if v_vagas < 2 then
-      raise exception 'DIVISAO_SEM_COMPETIDORES_SUFICIENTES';
+      v_holders_usados := array[]::uuid[];
+      v_vagas := 0;
+      for v_comp in
+        select lc.id as competitor_id, lc.team_id, lc.rotulo,
+               lc.holder_user_id, lc.competition_id
+          from public.league_division_entries lde
+          join public.league_competitors lc on lc.id = lde.competitor_id
+         where lde.division_season_id = v_div.id
+         order by lde.created_at, lc.created_at
+      loop
+        if v_comp.competition_id is distinct from v_competition then
+          raise exception 'COMPETIDOR_DE_OUTRA_PIRAMIDE';
+        end if;
+
+        if v_div.por_nome then
+          if v_comp.rotulo is null then
+            raise exception 'COMPETIDOR_INCOMPATIVEL_COM_DIVISAO';
+          end if;
+          insert into public.tournament_slots
+            (tournament_id, team_id, rotulo, user_id, competitor_id)
+          values
+            (v_tournament, null, v_comp.rotulo, null, v_comp.competitor_id);
+        else
+          if v_comp.team_id is null then
+            raise exception 'COMPETIDOR_INCOMPATIVEL_COM_DIVISAO';
+          end if;
+          if v_comp.holder_user_id is not null
+             and not (v_comp.holder_user_id = any (v_holders_usados))
+          then
+            v_user_id := v_comp.holder_user_id;
+            v_holders_usados := array_append(v_holders_usados, v_comp.holder_user_id);
+          else
+            v_user_id := null;
+          end if;
+          insert into public.tournament_slots
+            (tournament_id, team_id, rotulo, user_id, competitor_id)
+          values
+            (v_tournament, v_comp.team_id, null, v_user_id, v_comp.competitor_id);
+        end if;
+
+        v_vagas := v_vagas + 1;
+      end loop;
+
+      if v_vagas < 2 then
+        raise exception 'DIVISAO_SEM_COMPETIDORES_SUFICIENTES';
+      end if;
     end if;
   end loop;
 end;
@@ -2450,6 +2550,151 @@ $$;
 revoke execute on function public.montar_barragem(uuid, uuid[]) from public, anon;
 grant execute on function public.montar_barragem(uuid, uuid[]) to authenticated;
 
+-- ---------- RPC: montar_grande_final (SECURITY DEFINER) — Fase 5.1 ----------
+-- Cria o tournaments formato='mata_mata' (2 competidores, IDA E VOLTA, sem 3º
+-- lugar) da GRANDE FINAL de UMA divisão de season split, entre o campeão da
+-- Apertura e o da Clausura. Decorativa para o sobe/cai (NÃO entra no agregado nem
+-- no gate de fluxo): coroa SÓ o campeão da divisão (5.1c). Espelha montar_playoff:
+-- pré-preenche user_id (slots_insert_owner_rascunho proíbe no INSERT de cliente) e
+-- NÃO gera a chave (a action chama gerarChaveSemeada). Sentinela = final_tournament_id.
+-- O caso campeão Apertura == campeão Clausura é tratado na ACTION (campeão direto,
+-- sem montar a final) — a RPC nunca é chamada nesse caso e exige 2 ids distintos.
+create or replace function public.montar_grande_final(
+  p_division_season_id uuid,
+  p_competitor_ids     uuid[]
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid          uuid := (select auth.uid());
+  v_season       uuid;
+  v_nome         text;
+  v_por_nome     boolean;
+  v_desempate    text;
+  v_existing     uuid;
+  v_competition  uuid;
+  v_dono         uuid;
+  v_is_public    boolean;
+  v_tournament   uuid;
+  v_user_id      uuid;
+  v_holders_usados uuid[];
+  v_cid          uuid;
+  v_comp         record;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  -- Divisão + posse transitiva + herança (por_nome/desempate/is_public da divisão).
+  select lds.season_id, lds.nome, lds.por_nome, lds.desempate, lds.final_tournament_id,
+         ls.competition_id, lc.created_by, lc.is_public
+    into v_season, v_nome, v_por_nome, v_desempate, v_existing,
+         v_competition, v_dono, v_is_public
+    from public.league_division_seasons lds
+    join public.league_seasons ls on ls.id = lds.season_id
+    join public.league_competitions lc on lc.id = ls.competition_id
+   where lds.id = p_division_season_id;
+
+  if v_season is null then
+    raise exception 'DIVISAO_INVALIDA';
+  end if;
+  if v_dono is distinct from v_uid then
+    raise exception 'NAO_DONO';
+  end if;
+
+  -- Idempotência: a grande final já existe (sentinela).
+  if v_existing is not null then
+    return v_existing;
+  end if;
+
+  -- Serializa por divisão (namespace 1, como montar_playoff/montar_barragem): a 2ª
+  -- chamada espera o commit da 1ª e vê a sentinela preenchida.
+  perform pg_advisory_xact_lock(hashtextextended(p_division_season_id::text, 1));
+  select final_tournament_id into v_existing
+    from public.league_division_seasons where id = p_division_season_id;
+  if v_existing is not null then
+    return v_existing;
+  end if;
+
+  -- Exatamente 2 competidores DISTINTOS (campeão Apertura × campeão Clausura).
+  if array_length(p_competitor_ids, 1) is distinct from 2
+     or p_competitor_ids[1] = p_competitor_ids[2] then
+    raise exception 'GRANDE_FINAL_IDS_INVALIDOS';
+  end if;
+
+  -- Cria o tournaments da final (rascunho — a action gera as partidas ida-e-volta).
+  insert into public.tournaments
+    (titulo, status, created_by, formato, ida_e_volta, terceiro_lugar,
+     por_nome, desempate_criterio, is_public)
+  values
+    (v_nome || ' — Grande Final', 'rascunho', v_uid, 'mata_mata',
+     true, false, v_por_nome, v_desempate, v_is_public)
+  returning id into v_tournament;
+
+  update public.league_division_seasons
+     set final_tournament_id = v_tournament
+   where id = p_division_season_id;
+
+  -- Slots na ORDEM recebida (seeding: campeão Apertura, campeão Clausura).
+  v_holders_usados := array[]::uuid[];
+  foreach v_cid in array p_competitor_ids loop
+    select lc.id as competitor_id, lc.team_id, lc.rotulo,
+           lc.holder_user_id, lc.competition_id
+      into v_comp
+      from public.league_competitors lc
+     where lc.id = v_cid;
+
+    if v_comp.competitor_id is null then
+      raise exception 'COMPETIDOR_INEXISTENTE';
+    end if;
+    if v_comp.competition_id is distinct from v_competition then
+      raise exception 'COMPETIDOR_DE_OUTRA_PIRAMIDE';
+    end if;
+    if not exists (
+      select 1 from public.league_division_entries lde
+       where lde.division_season_id = p_division_season_id
+         and lde.competitor_id = v_cid
+    ) then
+      raise exception 'COMPETIDOR_FORA_DA_ZONA';
+    end if;
+
+    if v_por_nome then
+      if v_comp.rotulo is null then
+        raise exception 'FINAL_POR_NOME_INCOERENTE';
+      end if;
+      insert into public.tournament_slots
+        (tournament_id, team_id, rotulo, user_id, competitor_id)
+      values
+        (v_tournament, null, v_comp.rotulo, null, v_comp.competitor_id);
+    else
+      if v_comp.team_id is null then
+        raise exception 'FINAL_POR_NOME_INCOERENTE';
+      end if;
+      if v_comp.holder_user_id is not null
+         and not (v_comp.holder_user_id = any (v_holders_usados))
+      then
+        v_user_id := v_comp.holder_user_id;
+        v_holders_usados := array_append(v_holders_usados, v_comp.holder_user_id);
+      else
+        v_user_id := null;
+      end if;
+      insert into public.tournament_slots
+        (tournament_id, team_id, rotulo, user_id, competitor_id)
+      values
+        (v_tournament, v_comp.team_id, null, v_user_id, v_comp.competitor_id);
+    end if;
+  end loop;
+
+  return v_tournament;
+end;
+$$;
+
+revoke execute on function public.montar_grande_final(uuid, uuid[]) from public, anon;
+grant execute on function public.montar_grande_final(uuid, uuid[]) to authenticated;
+
 -- ---------- Helper anti-recursão de RLS: dono da pirâmide ----------
 -- Usada DENTRO das policies das tabelas da pirâmide. SECURITY DEFINER evita a
 -- recursão e a repetição da subquery (espelha eh_participante).
@@ -2521,6 +2766,7 @@ begin
      ) <> 'service_role'
   then
     if (new.tournament_id is distinct from old.tournament_id
+        or new.tournament_id_clausura is distinct from old.tournament_id_clausura
         or new.nivel is distinct from old.nivel
         or new.por_nome is distinct from old.por_nome
         or new.tamanho is distinct from old.tamanho
@@ -2612,6 +2858,16 @@ begin
            from public.league_division_seasons lds
            join public.league_seasons ls on ls.id = lds.season_id
            where lds.tournament_id = old.id
+             and ls.status in ('em_fluxo', 'encerrada')
+         )
+         -- Fase 5.1: a CLAUSURA de uma season congelada também não pode reabrir (ela
+         -- decide a combinada → o sobe/cai, igual à Apertura). A GRANDE FINAL fica
+         -- DE FORA (decorativa, jogável após o fluxo).
+         or exists (
+           select 1
+           from public.league_division_seasons lds
+           join public.league_seasons ls on ls.id = lds.season_id
+           where lds.tournament_id_clausura = old.id
              and ls.status in ('em_fluxo', 'encerrada')
          )
          -- Fase 2: a CHAVE de playoff de uma fronteira de season congelada também
