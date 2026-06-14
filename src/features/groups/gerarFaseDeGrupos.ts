@@ -218,11 +218,13 @@ export function classificarGrupos(
 
   for (let g = 1; g <= qtdGrupos; g++) {
     const doGrupo = partidas.filter((p) => p.grupo === g)
-    // Dívida (add-ligas-piramide Fase 0): a fase de grupos classifica sempre por
-    // CBF — o preset `tournaments.desempate_criterio` ainda não é propagado aqui.
-    // Sem regressão (era CBF antes do preset existir) e fora do caminho da
-    // pirâmide (que usa formato 'liga'). Propagar quando o formato interno por
-    // divisão entrar (Fase 5).
+    // Dívida (add-ligas-piramide): esta classificação alimenta o SEEDING do
+    // MATA-MATA (cruzarClassificados) e é sempre por CBF — o preset não é
+    // propagado aqui. Na pirâmide Fase 5.2 o mata-mata é DECORATIVO (só coroa o
+    // campeão da divisão; o sobe/cai vem do AGREGADO `linhasFaseGrupos`, que JÁ
+    // usa o preset via getTournamentClassificacao). Logo o bracket por CBF NÃO
+    // afeta acesso/queda — dívida deliberada (propagar o preset ao bracket fica
+    // como follow-up de fidelidade do chaveamento).
     const linhas = computeStandings(regras, doGrupo)
     if (linhas.length < classificadosPorGrupo + 1) {
       // K < tamanho do grupo é validado no Iniciar; linhas só faltam se

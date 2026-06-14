@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { MATA_MATA_MAX_PARTICIPANTES } from "@/features/knockout/gerarChaveMataMata"
+import { validarGeometria } from "@/features/groups/gerarFaseDeGrupos"
 import { LIGA_MAX_PARTICIPANTES } from "@/features/league/gerarTabelaLiga"
 
 import { NOME_MAX } from "@/schema/tournamentSchema"
@@ -179,6 +180,13 @@ const divisaoSchema = z.object({
   rankingBase: z.enum(RANKING_BASES_DISPONIVEIS, {
     error: "Base de ranking inválida.",
   }).default("posicao"),
+  // Fase 5.2: formato interno. 'liga' (default) = pontos corridos; 'grupos_mata_mata'
+  // = fase de grupos (decide o sobe/cai) + mata-mata decorativo (só o campeão).
+  formato: z.enum(["liga", "grupos_mata_mata"], {
+    error: "Formato de divisão inválido.",
+  }).default("liga"),
+  qtdGrupos: z.number().int().positive().optional(),
+  classificadosPorGrupo: z.number().int().positive().optional(),
   tamanho: z
     .number({ error: "Tamanho inválido." })
     .int("O tamanho deve ser inteiro.")
@@ -187,6 +195,46 @@ const divisaoSchema = z.object({
   competidores: z
     .array(z.union([competidorClube, competidorNome]))
     .default([]),
+}).superRefine((d, ctx) => {
+  // Coerência do formato interno (Fase 5.2). 'liga' não carrega geometria de
+  // grupos; 'grupos_mata_mata' exige uma geometria que FECHE a chave (reusa o
+  // motor: qtdGrupos ∈ {2,4,8}, qtdGrupos × classificadosPorGrupo ∈ {2,4,8,16,32},
+  // K < menor grupo). 'fase_liga' (grupo único) NÃO é oferecida na divisão.
+  if (d.formato === "liga") {
+    if (d.qtdGrupos != null || d.classificadosPorGrupo != null) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Divisão de liga não usa grupos.",
+        path: ["qtdGrupos"],
+      })
+    }
+    return
+  }
+  if (d.qtdGrupos == null || d.classificadosPorGrupo == null) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Informe a quantidade de grupos e os classificados por grupo.",
+      path: ["qtdGrupos"],
+    })
+    return
+  }
+  if (d.qtdGrupos < 2) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Grupos + mata-mata usa pelo menos 2 grupos (para 1 grupo, use liga).",
+      path: ["qtdGrupos"],
+    })
+    return
+  }
+  try {
+    validarGeometria(d.tamanho, d.qtdGrupos, d.classificadosPorGrupo)
+  } catch (e) {
+    ctx.addIssue({
+      code: "custom",
+      message: e instanceof Error ? e.message : "Geometria de grupos inválida.",
+      path: ["classificadosPorGrupo"],
+    })
+  }
 })
 
 export type DivisaoInput = z.infer<typeof divisaoSchema>

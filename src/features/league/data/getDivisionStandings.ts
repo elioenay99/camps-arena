@@ -260,9 +260,15 @@ export async function getDivisionStandings(
     return null
   }
 
+  // Fase 5.2: numa divisão grupos+mata-mata a tabela que DECIDE o sobe/cai é o
+  // AGREGADO da fase de grupos (posição-no-grupo) — é ele que a página exibe e
+  // alimenta o sobe/cai. As tabelas POR GRUPO (`classificacao.grupos`) NÃO são
+  // repassadas aqui — exibi-las separadamente na página é follow-up de UI (não
+  // afeta a corretude do corte; o agregado já é a fonte de verdade).
+  const linhasBase = classificacao.linhasFaseGrupos ?? classificacao.linhas
   // Reescreve a chave da linha para o competitor_id (estável); o nome/escudo do
   // motor já é o do clube/rótulo do slot — preservado.
-  const linhas: LinhaComNome[] = classificacao.linhas.map((linha) => ({
+  const linhas: LinhaComNome[] = linhasBase.map((linha) => ({
     ...linha,
     participanteId:
       competitorPorSlot.get(linha.participanteId) ?? linha.participanteId,

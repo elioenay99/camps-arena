@@ -540,6 +540,9 @@ export interface Database {
           por_nome: boolean
           desempate: string
           ranking_base: LeagueRankingBase
+          formato: string
+          qtd_grupos: number | null
+          classificados_por_grupo: number | null
           tamanho: number
           created_at: string
         }
@@ -552,6 +555,9 @@ export interface Database {
           por_nome?: boolean
           desempate?: string
           ranking_base?: LeagueRankingBase
+          formato?: string
+          qtd_grupos?: number | null
+          classificados_por_grupo?: number | null
           tamanho: number
           created_at?: string
         }
@@ -564,6 +570,9 @@ export interface Database {
           por_nome?: boolean
           desempate?: string
           ranking_base?: LeagueRankingBase
+          formato?: string
+          qtd_grupos?: number | null
+          classificados_por_grupo?: number | null
           tamanho?: number
           created_at?: string
         }

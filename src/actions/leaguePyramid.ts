@@ -29,6 +29,7 @@ import {
   calcularPlanoFluxo,
   combinarFronteiraBarragem,
   combinarFronteiraPlayoff,
+  prngDeSemente,
   validarFechamentoTamanho,
   zonaBarragemPorPosicao,
   zonaPlayoffPorPosicao,
@@ -44,6 +45,11 @@ import {
   carregarPosicoesDeCorte,
   type LinhaReal,
 } from "@/features/league/promedios"
+import {
+  faseDeGruposIncompleta,
+  gerarFaseGruposSemeada,
+} from "@/features/groups/montarFaseGruposPiramide"
+import { validarGeometria } from "@/features/groups/gerarFaseDeGrupos"
 
 /* -------------------------------------------------------------------------- */
 /* Tipos de retorno (padrão do projeto)                                       */
@@ -168,6 +174,10 @@ export async function createCompetition(
         por_nome: div.porNome,
         desempate: div.desempate,
         ranking_base: div.rankingBase,
+        // Fase 5.2: formato interno + geometria de grupos (null em liga).
+        formato: div.formato,
+        qtd_grupos: div.qtdGrupos ?? null,
+        classificados_por_grupo: div.classificadosPorGrupo ?? null,
         tamanho: div.tamanho,
       }))
     )
@@ -432,10 +442,12 @@ export async function iniciarDivisao(input: unknown): Promise<LeaguePyramidResul
   const erroPropriedade = "Divisão não encontrada ou você não é o dono da liga."
 
   // Carrega a divisão + season + posse por FILTRO transitivo (inner joins).
+  // Fase 5.2: traz formato/qtd_grupos/classificados_por_grupo + ida_e_volta do
+  // torneio (para a fase de grupos semeada).
   const { data: divisao, error: divError } = await supabase
     .from("league_division_seasons")
     .select(
-      "id, tournament_id, season_id, league_seasons!inner(id, status, league_competitions!inner(created_by))"
+      "id, tournament_id, season_id, formato, qtd_grupos, classificados_por_grupo, tournament:tournaments(ida_e_volta), league_seasons!inner(id, status, league_competitions!inner(created_by))"
     )
     .eq("id", parsed.data)
     .eq("league_seasons.league_competitions.created_by", user.id)
@@ -448,11 +460,27 @@ export async function iniciarDivisao(input: unknown): Promise<LeaguePyramidResul
     return { ok: false, error: erroPropriedade }
   }
 
-  // Reúso total: iniciarTorneio valida dono (o dono da pirâmide É o created_by
-  // do torneio da divisão), gera a tabela e promove o torneio a 'ativo'.
-  const r = await iniciarTorneio(divisao.tournament_id)
-  if (!r.ok) {
-    return r
+  // Fase 5.2: ramifica por FORMATO. `liga` reusa iniciarTorneio (round-robin).
+  // `grupos_mata_mata` gera a FASE DE GRUPOS por sorteio SEMEADO (id da temporada
+  // + divisão) — determinístico/auditável; o mata-mata é gerado depois pela UI de
+  // torneio. iniciarTorneio rejeita formato≠liga, por isso a ramificação.
+  if (divisao.formato === "grupos_mata_mata") {
+    const tourn = divisao.tournament as unknown as { ida_e_volta: boolean } | null
+    const rng = prngDeSemente(`${divisao.season_id}:${divisao.id}`)
+    const r = await gerarFaseGruposSemeada(supabase, divisao.tournament_id, {
+      qtdGrupos: divisao.qtd_grupos ?? 0,
+      classificadosPorGrupo: divisao.classificados_por_grupo ?? 0,
+      idaEVolta: tourn?.ida_e_volta ?? false,
+      randInt: (n: number) => Math.floor(rng() * n),
+    })
+    if (!r.ok) return r
+  } else {
+    // Reúso total: iniciarTorneio valida dono (o dono da pirâmide É o created_by
+    // do torneio da divisão), gera a tabela e promove o torneio a 'ativo'.
+    const r = await iniciarTorneio(divisao.tournament_id)
+    if (!r.ok) {
+      return r
+    }
   }
 
   // Se TODAS as divisões da temporada já saíram de rascunho, a temporada vira
@@ -715,7 +743,7 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
 
   const { data: divisoes, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("id, nivel, tournament_id, ranking_base, tournament:tournaments(status)")
+    .select("id, nivel, tournament_id, formato, ranking_base, tournament:tournaments(status)")
     .eq("season_id", parsed.data)
     .order("nivel")
   if (divsError || !divisoes) {
@@ -729,6 +757,22 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
         ok: false,
         error:
           "Encerre todas as divisões antes de montar os playoffs.",
+      }
+    }
+    // Fase 5.2: a zona/seeding da chave sobre uma divisão grupos+mata-mata usa o
+    // AGREGADO da fase de grupos — exige os grupos 100% encerrados (a chave é
+    // idempotente; semear sobre agregado PARCIAL a travaria). MESMO gate do fluxo.
+    if (div.formato === "grupos_mata_mata" && div.tournament_id) {
+      const incompleta = await faseDeGruposIncompleta(supabase, div.tournament_id)
+      if (incompleta === null) {
+        return { ok: false, error: erroGenerico }
+      }
+      if (incompleta) {
+        return {
+          ok: false,
+          error:
+            "Encerre todos os jogos da fase de grupos antes de montar os playoffs.",
+        }
       }
     }
   }
@@ -764,8 +808,11 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
       return null
     }
     if (!classificacao) return null
+    // Fase 5.2: numa divisão grupos+mata-mata o sobe/cai usa o AGREGADO da fase de
+    // grupos (posição+pontos+jogos), nunca a tabela cheia (que somaria o mata-mata).
+    const linhasBase = classificacao.linhasFaseGrupos ?? classificacao.linhas
     const linhasReais: LinhaReal[] = []
-    for (const l of classificacao.linhas) {
+    for (const l of linhasBase) {
       const c = compPorSlot.get(l.participanteId)
       if (!c) return null
       linhasReais.push({
@@ -1009,7 +1056,7 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
 
   const { data: divisoes, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("id, nivel, tournament_id, ranking_base, tournament:tournaments(status)")
+    .select("id, nivel, tournament_id, ranking_base, formato, tournament:tournaments(status)")
     .eq("season_id", parsed.data)
     .order("nivel")
   if (divsError || !divisoes || divisoes.length === 0) {
@@ -1055,6 +1102,22 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
       }
     }
 
+    // Fase 5.2: numa divisão grupos+mata-mata o sobe/cai vem do AGREGADO da fase
+    // de grupos (gate compartilhado com montarPlayoffs — `faseDeGruposIncompleta`).
+    if (div.formato === "grupos_mata_mata") {
+      const incompleta = await faseDeGruposIncompleta(supabase, div.tournament_id)
+      if (incompleta === null) {
+        return { ok: false, error: erroGenerico }
+      }
+      if (incompleta) {
+        return {
+          ok: false,
+          error:
+            "Há divisão com a fase de grupos incompleta. Encerre todos os jogos dos grupos antes de calcular o fluxo.",
+        }
+      }
+    }
+
     // slot_id → competitor_id (via entries da divisão).
     const { data: entries, error: entriesError } = await supabase
       .from("league_division_entries")
@@ -1081,8 +1144,12 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
 
     // Linhas REAIS (posição da tabela do ano). Alimentam o remap de posicaoFinal,
     // o promedio (campanha ao vivo) e — quando ranking_base='posicao' — o corte.
+    // Fase 5.2: numa divisão grupos+mata-mata usa o AGREGADO da fase de grupos
+    // (posição+pontos+jogos), nunca a tabela cheia (que somaria o mata-mata e
+    // contaminaria a campanha do ano E o promedio plurianual).
+    const linhasBase = classificacao.linhasFaseGrupos ?? classificacao.linhas
     const linhasReais: LinhaReal[] = []
-    for (const linha of classificacao.linhas) {
+    for (const linha of linhasBase) {
       // `participanteId` no competitivo É o slot id.
       const competitorId = competitorPorSlot.get(linha.participanteId)
       if (!competitorId) {
@@ -1590,7 +1657,7 @@ export async function montarProximaTemporada(
 
   const { data: divisoesN, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("nivel, nome, por_nome, desempate, ranking_base")
+    .select("nivel, nome, por_nome, desempate, ranking_base, formato, qtd_grupos, classificados_por_grupo")
     .eq("season_id", seasonId)
     .order("nivel")
   if (divsError || !divisoesN || divisoesN.length === 0) {
@@ -1702,6 +1769,24 @@ export async function montarProximaTemporada(
     .filter(([nivel]) => !niveisExistentes.has(nivel))
     .map(([nivel, tamanho]) => {
       const geo = geometriaPorNivel.get(nivel)
+      // Fase 5.2: copiar o formato interno + geometria de grupos — sem isto a
+      // divisão de grupos viraria liga na N+1 (sumiria após 1 ciclo). MAS a
+      // conservação pode mudar o `tamanho` do nível na N+1, e a geometria herdada
+      // (qtd_grupos × K) talvez não FECHE a chave no novo tamanho → divisão
+      // ficaria impossível de iniciar (validarGeometria estouraria). Revalida; se
+      // não fecha, REBAIXA para 'liga' (sem geometria) — degradação segura.
+      let formato = geo?.formato ?? "liga"
+      let qtdGrupos = geo?.qtd_grupos ?? null
+      let classificados = geo?.classificados_por_grupo ?? null
+      if (formato === "grupos_mata_mata" && qtdGrupos != null && classificados != null) {
+        try {
+          validarGeometria(tamanho, qtdGrupos, classificados)
+        } catch {
+          formato = "liga"
+          qtdGrupos = null
+          classificados = null
+        }
+      }
       return {
         season_id: proximaSeasonId,
         nivel,
@@ -1711,6 +1796,9 @@ export async function montarProximaTemporada(
         // Fase 4: copiar a base de ranking — sem isto a N+1 cairia para 'posicao'
         // silenciosamente (perdendo o promedio configurado).
         ranking_base: geo?.ranking_base ?? "posicao",
+        formato,
+        qtd_grupos: qtdGrupos,
+        classificados_por_grupo: classificados,
         tamanho,
       }
     })

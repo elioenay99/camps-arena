@@ -199,8 +199,15 @@ Decisões de produto (dono, 2026-06-13, AskUserQuestion): **(5.1)** campeão = G
 - [x] 5.3.5 Testes puros: mini-tabela com 3 empatados (h2h decide), ciclo A>B>C>A no h2h (cai no fallback global), `espanhol` vs `fifa` (ordem diferente do mesmo cenário), não-regressão `cbf`/`ingles` byte-idêntica.
 - [x] 5.3.6 Gate: typecheck/lint/test/build verdes; validação ao vivo (preset selecionável no wizard + cenário de 3 empatados resolvido pela mini-tabela). Revisão adversarial do diff. Commit.
 
-### 5.2 Formato interno por divisão (grupos+mata-mata) — grupos decidem sobe/cai
-- [ ] 5.2.x DETALHAR ao iniciar este sub-bloco (design §12). Esboço: `league_division_seasons.formato` (liga|grupos); RPC `montar_temporada` cria torneio `grupos` quando aplicável; fluxo lê a tabela AGREGADA da fase de grupos como `posicao`; mata-mata interno coroa o campeão (sem afetar sobe/cai); wizard escolhe o formato por divisão.
+### 5.2 Formato interno por divisão (grupos+mata-mata) — grupos decidem sobe/cai ✅ ENTREGUE 2026-06-14
+Decisão de produto: ranking cross-grupo = POSIÇÃO-NO-GRUPO ("melhores segundos"; ordem total única). Design §12 (REVISADO após 1º gate). 2 gates + 2 reviews adversariais; validação ao vivo achou+corrigiu 1 bug de runtime (cast text→enum na RPC). 1008 testes.
+- [x] 5.2.1 DDL via MCP: `league_division_seasons` += `formato` (text, CHECK liga|grupos_mata_mata) + `qtd_grupos` + `classificados_por_grupo` + CHECK coerência + lock estendido p/ os 3; RPC `montar_temporada` lê `v_div.formato` (CAST `::tournament_format`) + K e cria o tournament com eles (FONTE ÚNICA de K). Espelhado em schema.sql; types hand-rolled.
+- [x] 5.2.2 Motor puro `rankearAgregadoGrupos` (`agregadoGrupos.ts`, 5 testes) + `linhasFaseGrupos` no `getTournamentClassificacao` (agregado SÓ dos grupos; MM tem grupo=null → excluído; undefined em liga).
+- [x] 5.2.3 Helper server `gerarFaseGruposSemeada` (sorteio semeado `prngDeSemente(season:div)`, não regrava K) + `faseDeGruposIncompleta` (gate compartilhado). `iniciarDivisao` ramifica.
+- [x] 5.2.4 Consumidores: `linhasBase = linhasFaseGrupos ?? linhas` (posição+pontos+jogos+remap) em `calcularFluxoTemporada`, `montarPlayoffs/carregarDivisao`, `getDivisionStandings` + promedio. GATE de grupos completos em calcularFluxo E montarPlayoffs. `createCompetition` + `montarProximaTemporada` persistem/copiam os 3 (N+1 revalida geometria → rebaixa p/ liga se não fechar).
+- [x] 5.2.5 Zod `divisaoSchema.formato` + superRefine (reusa `validarGeometria`) + wizard (select formato + config ofertando só combinações válidas; re-ancora ao mudar tamanho; barra submit inválido).
+- [x] 5.2.6 Gate (typecheck/lint/1008 testes/build) + revisão adversarial do diff (1 HIGH + 2 MEDIUM + nits corrigidos) + validação AO VIVO (wizard→montar→iniciar grupos semeados→jogar→agregado posição-no-grupo; pontos/jogos = só grupos). Commit+push.
+- DÍVIDA registrada (não-bloqueia): mata-mata decorativo usa cbf no `classificarGrupos` (só o agregado segue o preset); tabelas por-grupo na página da divisão = follow-up de UI.
 
 ### 5.1 Ciclos Apertura/Clausura — anual combinada + grande final
 - [ ] 5.1.x DETALHAR ao iniciar este sub-bloco (design §13). Esboço: marcar a season como split (config/coluna); cada divisão roda 2 torneios (Apertura+Clausura); fluxo combina as 2 tabelas numa ANUAL; grande final entre os 2 campeões; promedios/posição aplicam sobre a combinada; UI das 2 meias + final.

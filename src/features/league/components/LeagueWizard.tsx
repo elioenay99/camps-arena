@@ -16,6 +16,10 @@ import { toast } from "sonner"
 import { createCompetition } from "@/actions/leaguePyramid"
 import { selectTeam } from "@/actions/teams"
 import { Button } from "@/components/ui/button"
+import {
+  GRUPOS_VALIDOS,
+  validarGeometria,
+} from "@/features/groups/gerarFaseDeGrupos"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
@@ -65,6 +69,11 @@ interface DivisaoRascunho {
   porNome: boolean
   desempate: (typeof DESEMPATES_DISPONIVEIS)[number]
   rankingBase: (typeof RANKING_BASES_DISPONIVEIS)[number]
+  /** Fase 5.2: formato interno (liga | grupos+mata-mata). */
+  formato: "liga" | "grupos_mata_mata"
+  /** Geometria de grupos (só em grupos_mata_mata). */
+  qtdGrupos?: number
+  classificadosPorGrupo?: number
   tamanho: number
   competidores: CompetidorRascunho[]
 }
@@ -127,6 +136,79 @@ const RANKING_BASE_ROTULO: Record<(typeof RANKING_BASES_DISPONIVEIS)[number], st
 const SELECT_CLASSE =
   "border-input bg-transparent focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm outline-none focus-visible:ring-3"
 
+/** Rótulo do formato interno por divisão (Fase 5.2). */
+const FORMATO_ROTULO: Record<DivisaoRascunho["formato"], string> = {
+  liga: "Liga (pontos corridos)",
+  grupos_mata_mata: "Grupos + mata-mata",
+}
+
+/* -------------------------------------------------------------------------- */
+/* Geometria de grupos por divisão — só oferecemos combinações VÁLIDAS         */
+/* (espelha validarGeometria do motor; o backend revalida de verdade)          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Testa a geometria (tamanho, qtdGrupos, K) reusando a fonte de verdade do
+ * motor: `validarGeometria` lança Error com a mensagem amigável quando a chave
+ * não fecha. Devolve a mensagem (string) se inválida, ou null se ok.
+ */
+function erroGeometria(
+  tamanho: number,
+  qtdGrupos: number,
+  classificadosPorGrupo: number
+): string | null {
+  try {
+    validarGeometria(tamanho, qtdGrupos, classificadosPorGrupo)
+    return null
+  } catch (e) {
+    return e instanceof Error ? e.message : "Configuração de grupos inválida."
+  }
+}
+
+/**
+ * Quantidades de grupos viáveis para um `tamanho` (≥ 2 por grupo). Reusa
+ * GRUPOS_VALIDOS do motor, EXCLUI o grupo único (1) — a divisão só oferece
+ * grupos+mata-mata de verdade (G ≥ 2) — e mantém apenas os que comportam ao
+ * menos uma combinação de K que feche a chave.
+ */
+function gruposValidosPara(tamanho: number): number[] {
+  return GRUPOS_VALIDOS.filter(
+    (g) => g >= 2 && classificadosValidosPara(tamanho, g).length > 0
+  )
+}
+
+/**
+ * Classificados por grupo viáveis para (tamanho, qtdGrupos): varre os K que o
+ * total possível admite (K < piso(tamanho/qtdGrupos)) e mantém só os que passam
+ * em `validarGeometria` (total ∈ chave completa + K cabe no menor grupo).
+ */
+function classificadosValidosPara(tamanho: number, qtdGrupos: number): number[] {
+  const menorGrupo = Math.floor(tamanho / qtdGrupos)
+  const out: number[] = []
+  for (let k = 1; k < menorGrupo; k++) {
+    if (erroGeometria(tamanho, qtdGrupos, k) === null) out.push(k)
+  }
+  return out
+}
+
+/**
+ * Primeira combinação válida para um `tamanho`, semeada ao trocar para
+ * grupos+mata-mata: menor nº de grupos viável e o MAIOR K válido para ele
+ * (chave mais cheia). Retorna null se o tamanho não comporta grupos+mata-mata.
+ */
+function defaultGeometria(
+  tamanho: number
+): { qtdGrupos: number; classificadosPorGrupo: number } | null {
+  const grupos = gruposValidosPara(tamanho)
+  for (const g of grupos) {
+    const ks = classificadosValidosPara(tamanho, g)
+    if (ks.length > 0) {
+      return { qtdGrupos: g, classificadosPorGrupo: ks[ks.length - 1] }
+    }
+  }
+  return null
+}
+
 const MODO_ROTULO: Record<ModoFronteira, string> = {
   direto: "Direto (pela tabela)",
   playoff_acesso: "Playoff de acesso",
@@ -178,6 +260,7 @@ function novaDivisao(
     porNome: false,
     desempate,
     rankingBase: "posicao",
+    formato: "liga",
     tamanho: 20,
     competidores: [],
   }
@@ -551,6 +634,26 @@ export function LeagueWizard() {
         if (patch.tamanho !== undefined && proxima.competidores.length > patch.tamanho) {
           proxima.competidores = proxima.competidores.slice(0, patch.tamanho)
         }
+        // Fase 5.2: mudar o tamanho pode invalidar a geometria de grupos (a chave
+        // não fecha mais) → re-ancora na combinação válida do novo tamanho, ou
+        // rebaixa para liga se o tamanho não comportar grupos+mata-mata.
+        if (patch.tamanho !== undefined && proxima.formato === "grupos_mata_mata") {
+          const g = proxima.qtdGrupos
+          const k = proxima.classificadosPorGrupo
+          const valido =
+            g != null && k != null && erroGeometria(proxima.tamanho, g, k) === null
+          if (!valido) {
+            const novo = defaultGeometria(proxima.tamanho)
+            if (novo) {
+              proxima.qtdGrupos = novo.qtdGrupos
+              proxima.classificadosPorGrupo = novo.classificadosPorGrupo
+            } else {
+              proxima.formato = "liga"
+              proxima.qtdGrupos = undefined
+              proxima.classificadosPorGrupo = undefined
+            }
+          }
+        }
         return proxima
       })
     )
@@ -668,6 +771,10 @@ export function LeagueWizard() {
         porNome: d.porNome,
         desempate: d.desempate,
         rankingBase: d.rankingBase,
+        formato: d.formato,
+        qtdGrupos: d.formato === "grupos_mata_mata" ? d.qtdGrupos : undefined,
+        classificadosPorGrupo:
+          d.formato === "grupos_mata_mata" ? d.classificadosPorGrupo : undefined,
         tamanho: d.tamanho,
         competidores: d.competidores.map((c) =>
           c.tipo === "nome"
@@ -708,6 +815,20 @@ export function LeagueWizard() {
           ? `Faltam ${d.faltam} competidores na divisão ${d.nivel}.`
           : `Há competidores a mais na divisão ${d.nivel}.`
       )
+      return
+    }
+
+    // Fase 5.2: barra o submit se alguma divisão de grupos tem geometria que não
+    // fecha a chave (o backend também rejeita, mas o toast aponta a divisão).
+    const geoRuim = divisoes.find(
+      (d) =>
+        d.formato === "grupos_mata_mata" &&
+        (d.qtdGrupos == null ||
+          d.classificadosPorGrupo == null ||
+          erroGeometria(d.tamanho, d.qtdGrupos, d.classificadosPorGrupo) !== null)
+    )
+    if (geoRuim) {
+      toast.error(`Ajuste os grupos da divisão ${geoRuim.nivel} antes de criar.`)
       return
     }
 
@@ -1024,6 +1145,147 @@ function CampoTamanhoDivisao({
   )
 }
 
+/**
+ * Bloco de FORMATO INTERNO de uma divisão (Fase 5.2): liga ou grupos+mata-mata.
+ * Em grupos+mata-mata, oferece SÓ combinações que fecham a chave para o tamanho
+ * atual (geradas por `gruposValidosPara`/`classificadosValidosPara`, que reusam
+ * `validarGeometria` do motor). Ao trocar para grupos, semeia um default válido;
+ * ao voltar para liga, limpa qtdGrupos/classificadosPorGrupo via onAtualizar.
+ */
+function BlocoFormatoDivisao({
+  d,
+  idx,
+  onAtualizar,
+}: {
+  d: DivisaoRascunho
+  idx: number
+  onAtualizar: (idx: number, patch: Partial<DivisaoRascunho>) => void
+}) {
+  const ehGrupos = d.formato === "grupos_mata_mata"
+  const gruposOpcoes = gruposValidosPara(d.tamanho)
+  const grupoSemViavel = gruposOpcoes.length === 0
+  const ksOpcoes = ehGrupos && d.qtdGrupos ? classificadosValidosPara(d.tamanho, d.qtdGrupos) : []
+
+  // Mensagem de erro inline: a combinação atual fecha a chave? (reusa validarGeometria)
+  const erro =
+    ehGrupos && d.qtdGrupos !== undefined && d.classificadosPorGrupo !== undefined
+      ? erroGeometria(d.tamanho, d.qtdGrupos, d.classificadosPorGrupo)
+      : null
+
+  function trocarFormato(formato: DivisaoRascunho["formato"]) {
+    if (formato === "liga") {
+      onAtualizar(idx, {
+        formato,
+        qtdGrupos: undefined,
+        classificadosPorGrupo: undefined,
+      })
+      return
+    }
+    const def = defaultGeometria(d.tamanho)
+    onAtualizar(idx, {
+      formato,
+      qtdGrupos: def?.qtdGrupos,
+      classificadosPorGrupo: def?.classificadosPorGrupo,
+    })
+  }
+
+  // Ao trocar a quantidade de grupos, reancorar K no maior válido para o novo G.
+  function trocarGrupos(qtdGrupos: number) {
+    const ks = classificadosValidosPara(d.tamanho, qtdGrupos)
+    const k =
+      d.classificadosPorGrupo !== undefined && ks.includes(d.classificadosPorGrupo)
+        ? d.classificadosPorGrupo
+        : ks[ks.length - 1]
+    onAtualizar(idx, { qtdGrupos, classificadosPorGrupo: k })
+  }
+
+  return (
+    <div className="grid gap-3">
+      <div className="grid gap-1.5">
+        <Label htmlFor={`fmt-${d.nivel}`} className="text-xs">
+          Formato
+        </Label>
+        <select
+          id={`fmt-${d.nivel}`}
+          value={d.formato}
+          onChange={(e) =>
+            trocarFormato(e.target.value as DivisaoRascunho["formato"])
+          }
+          className={SELECT_CLASSE}
+        >
+          {(Object.keys(FORMATO_ROTULO) as DivisaoRascunho["formato"][]).map((fmt) => (
+            <option key={fmt} value={fmt}>
+              {FORMATO_ROTULO[fmt]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {ehGrupos &&
+        (grupoSemViavel ? (
+          <p className="text-destructive text-xs" role="alert">
+            Esta divisão (tamanho {d.tamanho}) não comporta uma fase de grupos que
+            feche a chave. Aumente o tamanho ou use o formato de liga.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor={`grp-${d.nivel}`} className="text-xs">
+                  Grupos
+                </Label>
+                <select
+                  id={`grp-${d.nivel}`}
+                  value={d.qtdGrupos ?? ""}
+                  onChange={(e) => trocarGrupos(Number(e.target.value))}
+                  className={SELECT_CLASSE}
+                >
+                  {gruposOpcoes.map((g) => (
+                    <option key={g} value={g}>
+                      {g} grupos
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label htmlFor={`clf-${d.nivel}`} className="text-xs">
+                  Classificados por grupo
+                </Label>
+                <select
+                  id={`clf-${d.nivel}`}
+                  value={d.classificadosPorGrupo ?? ""}
+                  onChange={(e) =>
+                    onAtualizar(idx, { classificadosPorGrupo: Number(e.target.value) })
+                  }
+                  className={SELECT_CLASSE}
+                  disabled={ksOpcoes.length === 0}
+                >
+                  {ksOpcoes.map((k) => (
+                    <option key={k} value={k}>
+                      {k} {k === 1 ? "classificado" : "classificados"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <p className="text-muted-foreground text-[0.7rem]">
+              A fase de grupos decide o sobe/cai; o mata-mata coroa o campeão da
+              divisão.
+            </p>
+
+            {erro && (
+              <p className="text-destructive text-xs" role="alert">
+                {erro}
+              </p>
+            )}
+          </>
+        ))}
+    </div>
+  )
+}
+
 function PassoDivisoes({
   divisoes,
   onAtualizar,
@@ -1139,6 +1401,8 @@ function PassoDivisoes({
                 ) : null}
               </div>
             </div>
+
+            <BlocoFormatoDivisao d={d} idx={idx} onAtualizar={onAtualizar} />
 
             <label className="bg-card/40 hover:border-primary/40 has-[:focus-visible]:ring-ring flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors has-[:focus-visible]:ring-2">
               <input

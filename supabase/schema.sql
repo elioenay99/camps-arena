@@ -1722,15 +1722,32 @@ create table if not exists public.league_division_seasons (
   -- = corte pela média plurianual de pontos-por-jogo (vida toda, todas as divisões,
   -- estilo argentino); 'ppg' é latente (== 'posicao' dentro de uma divisão).
   ranking_base  public.league_ranking_base not null default 'posicao',
+  -- Formato interno da divisão (snapshot — Fase 5.2). 'liga' (default) = pontos
+  -- corridos (byte-idêntico ao legado); 'grupos_mata_mata' = fase de grupos (que
+  -- DECIDE o sobe/cai pelo agregado posição-no-grupo) + mata-mata decorativo (só
+  -- coroa o campeão). qtd_grupos/classificados_por_grupo só em grupos.
+  formato       text not null default 'liga',
+  qtd_grupos    integer,
+  classificados_por_grupo integer,
   -- Tamanho-alvo da divisão (nº de competidores). Usado na CONSERVAÇÃO de tamanho
   -- ao montar a próxima temporada (sobe == desce nas fronteiras simétricas).
   tamanho       integer not null,
   created_at    timestamptz not null default now(),
   constraint league_division_seasons_nivel_positivo check (nivel >= 1),
   constraint league_division_seasons_tamanho_valido check (tamanho >= 2 and tamanho <= 20),
-  -- Fase 0: 'cbf'|'ingles'|'custom'; 'espanhol' adicionado na Fase 5.
+  -- Fase 0: 'cbf'|'ingles'|'custom'; 'espanhol'/'fifa' adicionados na Fase 5.
   constraint league_division_seasons_desempate_valido
-    check (desempate in ('cbf', 'ingles', 'custom', 'espanhol', 'fifa'))
+    check (desempate in ('cbf', 'ingles', 'custom', 'espanhol', 'fifa')),
+  -- Fase 5.2: formato interno + coerência da geometria de grupos.
+  constraint league_division_seasons_formato_valido
+    check (formato in ('liga', 'grupos_mata_mata')),
+  constraint league_division_seasons_grupos_coerente
+    check (
+      (formato = 'liga'
+         and qtd_grupos is null and classificados_por_grupo is null)
+      or (formato = 'grupos_mata_mata'
+         and qtd_grupos >= 2 and classificados_por_grupo >= 1)
+    )
 );
 
 create unique index if not exists league_division_seasons_nivel_unico
@@ -1986,7 +2003,8 @@ begin
   -- (2) Para cada divisão da temporada, criar o torneio + slots se ainda não
   -- existe (sentinela = tournament_id).
   for v_div in
-    select id, nivel, nome, por_nome, desempate, tournament_id
+    select id, nivel, nome, por_nome, desempate, formato,
+           classificados_por_grupo, tournament_id
       from public.league_division_seasons
      where season_id = p_season_id
      order by nivel
@@ -1995,11 +2013,18 @@ begin
       continue;  -- já montada (promote-first idempotente)
     end if;
 
-    -- (3) Cria o tournament da divisão (is_public herdado da pirâmide).
+    -- (3) Cria o tournament da divisão com o FORMATO da divisão (liga ou
+    -- grupos_mata_mata) e o K dos grupos (null em liga; FONTE ÚNICA — Fase 5.2).
+    -- is_public herdado da pirâmide. CAST text→enum: league_division_seasons.formato
+    -- é text (com CHECK); tournaments.formato é o enum tournament_format (variável
+    -- text NÃO auto-coage para enum — sem o cast a RPC inteira falha).
     insert into public.tournaments
-      (titulo, status, created_by, formato, por_nome, desempate_criterio, is_public)
+      (titulo, status, created_by, formato, classificados_por_grupo,
+       por_nome, desempate_criterio, is_public)
     values
-      (v_div.nome, 'rascunho', v_uid, 'liga', v_div.por_nome, v_div.desempate, v_is_public)
+      (v_div.nome, 'rascunho', v_uid,
+       v_div.formato::public.tournament_format, v_div.classificados_por_grupo,
+       v_div.por_nome, v_div.desempate, v_is_public)
     returning id into v_tournament;
 
     update public.league_division_seasons
@@ -2500,7 +2525,10 @@ begin
         or new.por_nome is distinct from old.por_nome
         or new.tamanho is distinct from old.tamanho
         or new.desempate is distinct from old.desempate
-        or new.ranking_base is distinct from old.ranking_base)
+        or new.ranking_base is distinct from old.ranking_base
+        or new.formato is distinct from old.formato
+        or new.qtd_grupos is distinct from old.qtd_grupos
+        or new.classificados_por_grupo is distinct from old.classificados_por_grupo)
        and exists (
          select 1 from public.league_seasons ls
          where ls.id = old.season_id

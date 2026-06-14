@@ -8,6 +8,7 @@ import {
   type LinhaClassificacao,
   type TiebreakerPreset,
 } from "@/features/standings/computeStandings"
+import { rankearAgregadoGrupos } from "@/features/groups/agregadoGrupos"
 import type {
   MatchStatus,
   TournamentFormat,
@@ -155,6 +156,13 @@ export interface ClassificacaoTorneio {
   chave: PartidaDaChave[]
   /** Classificação POR GRUPO (vazia fora dos formatos de grupos) — idem. */
   grupos: GrupoClassificacao[]
+  /**
+   * Agregado POSIÇÃO-NO-GRUPO (Fase 5.2): ordem total única de TODOS os
+   * competidores da fase de grupos (1ºs de grupo, depois 2ºs…), que DECIDE o
+   * sobe/cai numa divisão `grupos_mata_mata`. `undefined` fora de grupos. Os
+   * `pontos`/`jogos` por linha são SÓ da fase de grupos (o mata-mata não entra).
+   */
+  linhasFaseGrupos?: LinhaComNome[]
   /** Rodada ATIVA derivada: menor `rodada` entre as partidas não-encerradas
    * (null = sem partida aberta com rodada, ou avulso). Insumo do botão "Fechar
    * rodada". */
@@ -623,6 +631,13 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     })),
   }))
 
+  // Agregado POSIÇÃO-NO-GRUPO (Fase 5.2): ordem total única que DECIDE o sobe/cai
+  // numa divisão grupos+mata-mata. Roda SÓ sobre as linhas dos grupos (o mata-mata
+  // tem `grupo` null → fora de `grupos[]`), então pontos/jogos/posição nunca somam
+  // a chave. `undefined` fora dos formatos de grupos (consumidores usam `?? linhas`).
+  const linhasFaseGrupos =
+    grupos.length > 0 ? rankearAgregadoGrupos(grupos.map((g) => g.linhas)) : undefined
+
   // Rodada ATIVA derivada: menor rodada entre as partidas não-encerradas com
   // rodada preenchida (competitivo). null se não há aberta com rodada.
   const rodadasAbertas = linhasPartidas
@@ -638,6 +653,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     partidasAbertas,
     chave,
     grupos,
+    linhasFaseGrupos,
     rodadaAtiva,
   }
 })

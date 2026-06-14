@@ -689,3 +689,54 @@ describe("barragem cruzada (Fase 3)", () => {
     expect(r.success).toBe(false)
   })
 })
+
+describe("createCompetitionSchema (formato grupos+mata-mata — Fase 5.2)", () => {
+  const piramide = (divExtra: Record<string, unknown>) =>
+    createCompetitionSchema.safeParse({
+      nome: "Copa Teste",
+      divisoes: [{ ...divisao(1, 8), ...divExtra }],
+      fronteiras: [],
+    })
+
+  it("aceita grupos com geometria que FECHA a chave (8 times: 2 grupos × 2 = 4)", () => {
+    const r = piramide({ formato: "grupos_mata_mata", qtdGrupos: 2, classificadosPorGrupo: 2 })
+    expect(r.success).toBe(true)
+  })
+
+  it("aceita 4 grupos × 2 = 8 (chave de 8) num tamanho 8 (4 por grupo)", () => {
+    const r = createCompetitionSchema.safeParse({
+      nome: "Copa 4G",
+      divisoes: [
+        { ...divisao(1, 8), formato: "grupos_mata_mata", qtdGrupos: 4, classificadosPorGrupo: 2 },
+      ],
+      fronteiras: [],
+    })
+    // 4 grupos de 2 → K=2 não cabe (K < menor grupo = 2 é falso). Rejeita.
+    expect(r.success).toBe(false)
+  })
+
+  it("rejeita total que NÃO fecha a chave (2 grupos × 3 = 6 ∉ {2,4,8,16,32})", () => {
+    const r = piramide({ formato: "grupos_mata_mata", qtdGrupos: 2, classificadosPorGrupo: 3 })
+    expect(r.success).toBe(false)
+  })
+
+  it("rejeita grupos com qtdGrupos < 2 (1 grupo = liga, não ofertado)", () => {
+    const r = piramide({ formato: "grupos_mata_mata", qtdGrupos: 1, classificadosPorGrupo: 2 })
+    expect(r.success).toBe(false)
+  })
+
+  it("rejeita formato 'liga' com geometria de grupos preenchida", () => {
+    const r = piramide({ formato: "liga", qtdGrupos: 2, classificadosPorGrupo: 2 })
+    expect(r.success).toBe(false)
+  })
+
+  it("rejeita grupos sem informar a geometria", () => {
+    const r = piramide({ formato: "grupos_mata_mata" })
+    expect(r.success).toBe(false)
+  })
+
+  it("'liga' (default) sem campos de grupo continua válido (não-regressão)", () => {
+    const r = piramide({})
+    expect(r.success).toBe(true)
+  })
+})

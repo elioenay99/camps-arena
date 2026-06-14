@@ -833,3 +833,57 @@ Espelhar em `schema.sql`. `database.types.ts` não muda (são `text`, não enum)
 - **Mini-tabela sem jogos entre os empatados** (ex.: grupos que não se cruzaram — não ocorre numa liga round-robin, mas defensivo): mini-Acumulado zerado ⇒ todos iguais na mini-chain ⇒ cai no fallback global ⇒ dividem a posição. Sem crash.
 - **2 empatados no `espanhol`/`fifa`**: a mini-tabela com 2 = confronto direto (mini-liga de 1-2 jogos) — generaliza o caso atual.
 - **Determinismo**: tudo puro, sem `Math.random`; `porId` final garante ordem total estável.
+
+
+---
+
+## 12. Fase 5.2 — Formato grupos+mata-mata por divisão (REVISADO após o gate)
+
+Decisões de produto (dono, 2026-06-13, AskUserQuestion): (a) **grupos decidem o sobe/cai**, o mata-mata coroa só o campeão; (b) ranking cross-grupo = **POSIÇÃO-NO-GRUPO** ("melhores segundos": todos os 1ºs de grupo acima de todos os 2ºs, etc.; dentro do nível, por pontos/saldo). Decisões de engenharia (defaults, sinalizadas): geometria = **chave completa obrigatória** (`qtd_grupos ∈ {2,4,8}`, `G·K ∈ {2,4,8,16,32}`); MM decorativo reusa o fluxo de torneio existente (cripto, não-semeado) — INÓCUO ao sobe/cai; a página mostra o agregado (decide o sobe/cai) + as tabelas por grupo. Este §12 substitui a versão pré-gate (o gate `wuugaogiu` achou 2 critical + 5 high — todos endereçados abaixo).
+
+### 12.1 Agregado POSIÇÃO-NO-GRUPO (ordem total real, sem sorteio) — corrige os achados #1 e #3
+A tabela `linhas` de `getTournamentClassificacao` roda `computeStandings` sobre TODAS as partidas (incl. mata-mata) — NÃO serve. O agregado da fase de grupos é um campo NOVO `linhasFaseGrupos?: LinhaComNome[]` em `ClassificacaoTorneio`, presente só quando o torneio tem grupos (`numerosDeGrupo.length > 0`); `undefined` em liga.
+
+Construção (helper PURO `rankearAgregadoGrupos`, testável, em `src/features/groups/`):
+1. Por grupo `g`: `computeStandings(regras, partidasDoGrupoG, desempate)` — REUSA o map já existente do bloco `grupos[]` (`getTournamentClassificacao.ts:604-624`: filtrar `p.grupo === g`, re-chavear por `ladoCru1/ladoCru2`, passar W.O./placar/status), com o PRESET de desempate (não o cbf default). Cada linha do grupo já tem `posicao` interna (1..tamGrupo), `pontos`/`jogos`/`saldo`/`golsPro` SÓ da fase de grupos. **Dentro do grupo os times se enfrentaram** ⇒ `espanhol`/`fifa` (5.3) funcionam de verdade aqui.
+2. Achatar todos com `posicaoNoGrupo = linha.posicao` e ordenar por `(posicaoNoGrupo asc, pontos desc, saldo desc, golsPro desc, participanteId asc)`.
+3. Reatribuir `posicao` GLOBAL 1..N única (a tripla final por id quebra empates exatos ⇒ ORDEM TOTAL, sem cluster dividido, **sem sorteio** — como `promedios`). Cada linha carrega os `pontos`/`jogos` da FASE DE GRUPOS.
+
+Isso elimina o achado #1 (cross-grupo agora tem ordem total: 1ºs de grupo, depois 2ºs…) e o #3 (o pseudocódigo errado é substituído pelo map correto do bloco `grupos[]`). **Invariante**: `linhasFaseGrupos` é ordem total única 1..N; o corte do fluxo nunca cai no meio de um empate.
+
+### 12.2 DDL (via MCP, mostrar SQL antes) — corrige #6, #7, #8, #14
+`league_division_seasons` ganha:
+- `formato text not null default 'liga'` + CHECK `in ('liga','grupos_mata_mata')` (exclui `fase_liga` da divisão; achado #14).
+- `qtd_grupos integer` + `classificados_por_grupo integer` (nullable). CHECK de coerência: `formato='liga' ⇒ ambos null`; `formato='grupos_mata_mata' ⇒ ambos not null` (e `qtd_grupos>=2`, `classificados_por_grupo>=1`).
+- Estender `lock_league_division_season`: travar `formato`/`qtd_grupos`/`classificados_por_grupo` (snapshot imutável após rascunho — achado #8).
+RPC `montar_temporada` (achado #7 — FONTE ÚNICA de K): ler `v_div.formato`/`v_div.classificados_por_grupo` do cursor e criar `tournaments(formato = v_div.formato, classificados_por_grupo = v_div.classificados_por_grupo, ...)` em vez de hardcode `'liga'`. CHECK do `tournaments` reforça `formato='grupos_mata_mata' ⇒ classificados_por_grupo not null`.
+`montarProximaTemporada` (achado #6): ADICIONAR `formato`/`qtd_grupos`/`classificados_por_grupo` ao `.select` da geometria E ao insert das divisões N+1 (fallback `'liga'`/null). `createCompetition` idem (insert). Como o lock barra UPDATE pós-rascunho, os 3 campos entram SEMPRE no INSERT de criação, nunca por update tardio. Espelhar em `schema.sql`; types hand-rolled.
+
+### 12.3 Inicialização programática semeada — corrige #4 e #10
+`iniciarDivisao` DEVE ramificar (achado #4: `iniciarTorneio` filtra `.eq('formato','liga')` e rejeita grupos): ampliar o SELECT (trazer `formato`/`qtd_grupos`/`classificados_por_grupo`); `formato='liga' ⇒ iniciarTorneio`; `'grupos_mata_mata' ⇒ gerarFaseGruposSemeada(...)`. O gate "todas iniciadas ⇒ season ativa" (`leaguePyramid.ts:466-471`) já trata `status!=='rascunho'` para ambos.
+Helper NOVO `gerarFaseGruposSemeada(supabase, tournamentId, { qtdGrupos, idaEVolta, randInt })`: reproduz o núcleo de `iniciarTorneioGrupos` — `montarGruposSorteio(slots, qtdGrupos, randInt)` (sort estável por slot id), `gerarPartidasGrupos`, guard `jaGeradas` (rodada IS NOT NULL), recuperação `'ativo'→'rascunho'`, promoção atômica filtrada por `status='rascunho'`, INSERT em lote. **NÃO regrava K** (`classificados_por_grupo` já vem do tournament criado pela RPC — achado #7). Adapter de semente (achado #10): `const rng = prngDeSemente(season.id + ':' + divisionSeasonId); const randInt = (n) => Math.floor(rng() * n)`. `iniciarTorneioGrupos` passa `randIntCrypto`; a pirâmide passa o adapter semeado — um único caminho. Teste de determinismo: mesma seed ⇒ mesma partição.
+
+### 12.4 MM decorativo + gate por FASE DE GRUPOS completa — corrige #9, #11, #12, #13
+O MM NÃO é forçado (achado #9: `encerrarTorneio` encerra de qualquer status). O sobe/cai usa o agregado de grupos, disponível quando **a fase de grupos está 100% encerrada** — não depende do MM. Logo:
+- O gate do fluxo (`calcularFluxoTemporada`/`montarPlayoffs`) numa divisão grupos exige TODAS as partidas de grupo (`grupo IS NOT NULL`) com `status='encerrada'` (checagem barata), além do torneio não estar em rascunho. Mensagem específica ("divisão com grupos incompletos não entra no fluxo"). O fail-fast do remap continua como rede (achado #13).
+- O MM (chave dos classificados) é jogado pela UI de torneio existente e coroa o campeão; NÃO afeta o agregado. **Desempate** (achado #11): propagar o preset a `classificarGrupos` (assinatura ganha o preset) para o bracket usar o MESMO desempate do agregado — fecha a dívida da Fase 0. **Semente** (achado #12): o MM da divisão reusa o sorteio CRIPTO existente (não-semeado) — INTENCIONAL e inócuo ao sobe/cai (decorativo); documentado.
+
+### 12.5 Consumidores: `linhasBase` única — corrige #2 (CRITICAL) e #15
+TODO sítio que decide sobe/cai usa `const linhasBase = classificacao.linhasFaseGrupos ?? classificacao.linhas` — **posição, pontos E jogos** saem de `linhasBase` (não só a posição): senão os pontos/jogos do MATA-MATA são gravados em `league_division_entries` (`leaguePyramid.ts:1506-1512`) e somados PARA SEMPRE no promedio plurianual (`promedios.ts:80-93`) — corrupção irreversível. Os 4 sítios:
+- `calcularFluxoTemporada`: loop de `linhasReais` (`leaguePyramid.ts:1085-1097`: `posicaoReal`, `pontos`, `jogos`) + `posicaoRealPorCompetidor` (`:1098`).
+- `montarPlayoffs`/`carregarDivisao` (`:768-776`): zona + seeding.
+- `getDivisionStandings` (`:265`): a página da divisão grupos mostra o AGREGADO (rótulo "classificação geral da fase de grupos — decide o sobe/cai") + as tabelas por grupo (achado #15). O promedio (Fase 4) usa os `pontos`/`jogos` do agregado de grupos via `carregarPosicoesDeCorte`.
+Teste de não-regressão (achado #2): divisão grupos com MM jogado mudando pontos ⇒ `pontos`/`jogos`/`posição` persistidos == SÓ a fase de grupos.
+
+### 12.6 Schema/wizard: geometria que FECHA a chave — corrige #5
+`divisaoSchema`: `formato: z.enum(['liga','grupos_mata_mata']).default('liga')`; quando `grupos_mata_mata`, `qtdGrupos` e `classificadosPorGrupo` obrigatórios. `superRefine` REUSA o motor (não reimplementa): `qtdGrupos ∈ {2,4,8}`, `G·K ∈ {2,4,8,16,32}` (TOTAIS_CHAVE_VALIDOS), `classificadosPorGrupo < floor(tamanho/qtdGrupos)`; idealmente chamar `validarGeometria(tamanho, qtdGrupos, K)` e mapear o throw para issue. **Atenção** (achado #5): `tamanho % qtdGrupos == 0` é MAIS estrito que o motor (distribui com desequilíbrio ±1) — NÃO exigir divisibilidade exata; exigir só `tamanho >= qtdGrupos * (K+1)` (cada grupo cabe K+1) e o fechamento da chave. Tamanhos 2 e 3 só em `liga`. `LeagueWizard` `PassoDivisoes`: `<select>` Formato (Liga / Grupos+mata-mata); quando grupos, inputs de nº de grupos e classificados, ofertando só combinações que fecham a chave a partir do `tamanho`. `createCompetition` persiste os 3 campos.
+
+### 12.7 Edge cases / invariantes
+- **Ordem total**: `linhasFaseGrupos` é 1..N única (12.1) ⇒ sem sorteio, sem cluster no corte.
+- **Pontos/jogos = fase de grupos** em TODA persistência e no promedio (12.5) ⇒ o MM nunca contamina.
+- **Conservação de tamanho** inalterada (a divisão tem `tamanho` competidores; o agregado dá 1..tamanho).
+- **espanhol/fifa**: aplicam DENTRO de cada grupo (os times se enfrentaram); cross-grupo é por posição-no-grupo (não usa mini-tabela) ⇒ sem o caso "mini-tabela vazia".
+- **promedios + grupos**: o promedio lê `pontos`/`jogos` do agregado de grupos (campanha = fase de grupos).
+- **Idempotência**: `gerarFaseGruposSemeada` semeado + sentinela `jaGeradas`.
+- **Não-regressão**: `formato='liga'` (default) byte-idêntico; `linhasFaseGrupos` ausente em ligas.
+- **Gate de grupos completos** (12.4) antes do agregado valer.
