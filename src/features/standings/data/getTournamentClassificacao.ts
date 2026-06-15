@@ -3,6 +3,7 @@ import "server-only"
 import { cache } from "react"
 
 import { createClient } from "@/lib/supabase/server"
+import { carregarCelulares } from "@/lib/contatos"
 import { resolverCores } from "@/features/championship/championshipTheme"
 import {
   computeStandings,
@@ -188,10 +189,9 @@ export interface ClassificacaoTorneio {
 interface ParticipanteEmbed {
   id: string
   nome: string | null
-  /** PII (RLS: só authenticated lê users): consumido APENAS pela projeção
-   * de partidas abertas — insumo do atalho de convocação. */
-  celular: string | null
   avatar: string | null
+  // `celular` saiu do embed (coluna sem grant de SELECT). O contato da
+  // convocação é resolvido pela RPC `celulares_de_contato`, chaveado por `id`.
 }
 
 interface ClubeEmbed {
@@ -204,7 +204,8 @@ interface VagaEmbed {
   id: string
   rotulo: string | null
   team: { nome: string | null; escudo_url: string | null } | null
-  tecnico: { id: string; nome: string | null; celular: string | null } | null
+  // `celular` do técnico sai do embed; vem da RPC `celulares_de_contato` por id.
+  tecnico: { id: string; nome: string | null } | null
 }
 
 interface PartidaComNomes {
@@ -273,7 +274,10 @@ function projetarLado(
   vaga: VagaEmbed | null,
   participante: ParticipanteEmbed | null,
   ladoCru: string | null,
-  competitivo: boolean
+  competitivo: boolean,
+  // id → celular resolvido pela RPC gated; `?? null` garante que o contato
+  // nunca carregue `undefined` (PII do não-co-participante simplesmente falta).
+  celularPorId: Map<string, string | null>
 ): LadoProjetado {
   if (competitivo) {
     const tecnico = vaga?.tecnico
@@ -286,7 +290,7 @@ function projetarLado(
       tecnico,
       // Convocação competitiva: o contato é o TÉCNICO da vaga (mesmo gate).
       contato: vaga?.tecnico
-        ? { id: vaga.tecnico.id, celular: vaga.tecnico.celular }
+        ? { id: vaga.tecnico.id, celular: celularPorId.get(vaga.tecnico.id) ?? null }
         : null,
     }
   }
@@ -295,7 +299,9 @@ function projetarLado(
     ladoCru,
     escudo: null,
     tecnico: null,
-    contato: participante ? { id: participante.id, celular: participante.celular } : null,
+    contato: participante
+      ? { id: participante.id, celular: celularPorId.get(participante.id) ?? null }
+      : null,
   }
 }
 
@@ -350,12 +356,12 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     .from("matches")
     .select(
       `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, wo, wo_vencedor, liberada_em, created_at, updated_at,
-       p1:users!matches_participante_1_fkey ( id, nome, celular, avatar ),
-       p2:users!matches_participante_2_fkey ( id, nome, celular, avatar ),
+       p1:users!matches_participante_1_fkey ( id, nome, avatar ),
+       p2:users!matches_participante_2_fkey ( id, nome, avatar ),
        t1:teams!matches_time_1_fkey ( id, nome ),
        t2:teams!matches_time_2_fkey ( id, nome ),
-       v1:tournament_slots!matches_vaga_1_fkey ( id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome, celular ) ),
-       v2:tournament_slots!matches_vaga_2_fkey ( id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome, celular ) )`
+       v1:tournament_slots!matches_vaga_1_fkey ( id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome ) ),
+       v2:tournament_slots!matches_vaga_2_fkey ( id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome ) )`
     )
     .eq("tournament_id", tournamentId)
     .order("updated_at", { ascending: false })
@@ -378,10 +384,12 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     competitivo ? p.vaga_1 : p.participante_1
   const ladoCru2 = (p: PartidaComNomes) =>
     competitivo ? p.vaga_2 : p.participante_2
+  // `celularPorId` é resolvido mais abaixo (após `ehByeDeChave`, que delimita as
+  // partidas abertas); os closures só o consultam quando chamados nas projeções.
   const lado1 = (p: PartidaComNomes) =>
-    projetarLado(p.v1, p.p1, ladoCru1(p), competitivo)
+    projetarLado(p.v1, p.p1, ladoCru1(p), competitivo, celularPorId)
   const lado2 = (p: PartidaComNomes) =>
-    projetarLado(p.v2, p.p2, ladoCru2(p), competitivo)
+    projetarLado(p.v2, p.p2, ladoCru2(p), competitivo, celularPorId)
   // W.O.: o vencedor é o slot `wo_vencedor` (= vaga_1 ou vaga_2 = ladoCru). O
   // motor ignora o placar 0x0 e credita só os pontos. No avulso wo é sempre
   // false (formato não recebe W.O.).
@@ -481,6 +489,21 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const ehByeDeChave = (p: PartidaComNomes) =>
     typeof p.posicao === "number" &&
     (ladoCru1(p) === null || ladoCru2(p) === null)
+
+  // Celular (PII) dos contatos: NÃO vem do embed (a coluna perdeu o grant). Só
+  // as partidas ABERTAS expõem contato — coletamos os ids desses lados e
+  // resolvemos pela RPC gated `celulares_de_contato` (co-participação). As
+  // encerradas/chave seguem sem telefone (preserva a contenção atual).
+  const celularPorId = await carregarCelulares(
+    supabase,
+    linhasPartidas
+      .filter((p) => p.status !== "encerrada" && !ehByeDeChave(p))
+      .flatMap((p) =>
+        competitivo
+          ? [p.v1?.tecnico?.id, p.v2?.tecnico?.id]
+          : [p.p1?.id, p.p2?.id]
+      )
+  )
 
   // Lado vencedor do W.O. (1|2) comparando o slot vencedor com o id cru de
   // cada lado; null fora de W.O. (insumo do rótulo "W.O." na UI).

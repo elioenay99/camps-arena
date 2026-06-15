@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import { carregarCelulares } from "@/lib/contatos"
 
 export interface Perfil {
   id: string
@@ -23,9 +24,19 @@ export async function getPerfil(): Promise<Perfil | null> {
 
   const { data } = await supabase
     .from("users")
-    .select("id, nome, celular, avatar")
+    .select("id, nome, avatar")
     .eq("id", user.id)
     .maybeSingle()
 
-  return data ?? { id: user.id, nome: null, celular: null, avatar: null }
+  // `celular` (PII) saiu do SELECT direto — a coluna perdeu o grant. Vem pela
+  // RPC gated, que resolve o próprio número pelo branch self (id = auth.uid()).
+  const celulares = await carregarCelulares(supabase, [user.id])
+  const celular = celulares.get(user.id) ?? null
+
+  return {
+    id: data?.id ?? user.id,
+    nome: data?.nome ?? null,
+    celular,
+    avatar: data?.avatar ?? null,
+  }
 }

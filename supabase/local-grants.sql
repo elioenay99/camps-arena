@@ -18,6 +18,11 @@
 -- isso explicitamente (REVOKE/GRANT por função, incl. o hardening). Um
 -- "grant all on functions" aqui REVERTERIA esse hardening.
 --
+-- ATENÇÃO (PII): o `grant all on all tables` abaixo é por-TABELA e RE-EXPÕE o
+-- `select(celular)` de `public.users` que o schema.sql fecha. Por isso o bloco
+-- FINAL deste arquivo re-aplica o grant de coluna — e DEVE ser a última
+-- instrução tocando `users` (reaplicar schema.sql exige reaplicar este arquivo).
+--
 -- Aplicar SEMPRE depois do schema.sql:
 --   psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
 --     -f supabase/local-grants.sql
@@ -36,3 +41,8 @@ alter default privileges for role postgres in schema public
   grant all on tables to anon, authenticated, service_role;
 alter default privileges for role postgres in schema public
   grant all on sequences to anon, authenticated, service_role;
+
+-- PII (espelha o fim do schema.sql): re-fecha o `select(celular)` que o
+-- `grant all on all tables` acima reabriu. ÚLTIMA palavra sobre `users`.
+revoke select on public.users from anon, authenticated;
+grant select (id, nome, avatar, created_at) on public.users to anon, authenticated;

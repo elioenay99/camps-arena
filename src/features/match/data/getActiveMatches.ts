@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import { carregarCelulares } from "@/lib/contatos"
 import type { MatchStatus, TournamentStatus } from "@/lib/supabase/database.types"
 
 export interface ParticipanteResumo {
@@ -8,7 +9,8 @@ export interface ParticipanteResumo {
   id: string
   nome: string | null
   avatar: string | null
-  /** PII: legível só por authenticated (RLS). Alimenta o atalho wa.me. */
+  /** PII: reinjetado pela RPC `celulares_de_contato` (gate de co-participação),
+   * não pelo embed — a coluna perdeu o grant de SELECT. Alimenta o wa.me. */
   celular: string | null
 }
 
@@ -55,14 +57,17 @@ export interface PartidaAtiva {
 
 // Colunas comuns das DUAS consultas (avulso e competitivo) — o shape final é
 // idêntico; o que muda é o FILTRO de "partidas que me dizem respeito".
+// `celular` NÃO entra mais no embed (a coluna perdeu o grant de SELECT): é
+// reinjetado pela RPC gated `celulares_de_contato` após a query (ver fim da
+// função). O embed traz só `id` para casar a reinjeção por id.
 const COLUNAS = `id, placar_1, placar_2, status, created_at,
    tournament:tournaments!matches_tournament_id_fkey!inner ( id, titulo, status ),
-   participante_1:users!matches_participante_1_fkey ( id, nome, avatar, celular ),
-   participante_2:users!matches_participante_2_fkey ( id, nome, avatar, celular ),
+   participante_1:users!matches_participante_1_fkey ( id, nome, avatar ),
+   participante_2:users!matches_participante_2_fkey ( id, nome, avatar ),
    time_1:teams!matches_time_1_fkey ( nome, escudo_url ),
    time_2:teams!matches_time_2_fkey ( nome, escudo_url ),
-   vaga_1:tournament_slots!matches_vaga_1_fkey ( id, rotulo, clube:teams ( nome, escudo_url ), tecnico:users ( id, nome, avatar, celular ) ),
-   vaga_2:tournament_slots!matches_vaga_2_fkey ( id, rotulo, clube:teams ( nome, escudo_url ), tecnico:users ( id, nome, avatar, celular ) )`
+   vaga_1:tournament_slots!matches_vaga_1_fkey ( id, rotulo, clube:teams ( nome, escudo_url ), tecnico:users ( id, nome, avatar ) ),
+   vaga_2:tournament_slots!matches_vaga_2_fkey ( id, rotulo, clube:teams ( nome, escudo_url ), tecnico:users ( id, nome, avatar ) )`
 
 /**
  * Lista as partidas ativas (não encerradas) que dizem respeito ao usuário, em
@@ -80,8 +85,8 @@ const COLUNAS = `id, placar_1, placar_2, status, created_at,
  *
  * Decisões herdadas (valem para ambas):
  * - FK-hint explícito desambigua os relacionamentos matches→users/teams/slots.
- * - Embed contra a TABELA `users` (não a view): a rota é autenticada e a RLS
- *   libera o `celular` para o atalho wa.me.
+ * - `celular` (PII) é reinjetado pela RPC `celulares_de_contato` (gate de
+ *   co-participação), não pelo embed — a coluna perdeu o grant de SELECT.
  * - `.neq('encerrada')` (não whitelist): falha-segura a novos status do enum.
  * - Torneio `encerrado` tira a partida do dashboard via `!inner` + `.neq` no
  *   ALIAS `tournament` (exigência do PostgREST para embeds aliased).
@@ -160,6 +165,29 @@ export async function getActiveMatches(): Promise<PartidaAtiva[]> {
     ...((avulsas.data ?? []) as unknown as PartidaAtiva[]),
     ...((competitivas.data ?? []) as unknown as PartidaAtiva[]),
   ]
+
+  // Reinjeta o `celular` dos lados via RPC gated (co-participação). Sempre
+  // `?? null` para nunca deixar a chave `undefined` (o downstream lê null).
+  const celulares = await carregarCelulares(
+    supabase,
+    todas.flatMap((p) => [
+      p.participante_1?.id,
+      p.participante_2?.id,
+      p.vaga_1?.tecnico?.id,
+      p.vaga_2?.tecnico?.id,
+    ])
+  )
+  for (const p of todas) {
+    if (p.participante_1)
+      p.participante_1.celular = celulares.get(p.participante_1.id) ?? null
+    if (p.participante_2)
+      p.participante_2.celular = celulares.get(p.participante_2.id) ?? null
+    if (p.vaga_1?.tecnico)
+      p.vaga_1.tecnico.celular = celulares.get(p.vaga_1.tecnico.id) ?? null
+    if (p.vaga_2?.tecnico)
+      p.vaga_2.tecnico.celular = celulares.get(p.vaga_2.tecnico.id) ?? null
+  }
+
   todas.sort((a, b) => a.created_at.localeCompare(b.created_at))
   return todas
 }

@@ -26,6 +26,8 @@ interface Cenario {
   torneioError?: { message: string } | null
   partidas?: unknown[] | null
   partidasError?: { message: string } | null
+  /** Retorno da RPC `celulares_de_contato` (id → celular dos co-participantes). */
+  contatos?: { user_id: string; celular: string | null }[]
 }
 
 /**
@@ -70,6 +72,7 @@ function montarClient(c: Cenario) {
             }),
           }
     ),
+    rpc: vi.fn(async () => ({ data: c.contatos ?? [], error: null })),
     partidasEqSpy,
     partidasSelectSpy,
     partidasOrderSpy,
@@ -233,8 +236,8 @@ describe("getTournamentClassificacao", () => {
     // Normaliza whitespace: o postgrest-js remove espaços não-citados antes
     // de enviar — assertar a forma normalizada evita acoplar à formatação.
     const cols = String(client.partidasSelectSpy.mock.calls[0][0]).replace(/\s+/g, "")
-    expect(cols).toContain("p1:users!matches_participante_1_fkey(id,nome,celular,avatar)")
-    expect(cols).toContain("p2:users!matches_participante_2_fkey(id,nome,celular,avatar)")
+    expect(cols).toContain("p1:users!matches_participante_1_fkey(id,nome,avatar)")
+    expect(cols).toContain("p2:users!matches_participante_2_fkey(id,nome,avatar)")
     // Colunas cruas: insumos do motor — removê-las quebraria a classificação.
     expect(cols).toContain("participante_1")
     expect(cols).toContain("participante_2")
@@ -260,14 +263,14 @@ describe("getTournamentClassificacao", () => {
     expect(cols).toMatch(/(^|,)vaga_1(,|$)/)
     expect(cols).toMatch(/(^|,)vaga_2(,|$)/)
     expect(cols).toContain(
-      "v1:tournament_slots!matches_vaga_1_fkey(id,rotulo,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome,celular))"
+      "v1:tournament_slots!matches_vaga_1_fkey(id,rotulo,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome))"
     )
     expect(cols).toContain(
-      "v2:tournament_slots!matches_vaga_2_fkey(id,rotulo,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome,celular))"
+      "v2:tournament_slots!matches_vaga_2_fkey(id,rotulo,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome))"
     )
-    // celular entrou DELIBERADAMENTE (add-match-engagement): insumo do atalho
-    // de convocação, consumido só pela projeção de partidas abertas — a
-    // contenção de PII é validada no teste de convocação abaixo.
+    // PII: `celular` NÃO entra no embed (coluna sem grant de SELECT) — vem da RPC
+    // gated `celulares_de_contato`, validada no teste de convocação abaixo.
+    expect(cols).not.toContain("celular")
   })
 
   it("clubes pontuam pelo MESMO motor e regras do torneio (re-chaveado por time)", async () => {
@@ -693,6 +696,8 @@ describe("display competitivo — clube como lado, técnico como detalhe", () =>
     montarClient({
       torneio: { ...TORNEIO, formato: "liga" },
       partidas: [fechada, aberta],
+      // celular do técnico u1 vem da RPC gated (não mais do embed da vaga).
+      contatos: [{ user_id: "u1", celular: "11912345678" }],
     })
     const r = await getTournamentClassificacao(TORNEIO.id)
     expect(r?.partidasEncerradas[0]).toMatchObject({
@@ -732,24 +737,29 @@ describe("display competitivo — clube como lado, técnico como detalhe", () =>
   })
 })
 
-describe("convocação — celular nos embeds e lados nas partidas abertas", () => {
-  it("partidasAbertas carrega ids/celulares dos lados; encerradas NÃO", async () => {
+describe("convocação — celular via RPC gated e lados nas partidas abertas", () => {
+  it("partidasAbertas reinjeta ids/celulares dos lados pela RPC; encerradas NÃO", async () => {
     const aberta = {
       ...partidaEncerrada(
-        { id: "u1", nome: "Ana", celular: "11912345678" } as never,
-        { id: "u2", nome: "Beto", celular: null } as never,
+        { id: "u1", nome: "Ana" } as never,
+        { id: "u2", nome: "Beto" } as never,
         1,
         0
       ),
       status: "em_andamento",
     }
     const fechada = partidaEncerrada(
-      { id: "u1", nome: "Ana", celular: "11912345678" } as never,
-      { id: "u2", nome: "Beto", celular: null } as never,
+      { id: "u1", nome: "Ana" } as never,
+      { id: "u2", nome: "Beto" } as never,
       2,
       1
     )
-    montarClient({ torneio: TORNEIO, partidas: [aberta, fechada] })
+    // A RPC só devolve co-participantes COM celular: u1 retorna, u2 não (→ null).
+    montarClient({
+      torneio: TORNEIO,
+      partidas: [aberta, fechada],
+      contatos: [{ user_id: "u1", celular: "11912345678" }],
+    })
     const r = await getTournamentClassificacao(TORNEIO.id)
     expect(r?.partidasAbertas[0]).toMatchObject({
       participante_1: { id: "u1", celular: "11912345678" },
@@ -757,6 +767,23 @@ describe("convocação — celular nos embeds e lados nas partidas abertas", () 
     })
     // O histórico não expõe o dado (PII contida à projeção que o usa).
     expect(r?.partidasEncerradas[0]).not.toHaveProperty("participante_1")
+  })
+
+  it("não-co-participante: a RPC não devolve nada → contato com celular null", async () => {
+    const aberta = {
+      ...partidaEncerrada(
+        { id: "u1", nome: "Ana" } as never,
+        { id: "u2", nome: "Beto" } as never,
+        0,
+        0
+      ),
+      status: "agendada",
+    }
+    montarClient({ torneio: TORNEIO, partidas: [aberta], contatos: [] })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    // Chave `celular` presente e null (nunca undefined), nomes/placares intactos.
+    expect(r?.partidasAbertas[0].participante_1).toEqual({ id: "u1", celular: null })
+    expect(r?.partidasAbertas[0].participante_2).toEqual({ id: "u2", celular: null })
   })
 })
 

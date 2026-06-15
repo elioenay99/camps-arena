@@ -22,6 +22,8 @@ interface Cenario {
   /** Linhas devolvidas pela query de partidas COMPETITIVAS (minhas vagas). */
   competitivas?: unknown[] | null
   competitivasError?: { message: string } | null
+  /** Retorno da RPC `celulares_de_contato` (id → celular dos co-participantes). */
+  contatos?: { user_id: string; celular: string | null }[]
 }
 
 /**
@@ -83,6 +85,8 @@ function montarClient(c: Cenario) {
     })),
   }
 
+  const rpcSpy = vi.fn()
+
   const client = {
     auth: {
       getUser: vi.fn(async () => ({
@@ -93,12 +97,17 @@ function montarClient(c: Cenario) {
     from: vi.fn((tabela: string) =>
       tabela === "tournament_slots" ? slotsFrom : matchesFrom
     ),
+    rpc: vi.fn(async (fn: string, args: unknown) => {
+      rpcSpy(fn, args)
+      return { data: c.contatos ?? [], error: null }
+    }),
     selectSpy,
     isSpy,
     orSpy,
     neqSpy,
     orderSpy,
     vagasEqSpy,
+    rpcSpy,
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
   return client
@@ -163,15 +172,62 @@ describe("getActiveMatches", () => {
     // Whitespace normalizado (postgrest-js remove espaços não-citados).
     const cols = String(client.selectSpy.mock.calls[0][0]).replace(/\s+/g, "")
     expect(cols).toContain(
-      "vaga_1:tournament_slots!matches_vaga_1_fkey(id,rotulo,clube:teams(nome,escudo_url),tecnico:users(id,nome,avatar,celular))"
+      "vaga_1:tournament_slots!matches_vaga_1_fkey(id,rotulo,clube:teams(nome,escudo_url),tecnico:users(id,nome,avatar))"
     )
     expect(cols).toContain(
-      "vaga_2:tournament_slots!matches_vaga_2_fkey(id,rotulo,clube:teams(nome,escudo_url),tecnico:users(id,nome,avatar,celular))"
+      "vaga_2:tournament_slots!matches_vaga_2_fkey(id,rotulo,clube:teams(nome,escudo_url),tecnico:users(id,nome,avatar))"
     )
+    // PII: `celular` NÃO entra no embed (a coluna perdeu o grant de SELECT).
+    expect(cols).not.toContain("celular")
     // O torneio segue com !inner (filtro de encerrado afeta a linha de matches).
     expect(cols).toContain(
       "tournament:tournaments!matches_tournament_id_fkey!inner(id,titulo,status)"
     )
+  })
+
+  it("reinjeta o celular do técnico competitivo via RPC (gate de co-participação)", async () => {
+    const competitiva = {
+      id: "c",
+      created_at: "2026-06-07T09:00:00Z",
+      status: "em_andamento",
+      vaga_1: { id: "s1", rotulo: null, clube: null, tecnico: { id: "u1", nome: "Ana", avatar: null } },
+      vaga_2: { id: "s2", rotulo: null, clube: null, tecnico: { id: "u2", nome: "Beto", avatar: null } },
+    }
+    const client = montarClient({
+      avulsas: [],
+      minhasVagas: [{ id: "s1" }],
+      competitivas: [competitiva],
+      contatos: [{ user_id: "u1", celular: "11912345678" }],
+    })
+
+    const r = await getActiveMatches()
+
+    // RPC chamada com os ids dos técnicos das vagas.
+    expect(client.rpcSpy).toHaveBeenCalledWith(
+      "celulares_de_contato",
+      expect.objectContaining({ p_user_ids: expect.arrayContaining(["u1", "u2"]) })
+    )
+    // u1 co-participante → celular reinjetado; u2 sem retorno → null (não undefined).
+    expect(r[0].vaga_1?.tecnico?.celular).toBe("11912345678")
+    expect(r[0].vaga_2?.tecnico?.celular).toBeNull()
+  })
+
+  it("reinjeta o celular do participante avulso; sem retorno fica null", async () => {
+    const avulsa = {
+      id: "a",
+      created_at: "2026-06-07T10:00:00Z",
+      status: "agendada",
+      participante_1: { id: "u1", nome: "Ana", avatar: null },
+      participante_2: { id: "u2", nome: "Beto", avatar: null },
+    }
+    const r = await (async () => {
+      montarClient({ avulsas: [avulsa], minhasVagas: [], contatos: [] })
+      return getActiveMatches()
+    })()
+
+    // RPC vazia → ambos null (chave presente, valor null — nunca undefined).
+    expect(r[0].participante_1?.celular).toBeNull()
+    expect(r[0].participante_2?.celular).toBeNull()
   })
 
   it("sem vagas, NÃO faz a viagem de competitivas e devolve só avulsas", async () => {

@@ -820,6 +820,14 @@ export interface Database {
         Args: { t_id: string }
         Returns: boolean
       }
+      eh_co_participante: {
+        Args: { p_outro: string }
+        Returns: boolean
+      }
+      celulares_de_contato: {
+        Args: { p_user_ids: string[] }
+        Returns: { user_id: string; celular: string | null }[]
+      }
       aceitar_convite: {
         Args: { codigo: string }
         Returns: string

@@ -869,6 +869,62 @@ $$;
 revoke execute on function public.eh_participante(uuid) from public;
 grant execute on function public.eh_participante(uuid) to anon, authenticated;
 
+-- ---------- Co-participação: PII (celular) restrita a quem compartilha torneio ----------
+-- Verdadeiro quando auth.uid() e p_outro aparecem no MESMO torneio por qualquer
+-- caminho de pertencimento (dono, jogador avulso, técnico de vaga). SECURITY
+-- DEFINER pelo mesmo motivo de eh_participante (não reentrar nas policies de
+-- participants/tournaments/slots); o (select auth.uid()) é o initplan idiomático.
+create or replace function public.eh_co_participante(p_outro uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from (
+      select tournament_id from public.participants    where user_id   = (select auth.uid())
+      union
+      select id            from public.tournaments      where created_by = (select auth.uid())
+      union
+      select tournament_id from public.tournament_slots where user_id   = (select auth.uid())
+    ) meus
+    join (
+      select tournament_id from public.participants    where user_id   = p_outro
+      union
+      select id            from public.tournaments      where created_by = p_outro
+      union
+      select tournament_id from public.tournament_slots where user_id   = p_outro
+    ) deles using (tournament_id)
+  );
+$$;
+revoke execute on function public.eh_co_participante(uuid) from public;
+grant execute on function public.eh_co_participante(uuid) to anon, authenticated;
+
+-- celulares_de_contato: ÚNICO caminho de leitura do `celular` (a coluna perde o
+-- grant de SELECT mais abaixo). Devolve o telefone de um id só quando é o
+-- PRÓPRIO solicitante OU um co-participante. SECURITY DEFINER (lê users sem a
+-- barreira de coluna); EXECUTE só a authenticated (anon nunca convoca).
+create or replace function public.celulares_de_contato(p_user_ids uuid[])
+returns table (user_id uuid, celular text)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select u.id, u.celular
+  from public.users u
+  where u.id = any (p_user_ids)
+    and u.celular is not null
+    and (u.id = (select auth.uid()) or public.eh_co_participante(u.id));
+$$;
+-- `from public, anon`: o default-privilege do Supabase concede EXECUTE a anon em
+-- toda função nova; revogamos explicitamente (anon nunca convoca). Inócuo de
+-- qualquer forma — anon tem auth.uid() nulo e o gate devolve zero linhas.
+revoke execute on function public.celulares_de_contato(uuid[]) from public, anon;
+grant execute on function public.celulares_de_contato(uuid[]) to authenticated;
+
 -- Convite: só logado (espelha o design — deslogado não vê preview nem aceita;
 -- aceitar_convite já exige auth.uid(), o revoke de anon é defesa em camada).
 revoke execute on function public.aceitar_convite(text) from public, anon;
@@ -1092,6 +1148,19 @@ create or replace view public.users_public
   as select id, nome, avatar from public.users;
 
 grant select on public.users_public to anon, authenticated;
+
+-- ----- PII: o `celular` é restrito a co-participantes via grant de COLUNA -----
+-- A RLS é por-LINHA; para proteger SÓ o `celular` (mantendo nome/avatar amplos,
+-- necessários em torneios públicos avulsos), revoga-se o SELECT da TABELA e
+-- re-concede-se apenas as colunas não-PII. O `celular` passa a ser legível só
+-- pela RPC definer `celulares_de_contato` (gate de co-participação). O re-grant
+-- inclui `anon` para preservar o baseline da view órfã users_public (sem ele,
+-- anon tomaria "permission denied for column" no lugar de "0 linhas pela RLS").
+-- UPDATE/INSERT de coluna ficam intactos: a auto-edição de nome/celular
+-- (atualizarPerfil) e o trigger handle_new_user seguem gravando.
+-- DEVE ser a última instrução de grant tocando `users` (ver supabase/local-grants.sql).
+revoke select on public.users from anon, authenticated;
+grant select (id, nome, avatar, created_at) on public.users to anon, authenticated;
 
 -- ----- tournaments: visibilidade por dono/público/participante; escrita do dono -----
 -- SELECT: público vê os públicos; o dono vê os seus privados; o PARTICIPANTE
