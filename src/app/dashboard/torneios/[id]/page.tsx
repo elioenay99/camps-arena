@@ -19,6 +19,7 @@ import { z } from "zod";
 
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
+import { mensagemRodada } from "@/lib/whatsapp";
 import { Button } from "@/components/ui/button";
 import { champThemeProps } from "@/features/championship/championshipTheme";
 import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge";
@@ -33,7 +34,9 @@ import {
   tamanhoChaveDasPartidas,
   totalFases,
 } from "@/features/knockout/gerarChaveMataMata";
+import { CompartilharRodadaButton } from "@/features/match/components/CompartilharRodadaButton";
 import { LiberarRodadasButtons } from "@/features/match/components/LiberarRodadasButtons";
+import { confrontosTextoDaRodada } from "@/features/match/confrontosTextoDaRodada";
 import { MatchHistoryList } from "@/features/match/components/MatchHistoryList";
 import { OpenMatchesList } from "@/features/match/components/OpenMatchesList";
 import { ResponderWoButtons } from "@/features/match/components/WoButtons";
@@ -448,6 +451,36 @@ export default async function TorneioPage({
             proximaRodadaOculta={proximaRodadaOculta}
             ehGrupos={ehGrupos}
           />
+          {rodadasLiberacao.some((r) => r.liberada) ? (
+            <div className="mt-4 flex flex-col gap-2 border-t pt-4">
+              <p className="text-muted-foreground text-xs">
+                Compartilhe a rodada no WhatsApp (imagem + lista). No celular, abre o
+                compartilhamento; no computador, copia o texto e baixa a imagem.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {rodadasLiberacao
+                  .filter((r) => r.liberada)
+                  .map((r) => (
+                    <CompartilharRodadaButton
+                      key={r.rodada}
+                      tournamentId={id}
+                      rodada={r.rodada}
+                      titulo={titulo}
+                      texto={mensagemRodada({
+                        titulo,
+                        rodada: r.rodada,
+                        confrontos: confrontosTextoDaRodada(
+                          r.rodada,
+                          partidasAbertas,
+                          partidasEncerradas
+                        ),
+                        tournamentId: id,
+                      })}
+                    />
+                  ))}
+              </div>
+            </div>
+          ) : null}
         </SecaoTorneio>
       ) : null}
 
@@ -662,3 +695,4 @@ function AvisoAguardandoLiberacao() {
     </section>
   );
 }
+

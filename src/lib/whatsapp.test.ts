@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { linkWhatsApp, mensagemConvocacao } from "@/lib/whatsapp"
+import { linkWhatsApp, mensagemConvocacao, mensagemRodada } from "@/lib/whatsapp"
 
 describe("linkWhatsApp", () => {
   it("celular BR de 11 dígitos ganha o DDI 55", () => {
@@ -58,5 +58,63 @@ describe("mensagemConvocacao", () => {
     expect(
       mensagemConvocacao({ adversario: "  ", titulo: "  ", tournamentId })
     ).toMatch(/^Fala! Bora jogar nossa partida do nosso torneio/)
+  })
+})
+
+describe("mensagemRodada", () => {
+  const tournamentId = "11111111-1111-4111-8111-111111111111"
+  const url = `http://localhost:3000/dashboard/torneios/${tournamentId}`
+
+  it("cabeçalho + linha por confronto com comandante e wa.me + URL", () => {
+    const msg = mensagemRodada({
+      titulo: "Copa da Firma",
+      rodada: 3,
+      confrontos: [
+        {
+          lado1: { clube: "Grêmio", comandante: "Ana", celular: "11912345678" },
+          lado2: { clube: "Inter", comandante: "Beto", celular: "11987654321" },
+        },
+      ],
+      tournamentId,
+    })
+    expect(msg).toBe(
+      `Copa da Firma — 3a rodada\n\n` +
+        `Grêmio (Ana: https://wa.me/5511912345678) x Inter (Beto: https://wa.me/5511987654321)\n\n` +
+        `Acompanhe: ${url}`
+    )
+  })
+
+  it("vaga sem comandante vira ❌; comandante sem celular sai sem wa.me", () => {
+    const msg = mensagemRodada({
+      titulo: "Liga",
+      rodada: 1,
+      confrontos: [
+        {
+          lado1: { clube: "Alfa", comandante: null, celular: null },
+          lado2: { clube: "Bravo", comandante: "Caio", celular: null },
+        },
+      ],
+      tournamentId,
+    })
+    expect(msg).toContain("Alfa (❌) x Bravo (Caio)")
+    expect(msg).not.toContain("wa.me")
+  })
+
+  it("título ausente usa fallback; sem confrontos só cabeçalho + URL", () => {
+    const msg = mensagemRodada({ titulo: "  ", rodada: 2, confrontos: [], tournamentId })
+    expect(msg).toBe(`Campeonato — 2a rodada\n\nAcompanhe: ${url}`)
+  })
+
+  it("não contém emoji decorativo (só o ❌ funcional)", () => {
+    const msg = mensagemRodada({
+      titulo: "X",
+      rodada: 1,
+      confrontos: [
+        { lado1: { clube: "A", comandante: "a", celular: null }, lado2: { clube: "B", comandante: null } },
+      ],
+      tournamentId,
+    })
+    // sem emojis de bola/troféu etc.; o ❌ (U+274C) é o único símbolo permitido.
+    expect(msg).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}]/u)
   })
 })

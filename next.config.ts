@@ -63,6 +63,15 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/opengraph-image": ["./src/features/og/fonts/**", "./src/app/icon.svg"],
     "/twitter-image": ["./src/features/og/fonts/**", "./src/app/icon.svg"],
+    // Imagem da rodada (change add-compartilhar-rodada): rota DINÂMICA que lê as
+    // fontes/logo via readFile(process.cwd()) (reusa carregarAssets do OG). Aqui
+    // o include é OBRIGATÓRIO (não defesa em profundidade): a rota é dinâmica
+    // (sessão/cookies) e o trace não pega o readFile — sem isto a geração quebra
+    // com ENOENT em runtime no Vercel, apesar do build passar.
+    "/dashboard/torneios/[id]/rodada/[rodada]/imagem": [
+      "./src/features/og/fonts/**",
+      "./src/app/icon.svg",
+    ],
   },
 };
 

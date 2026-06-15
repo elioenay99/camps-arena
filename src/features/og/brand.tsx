@@ -32,11 +32,14 @@ const FONTS_DIR = join(process.cwd(), "src/features/og/fonts")
 const LOGO_PATH = join(process.cwd(), "src/app/icon.svg")
 
 /** Buffer → ArrayBuffer exato (cópia) — o tipo de `fonts[].data` exige ArrayBuffer. */
-function paraArrayBuffer(buf: Buffer): ArrayBuffer {
+export function paraArrayBuffer(buf: Buffer): ArrayBuffer {
   return new Uint8Array(buf).buffer
 }
 
-async function carregarAssets() {
+/** Fontes (woff) + logo (data URI) do OG. Reusado pela imagem da rodada
+ * (change add-compartilhar-rodada) — fonte ÚNICA do carregamento de assets, p/
+ * o `outputFileTracingIncludes` cobrir um caminho só. */
+export async function carregarAssets() {
   const [medium, bold, logoSvg] = await Promise.all([
     readFile(join(FONTS_DIR, "SpaceGrotesk-500.woff")),
     readFile(join(FONTS_DIR, "SpaceGrotesk-700.woff")),
