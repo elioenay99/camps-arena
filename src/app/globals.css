@@ -314,6 +314,38 @@
     animation: goliseu-sheen 4.5s ease-in-out infinite;
     pointer-events: none;
   }
+
+  /* Escudo "G" da marca no header: os traços se DESENHAM na carga (stroke-draw,
+     pathLength normalizado a 1) — escudo, depois o arco e a base do G. Uma vez só
+     (sem loop), encadeado com o animate-rise do header. */
+  .goliseu-mark-draw path {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: goliseu-mark-draw 0.85s cubic-bezier(0.22, 1, 0.36, 1) 0.15s
+      forwards;
+  }
+  .goliseu-mark-draw path:nth-child(2) {
+    animation-delay: 0.5s;
+  }
+  .goliseu-mark-draw path:nth-child(3) {
+    animation-delay: 0.78s;
+  }
+  /* Glow roxo da marca: sutil em repouso, intensifica + leve scale no hover do
+     conjunto (.group no wrapper escudo+wordmark). */
+  .goliseu-mark-glow {
+    filter: drop-shadow(
+      0 0 3px color-mix(in oklch, var(--primary) 35%, transparent)
+    );
+    transition:
+      filter 0.3s ease,
+      transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .group:hover .goliseu-mark-glow {
+    filter: drop-shadow(
+      0 0 8px color-mix(in oklch, var(--primary) 70%, transparent)
+    );
+    transform: scale(1.08) rotate(-3deg);
+  }
 }
 
 /* ===== Hero da landing: ilustração de estádio animada (CSS-only) =====
@@ -513,6 +545,15 @@
   }
 }
 
+@keyframes goliseu-mark-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 /* Acessibilidade: zera as animações da identidade sob prefers-reduced-motion
    (consistente com o uso de motion-safe: no resto do app). */
 @media (prefers-reduced-motion: reduce) {
@@ -540,6 +581,17 @@
   .hs-rank-out,
   .hs-rank-in {
     animation: none;
+  }
+  /* Escudo da marca: aparece desenhado por completo e parado. */
+  .goliseu-mark-draw path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .goliseu-mark-glow {
+    transition: none;
+  }
+  .group:hover .goliseu-mark-glow {
+    transform: none;
   }
   .elevate-hover {
     transition: none;

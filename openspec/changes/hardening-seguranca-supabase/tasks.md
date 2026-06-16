@@ -30,7 +30,10 @@ re-rodar `get_advisors(security)`; smoke ao vivo (convite + avatar).
   Espelhado em `supabase/schema.sql`. (migration `revoke_execute_eh_co_participante_publico`)
 
 ## 3. Auth (painel/manual)
-- [ ] 3.1 Habilitar `leaked_password_protection` (Auth settings do dashboard — **passo do usuário**).
+- [x] 3.1 Habilitar `leaked_password_protection` (Auth settings do dashboard — **passo do usuário**).
+  LIGADO pelo usuário em 2026-06-15. NOTA: o advisor tem cache e ainda pode reportar `Disabled` por
+  alguns minutos após o toggle; re-rodar `get_advisors(security)` antes de arquivar (task 5.2) p/
+  confirmar que o WARN sumiu.
 
 ## 4. Validação
 - [x] 4.1 `get_advisors(security)` pós-fix: **ERROR zerado** + **10 trigger-funcs zeradas**. Restam só

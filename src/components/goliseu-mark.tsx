@@ -16,18 +16,21 @@ export function GoliseuMark({ className }: { className?: string }) {
         stroke="currentColor"
         strokeWidth="3"
         strokeLinejoin="round"
+        pathLength={1}
       />
       <path
         d="M40.5 22.5A12 12 0 1 0 42.6 36.6"
         stroke="currentColor"
         strokeWidth="5.5"
         strokeLinecap="round"
+        pathLength={1}
       />
       <path
         d="M42.6 36.6H33"
         stroke="currentColor"
         strokeWidth="5.5"
         strokeLinecap="round"
+        pathLength={1}
       />
     </svg>
   )

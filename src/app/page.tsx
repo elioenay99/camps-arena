@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Trophy, Swords, Users } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { GoliseuMark } from "@/components/goliseu-mark";
 import { HeroStadium } from "@/components/hero-stadium";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
@@ -58,8 +59,11 @@ export default async function Home() {
           className="animate-rise flex w-full items-center justify-between"
           style={{ "--stagger": "0ms" } as React.CSSProperties}
         >
-          <span className="font-display text-lg font-bold tracking-[0.25em]">
-            GOLISEU<span className="text-primary">.</span>
+          <span className="group flex items-center gap-2">
+            <GoliseuMark className="goliseu-mark-draw goliseu-mark-glow size-7 text-primary" />
+            <span className="font-display text-lg font-bold tracking-[0.25em]">
+              GOLISEU<span className="text-primary">.</span>
+            </span>
           </span>
           <div className="flex items-center gap-2">
             <ModeToggle />
