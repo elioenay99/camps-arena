@@ -21,6 +21,13 @@ re-rodar `get_advisors(security)`; smoke ao vivo (convite + avatar).
 - [x] 2.4 `drop policy "avatars leitura publica" on storage.objects` (objeto continua por URL).
 - [x] 2.5 Aplicado via MCP; espelhado em `supabase/schema.sql` (view + drop da policy + bloco de revokes no fim).
 - [x] 2.6 `database.types.ts` sem mudança necessária (a view continua existindo; só muda a opção).
+- [x] 2.7 (follow-up 2026-06-15) `revoke execute on function public.eh_co_participante(uuid) from
+  public, anon, authenticated`. Função introduzida pela change `hardening-celular-coparticipantes`
+  como predicado INTERNO da RPC `celulares_de_contato` (DEFINER) — não é usada em NENHUMA policy
+  (≠ `eh_dono_competition`/`eh_participante` da lição 2.3) nem chamada como RPC pelo app, então o
+  revoke é seguro. Provado: RPC `celulares_de_contato` segue executável por authenticated sem erro;
+  os 2 WARNs (`anon`/`authenticated_security_definer_function_executable`) sumiram do advisor.
+  Espelhado em `supabase/schema.sql`. (migration `revoke_execute_eh_co_participante_publico`)
 
 ## 3. Auth (painel/manual)
 - [ ] 3.1 Habilitar `leaked_password_protection` (Auth settings do dashboard — **passo do usuário**).

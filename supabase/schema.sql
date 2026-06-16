@@ -899,8 +899,11 @@ as $$
     ) deles using (tournament_id)
   );
 $$;
-revoke execute on function public.eh_co_participante(uuid) from public;
-grant execute on function public.eh_co_participante(uuid) to anon, authenticated;
+-- Sem grant a anon/authenticated: a função é predicado INTERNO da
+-- `celulares_de_contato` (DEFINER, roda como owner) e de nenhuma policy — não
+-- precisa ser chamável como RPC. Revogar o EXECUTE público zera o WARN do
+-- advisor `*_security_definer_function_executable` sem afetar a RPC.
+revoke execute on function public.eh_co_participante(uuid) from public, anon, authenticated;
 
 -- celulares_de_contato: ÚNICO caminho de leitura do `celular` (a coluna perde o
 -- grant de SELECT mais abaixo). Devolve o telefone de um id só quando é o
