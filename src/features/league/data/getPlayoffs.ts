@@ -10,6 +10,7 @@ import {
   type PartidaDaChave,
 } from "@/features/standings/data/getTournamentClassificacao"
 import { createClient } from "@/lib/supabase/server"
+import { getSeasonBoundaries } from "@/features/league/data/getSeasonBoundaries"
 import type { TournamentStatus } from "@/lib/supabase/database.types"
 
 /** Uma fronteira não-`direto` (playoff/playout/barragem) da temporada, com a chave carregada. */
@@ -42,17 +43,6 @@ export interface PlayoffsTemporada {
   resolvidos: boolean
   /** As fronteiras de playoff, ordenadas por nível superior ascendente. */
   fronteiras: PlayoffFronteira[]
-}
-
-interface FronteiraEmbed {
-  nivel_superior: number
-  modo: string
-  playoff_estilo: string | null
-  playoff_vagas: number | null
-  vagas_acesso: number
-  vagas_rebaixamento: number
-  playoff_ida_e_volta: boolean
-  playoff_tournament_id: string | null
 }
 
 /** Converte as partidas da chave (shape da UI) para o shape que o motor consome. */
@@ -95,14 +85,13 @@ export async function getPlayoffs(
     fronteiras: [],
   }
 
-  // Posse por FILTRO transitivo (fronteira → season → competition.created_by).
+  // Posse por FILTRO transitivo (season → competition.created_by). Mantém o gate
+  // de posse aqui (season de liga alheia/inexistente → estado vazio); as
+  // fronteiras vêm da FONTE ÚNICA memoizada (abaixo), não mais embutidas — a
+  // página é só do dono, logo o conjunto de linhas é idêntico ao embed gateado.
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
-    .select(
-      `id,
-       league_competitions!inner ( created_by ),
-       league_boundaries ( nivel_superior, modo, playoff_estilo, playoff_vagas, vagas_acesso, vagas_rebaixamento, playoff_ida_e_volta, playoff_tournament_id )`
-    )
+    .select(`id, league_competitions!inner ( created_by )`)
     .eq("id", seasonId)
     .eq("league_competitions.created_by", userId)
     .maybeSingle()
@@ -114,12 +103,13 @@ export async function getPlayoffs(
     return vazio
   }
 
-  const linha = season as unknown as {
-    league_boundaries: FronteiraEmbed[]
-  }
+  // FONTE ÚNICA das fronteiras (`getSeasonBoundaries`, memoizada por `season_id`):
+  // deduplica com as N chamadas de `getDivisionStandings` no mesmo request — uma
+  // viagem ao banco em vez de uma por consumidor.
+  const boundariesRaw = await getSeasonBoundaries(seasonId)
 
   // Só as fronteiras de playoff/playout (modo ≠ 'direto'), ordenadas por nível.
-  const playoffBoundaries = (linha.league_boundaries ?? [])
+  const playoffBoundaries = boundariesRaw
     .filter((f) => f.modo !== "direto")
     .sort((a, b) => a.nivel_superior - b.nivel_superior)
 

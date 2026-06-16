@@ -7,6 +7,7 @@ import {
   type LinhaReal,
 } from "@/features/league/promedios"
 import { carregarLinhasBaseDivisao } from "@/features/league/data/carregarLinhasBaseDivisao"
+import { getSeasonBoundaries } from "@/features/league/data/getSeasonBoundaries"
 import type {
   LeagueBoundaryMode,
   TournamentStatus,
@@ -222,18 +223,14 @@ export async function getDivisionStandings(
   // página só repassa o sobe/cai DIRETO; aqui fundimos com a config de playoff
   // para que `derivarZonas` particione zona direta vs zona de chave. Fronteiras
   // 'direto' não têm playoff_vagas — caem no ramo direto naturalmente.
-  const { data: boundariesRaw, error: boundariesError } = await supabase
-    .from("league_boundaries")
-    .select("nivel_superior, modo, playoff_estilo, playoff_vagas")
-    .eq("season_id", divisao.season_id)
-
-  if (boundariesError) {
-    throw new Error(
-      `Falha ao carregar as fronteiras da divisão: ${boundariesError.message}`
-    )
-  }
+  //
+  // FONTE ÚNICA por request (`getSeasonBoundaries`, memoizada por `season_id`): no
+  // render da página esta função roda UMA vez POR DIVISÃO e hoje re-buscava as
+  // fronteiras da MESMA season a cada chamada. Com a memoização, as N viagens
+  // (e a de `getPlayoffs`) colapsam numa só. Lê só o subconjunto que precisa.
+  const boundariesRaw = await getSeasonBoundaries(divisao.season_id)
   const playoffPorNivel = new Map(
-    (boundariesRaw ?? []).map((b) => [b.nivel_superior, b])
+    boundariesRaw.map((b) => [b.nivel_superior, b])
   )
   // Funde o sobe/cai DIRETO (vindo da página) com os metadados de playoff.
   const fronteirasZona: FronteiraZona[] = fronteiras.map((f) => {
