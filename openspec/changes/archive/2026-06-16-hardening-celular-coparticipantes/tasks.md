@@ -52,12 +52,17 @@ gates `typecheck/lint/test/build`; review adversarial do diff; validação ao vi
 
 ## 6. Promoção ao PROD (sequência do design — fail-whole-query)
 - [x] 6.1 Aplicar funções (aditivos 1+2) ao PROD via MCP (SQL mostrado). Inertes p/ código antigo.
-- [ ] 6.2 Commit (pt-BR, Conventional Commits, sem coautoria) + push → deploy Vercel.
-- [ ] 6.3 Confirmar deploy saudável; SÓ ENTÃO aplicar revoke/grant de coluna (3) ao PROD via MCP
+- [x] 6.2 Commit (pt-BR, Conventional Commits, sem coautoria) + push → deploy Vercel
+  (commit `4b70e78`; deploy `dpl_A2a8an4C23DLK5feiNFA8FSB5kyd` READY).
+- [x] 6.3 Confirmar deploy saudável; SÓ ENTÃO aplicar revoke/grant de coluna (3) ao PROD via MCP
   (a vulnerabilidade só fecha aqui). **Rollback:** não reverter o deploy sem antes reverter o
   revoke; manter pronto `grant select (celular) on public.users to authenticated;`.
-- [ ] 6.4 `get_advisors(security)` pós-fix; smoke do `/dashboard` e da convocação no PROD.
+  (Aplicado em 2026-06-15 via migration `revoke_select_celular_users`; deploy confirmado READY antes.)
+- [x] 6.4 `get_advisors(security)` pós-fix; smoke do `/dashboard` e da convocação no PROD.
+  (Advisors = zero ERROR, idêntico ao baseline; `has_column_privilege` prova celular negado/nome+avatar
+  preservados/UPDATE intacto; HTTP smoke `/`=200, `/dashboard`→`/login`=200; SQL como `authenticated`
+  lê `id,nome,avatar` sem erro.)
 
 ## 7. Encerramento
-- [ ] 7.1 `openspec archive hardening-celular-coparticipantes`.
-- [ ] 7.2 Atualizar memória ([[arena-seguranca-supabase]] / [[arena-retomada]]).
+- [x] 7.1 `openspec archive hardening-celular-coparticipantes`.
+- [x] 7.2 Atualizar memória ([[arena-seguranca-supabase]] / [[arena-retomada]]).
