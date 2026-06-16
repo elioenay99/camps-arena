@@ -301,9 +301,10 @@ describe("BracketView — rodada-base (chave após fase de grupos)", () => {
 
 describe("BracketView — destaque do vencedor", () => {
   it("aplica text-primary font-semibold no vencedor de confronto encerrado e não no perdedor", () => {
-    // Final encerrada 2x0: Ana vence. O nome do vencedor recebe destaque
-    // (verde + negrito); o do perdedor não. Asserção pelo elemento de texto
-    // (LinhaLado renderiza o nome num <span> com a classe condicional).
+    // Final encerrada 2x0: Ana vence. O lado do vencedor recebe destaque
+    // (verde + negrito); o do perdedor não. O wrapper do lado (que envolve
+    // troféu + nome) carrega a classe condicional; o nome fica num <span
+    // class="truncate"> filho.
     render(
       <BracketView
         partidas={[
@@ -322,18 +323,128 @@ describe("BracketView — destaque do vencedor", () => {
     )
 
     // "Ana" aparece também no banner de campeão (sem o span de LinhaLado);
-    // pegamos o nó cujo pai é a linha de placar do confronto (negrito).
-    const vencedor = screen
+    // pegamos o nó cujo pai é o wrapper do lado (que tem o destaque).
+    const vencedorNome = screen
       .getAllByText("Ana")
       .find((el) => el.className.includes("truncate"))
-    const perdedor = screen
+    const perdedorNome = screen
       .getAllByText("Beto")
       .find((el) => el.className.includes("truncate"))
 
-    expect(vencedor).toBeDefined()
-    expect(perdedor).toBeDefined()
-    expect(vencedor).toHaveClass("text-primary", "font-semibold")
-    expect(perdedor).not.toHaveClass("font-semibold")
-    expect(perdedor).not.toHaveClass("text-primary")
+    expect(vencedorNome).toBeDefined()
+    expect(perdedorNome).toBeDefined()
+    // O destaque cromático vive no wrapper (pai do nome), não no <span truncate>.
+    expect(vencedorNome?.parentElement).toHaveClass("text-primary", "font-semibold")
+    expect(perdedorNome?.parentElement).not.toHaveClass("font-semibold")
+    expect(perdedorNome?.parentElement).not.toHaveClass("text-primary")
+  })
+
+  it("anuncia o lado que avançou de forma NÃO-cromática (sr-only 'vencedor') só no vencedor", () => {
+    // WCAG 1.4.1 (uso de cor): a cor é só reforço. Final encerrada 2x0 — Ana
+    // vence — deve emitir UM marcador textual para leitor de tela ("vencedor");
+    // o troféu é decorativo (aria-hidden). O perdedor não recebe nada.
+    render(
+      <BracketView
+        partidas={[
+          partida({
+            id: "final",
+            rodada: 1,
+            posicao: 1,
+            nome_1: "Ana",
+            nome_2: "Beto",
+            placar_1: 2,
+            placar_2: 0,
+            status: "encerrada",
+          }),
+        ]}
+      />
+    )
+
+    // Exatamente um lado é anunciado como vencedor (o de Ana).
+    const marcadores = screen.getAllByText("vencedor")
+    expect(marcadores).toHaveLength(1)
+  })
+
+  it("ida-e-volta ENCERRADA anuncia o vencedor do agregado UMA vez (não por perna)", () => {
+    // Regressão de a11y: o marcador 'vencedor' saía 1x por PERNA → 2x para o
+    // mesmo competidor no confronto de 2 jogos. Deve sair UMA vez por confronto.
+    render(
+      <BracketView
+        partidas={[
+          partida({
+            id: "ida",
+            perna: 1,
+            participante_1: "ana",
+            participante_2: "beto",
+            nome_1: "Ana",
+            nome_2: "Beto",
+            placar_1: 2,
+            placar_2: 0,
+            status: "encerrada",
+          }),
+          partida({
+            id: "volta",
+            perna: 2,
+            participante_1: "beto",
+            participante_2: "ana",
+            nome_1: "Beto",
+            nome_2: "Ana",
+            placar_1: 0,
+            placar_2: 0,
+            status: "encerrada",
+          }),
+        ]}
+      />
+    )
+
+    // Ana vence o agregado (2x0) — anunciada UMA vez, apesar das duas pernas.
+    expect(screen.getAllByText("vencedor")).toHaveLength(1)
+  })
+
+  it("vencedor por W.O. (0x0) — placar não desambigua — ainda é anunciado ao leitor de tela", () => {
+    // O caso que a cor sozinha quebrava: placar 0x0 não diz quem avançou. O
+    // marcador sr-only 'vencedor' deixa o desfecho legível sem depender de cor.
+    render(
+      <BracketView
+        partidas={[
+          partida({
+            id: "final",
+            rodada: 1,
+            posicao: 1,
+            participante_1: "p1",
+            participante_2: "p2",
+            nome_1: "Ana",
+            nome_2: "Beto",
+            placar_1: 0,
+            placar_2: 0,
+            status: "encerrada",
+            wo: true,
+            woVencedor: "p1",
+          }),
+        ]}
+      />
+    )
+
+    expect(screen.getByText("vencedor")).toBeInTheDocument()
+  })
+
+  it("confronto em aberto não anuncia vencedor", () => {
+    // Sem desfecho não há lado que avançou: nenhum marcador/ícone de vencedor.
+    render(
+      <BracketView
+        partidas={[
+          partida({
+            id: "final",
+            rodada: 1,
+            posicao: 1,
+            nome_1: "Ana",
+            nome_2: "Beto",
+            status: "em_andamento",
+          }),
+        ]}
+      />
+    )
+
+    expect(screen.queryByText("vencedor")).not.toBeInTheDocument()
   })
 })

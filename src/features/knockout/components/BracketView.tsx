@@ -35,17 +35,33 @@ function LinhaLado({
   nome,
   placar,
   venceu,
+  anunciar,
   encerrada,
 }: {
   nome: string
   placar: number
+  /** Vencedor do agregado — recebe o destaque cromático (pode repetir nas 2 pernas). */
   venceu: boolean
+  /** Emite o marcador acessível do vencedor — UMA vez por confronto (perna decisiva). */
+  anunciar: boolean
   encerrada: boolean
 }) {
   return (
     <span className="flex items-center justify-between gap-2">
-      <span className={`truncate ${venceu ? "text-primary font-semibold" : ""}`}>
-        {nome}
+      <span className={`flex min-w-0 items-center gap-1 ${venceu ? "text-primary font-semibold" : ""}`}>
+        {/* Sinal NÃO-cromático do lado que avançou: em agregado/pênaltis/W.O.
+            o placar pode não desambiguar (vencedor com número menor ou 0x0),
+            então a cor sozinha deixaria o desfecho ilegível sem cor / a leitor
+            de tela. O sr-only anuncia o vencedor (uma vez por confronto — não por
+            perna); o troféu é decorativo (aria-hidden), reforço visual sem
+            duplicar o anúncio. */}
+        {anunciar ? (
+          <>
+            <Trophy className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+            <span className="sr-only">vencedor</span>
+          </>
+        ) : null}
+        <span className="truncate">{nome}</span>
       </span>
       <span
         className={`shrink-0 font-display tabular-nums ${encerrada ? "font-bold" : "text-muted-foreground"}`}
@@ -61,6 +77,13 @@ function ConfrontoCard({ confronto }: { confronto: Confronto }) {
   const vencedorId = resultado?.vencedor ?? null
   const unica = confronto.partidas[0]
   const ehBye = confronto.partidas.length === 1 && unica.participante_2 === null
+  // O anúncio acessível do vencedor sai UMA vez por confronto — na perna
+  // decisiva (volta) ou no jogo único. A cor realça o vencedor do agregado nas
+  // duas pernas; o marcador sr-only/troféu não se repete (evita o anúncio dobrado).
+  const idxAnuncio = confronto.partidas.reduce(
+    (melhor, p, i, arr) => ((p.perna ?? 0) >= (arr[melhor].perna ?? 0) ? i : melhor),
+    0,
+  )
 
   return (
     <div className="flex w-56 flex-col gap-1 rounded-lg border px-3 py-2 text-sm motion-safe:transition-colors hover:border-primary/30">
@@ -77,8 +100,9 @@ function ConfrontoCard({ confronto }: { confronto: Confronto }) {
           </span>
         </>
       ) : (
-        confronto.partidas.map((p) => {
+        confronto.partidas.map((p, i) => {
           const encerrada = p.status === "encerrada"
+          const decidido = encerrada && vencedorId !== null
           return (
             <div key={p.id} className="flex flex-col">
               {p.perna !== null || p.wo ? (
@@ -91,13 +115,15 @@ function ConfrontoCard({ confronto }: { confronto: Confronto }) {
               <LinhaLado
                 nome={p.nome_1}
                 placar={p.placar_1}
-                venceu={encerrada && vencedorId !== null && p.participante_1 === vencedorId}
+                venceu={decidido && p.participante_1 === vencedorId}
+                anunciar={i === idxAnuncio && decidido && p.participante_1 === vencedorId}
                 encerrada={encerrada}
               />
               <LinhaLado
                 nome={p.nome_2}
                 placar={p.placar_2}
-                venceu={encerrada && vencedorId !== null && p.participante_2 === vencedorId}
+                venceu={decidido && p.participante_2 === vencedorId}
+                anunciar={i === idxAnuncio && decidido && p.participante_2 === vencedorId}
                 encerrada={encerrada}
               />
             </div>
