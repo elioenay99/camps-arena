@@ -30,10 +30,12 @@ re-rodar `get_advisors(security)`; smoke ao vivo (convite + avatar).
   Espelhado em `supabase/schema.sql`. (migration `revoke_execute_eh_co_participante_publico`)
 
 ## 3. Auth (painel/manual)
-- [x] 3.1 Habilitar `leaked_password_protection` (Auth settings do dashboard — **passo do usuário**).
-  LIGADO pelo usuário em 2026-06-15. NOTA: o advisor tem cache e ainda pode reportar `Disabled` por
-  alguns minutos após o toggle; re-rodar `get_advisors(security)` antes de arquivar (task 5.2) p/
-  confirmar que o WARN sumiu.
+- [x] 3.1 `leaked_password_protection` (Auth settings do dashboard). RESOLUÇÃO (2026-06-16): o
+  advisor re-rodado segue reportando `Disabled` mesmo ~1 dia após a tentativa de toggle — o dono
+  esclareceu que **esse recurso é exclusivo do plano Pro do Supabase**, indisponível no plano atual
+  (free). Portanto o WARN `auth_leaked_password_protection` é **limitação de plano, não falha de
+  config**, e foi ACEITO como dívida conhecida (dono autorizou ignorar e arquivar). Reabrir só se/
+  quando o projeto migrar para o plano Pro.
 
 ## 4. Validação
 - [x] 4.1 `get_advisors(security)` pós-fix: **ERROR zerado** + **10 trigger-funcs zeradas**. Restam só
@@ -42,6 +44,7 @@ re-rodar `get_advisors(security)`; smoke ao vivo (convite + avatar).
 - [x] 4.2 Smoke ao vivo: `/dashboard` (partidas ativas) volta sem erro após o revert; ligas/torneios OK.
 
 ## 5. Encerramento
-- [ ] 5.1 Commit (pt-BR, Conventional Commits, sem coautoria) + push.
-- [ ] 5.2 `openspec archive hardening-seguranca-supabase`.
-- [ ] 5.3 Atualizar [[arena-seguranca-supabase]] com o resultado (advisor pós-fix).
+- [x] 5.1 Commit (pt-BR, Conventional Commits, sem coautoria) + push.
+- [x] 5.2 `openspec archive hardening-seguranca-supabase`.
+- [x] 5.3 Atualizar [[arena-seguranca-supabase]] com o resultado (advisor 2026-06-16: ERROR=0;
+  WARNs restantes by-design; leaked-password = limitação do plano Pro, ver task 3.1).
