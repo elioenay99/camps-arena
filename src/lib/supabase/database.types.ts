@@ -17,6 +17,7 @@ export type TournamentFormat =
   | "grupos_mata_mata"
   | "fase_liga"
 export type MatchStatus = "agendada" | "em_andamento" | "encerrada"
+export type WoRequestStatus = "pendente" | "aceito" | "recusado"
 export type LeagueCompetitionStatus = "ativa" | "arquivada"
 export type LeagueSeasonStatus =
   | "rascunho"
@@ -275,7 +276,7 @@ export interface Database {
           match_id: string
           solicitante_slot: string
           motivo: string | null
-          status: string
+          status: WoRequestStatus
           created_at: string
           resolved_at: string | null
         }
@@ -284,7 +285,7 @@ export interface Database {
           match_id: string
           solicitante_slot: string
           motivo?: string | null
-          status?: string
+          status?: WoRequestStatus
           created_at?: string
           resolved_at?: string | null
         }
@@ -293,7 +294,7 @@ export interface Database {
           match_id?: string
           solicitante_slot?: string
           motivo?: string | null
-          status?: string
+          status?: WoRequestStatus
           created_at?: string
           resolved_at?: string | null
         }
@@ -818,10 +819,6 @@ export interface Database {
     Functions: {
       eh_participante: {
         Args: { t_id: string }
-        Returns: boolean
-      }
-      eh_co_participante: {
-        Args: { p_outro: string }
         Returns: boolean
       }
       celulares_de_contato: {

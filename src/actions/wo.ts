@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
 import { createClient } from "@/lib/supabase/server"
+import type { WoRequestStatus } from "@/lib/supabase/database.types"
 
 export type WoResult = { ok: true } | { ok: false; error: string }
 export type FecharRodadaResult =
@@ -355,10 +356,11 @@ export async function responderWO(
     }
   }
 
+  const novoStatus: WoRequestStatus = a.data ? "aceito" : "recusado"
   const { data: resolvida, error: updateError } = await supabase
     .from("match_wo_requests")
     .update({
-      status: a.data ? "aceito" : "recusado",
+      status: novoStatus,
       resolved_at: new Date().toISOString(),
     })
     .eq("id", r.data)
