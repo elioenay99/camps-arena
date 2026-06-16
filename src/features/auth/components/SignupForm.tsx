@@ -46,10 +46,13 @@ export function SignupForm({ redirectTo }: { redirectTo?: string }) {
           autoComplete="name"
           placeholder="Seu nome"
           aria-invalid={Boolean(state.fieldErrors?.nome)}
+          aria-describedby={state.fieldErrors?.nome ? "nome-erro" : undefined}
           required
         />
         {state.fieldErrors?.nome ? (
-          <p className="text-destructive text-sm">{state.fieldErrors.nome[0]}</p>
+          <p id="nome-erro" role="alert" className="text-destructive text-sm">
+            {state.fieldErrors.nome[0]}
+          </p>
         ) : null}
       </div>
 
@@ -62,10 +65,13 @@ export function SignupForm({ redirectTo }: { redirectTo?: string }) {
           autoComplete="email"
           placeholder="voce@exemplo.com"
           aria-invalid={Boolean(state.fieldErrors?.email)}
+          aria-describedby={state.fieldErrors?.email ? "email-erro" : undefined}
           required
         />
         {state.fieldErrors?.email ? (
-          <p className="text-destructive text-sm">{state.fieldErrors.email[0]}</p>
+          <p id="email-erro" role="alert" className="text-destructive text-sm">
+            {state.fieldErrors.email[0]}
+          </p>
         ) : null}
       </div>
 
@@ -78,10 +84,13 @@ export function SignupForm({ redirectTo }: { redirectTo?: string }) {
           autoComplete="tel-national"
           placeholder="(11) 91234-5678"
           aria-invalid={Boolean(state.fieldErrors?.celular)}
+          aria-describedby={
+            state.fieldErrors?.celular ? "celular-erro" : undefined
+          }
           required
         />
         {state.fieldErrors?.celular ? (
-          <p className="text-destructive text-sm">
+          <p id="celular-erro" role="alert" className="text-destructive text-sm">
             {state.fieldErrors.celular[0]}
           </p>
         ) : null}
@@ -95,10 +104,13 @@ export function SignupForm({ redirectTo }: { redirectTo?: string }) {
           type="password"
           autoComplete="new-password"
           aria-invalid={Boolean(state.fieldErrors?.password)}
+          aria-describedby={
+            state.fieldErrors?.password ? "password-erro" : undefined
+          }
           required
         />
         {state.fieldErrors?.password ? (
-          <p className="text-destructive text-sm">
+          <p id="password-erro" role="alert" className="text-destructive text-sm">
             {state.fieldErrors.password[0]}
           </p>
         ) : null}

@@ -33,10 +33,13 @@ export function UpdatePasswordForm() {
           type="password"
           autoComplete="new-password"
           aria-invalid={Boolean(state.fieldErrors?.password)}
+          aria-describedby={
+            state.fieldErrors?.password ? "password-erro" : undefined
+          }
           required
         />
         {state.fieldErrors?.password ? (
-          <p className="text-destructive text-sm">
+          <p id="password-erro" role="alert" className="text-destructive text-sm">
             {state.fieldErrors.password[0]}
           </p>
         ) : null}
@@ -50,10 +53,13 @@ export function UpdatePasswordForm() {
           type="password"
           autoComplete="new-password"
           aria-invalid={Boolean(state.fieldErrors?.confirm)}
+          aria-describedby={
+            state.fieldErrors?.confirm ? "confirm-erro" : undefined
+          }
           required
         />
         {state.fieldErrors?.confirm ? (
-          <p className="text-destructive text-sm">
+          <p id="confirm-erro" role="alert" className="text-destructive text-sm">
             {state.fieldErrors.confirm[0]}
           </p>
         ) : null}

@@ -32,8 +32,14 @@ export function ColorField({
 }: ColorFieldProps) {
   const id = useId();
   const descId = `${id}-desc`;
+  const erroId = `${id}-erro`;
   const valido = value === "" || HEX6.test(value);
   const swatch = HEX6.test(value) ? value : "#888888";
+  // aria-describedby aponta erro (quando inválido) + descrição (quando houver).
+  const describedBy =
+    [!valido ? erroId : null, description ? descId : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -56,7 +62,7 @@ export function ColorField({
           placeholder="#aabbcc"
           value={value}
           aria-invalid={!valido}
-          aria-describedby={description ? descId : undefined}
+          aria-describedby={describedBy}
           onChange={(e) => onChange(e.target.value)}
           className={cn(
             "border-input focus-visible:ring-ring h-9 w-full rounded-md border bg-transparent px-3 font-mono text-sm uppercase outline-none focus-visible:ring-2",
@@ -74,7 +80,9 @@ export function ColorField({
         )}
       </div>
       {!valido && (
-        <p className="text-destructive text-xs">Use uma cor no formato #rrggbb.</p>
+        <p id={erroId} role="alert" className="text-destructive text-xs">
+          Use uma cor no formato #rrggbb.
+        </p>
       )}
       {description && (
         <p id={descId} className="text-muted-foreground text-xs">

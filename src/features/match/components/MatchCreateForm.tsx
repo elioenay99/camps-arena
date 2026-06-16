@@ -45,6 +45,7 @@ function ParticipanteSelect({
         defaultValue=""
         className={selectClassName}
         aria-invalid={Boolean(erro)}
+        aria-describedby={erro ? `${campo}-erro` : undefined}
       >
         <option value="">Definir depois</option>
         {participantes.map((p) => (
@@ -55,7 +56,11 @@ function ParticipanteSelect({
           </option>
         ))}
       </select>
-      {erro ? <p className="text-destructive text-sm">{erro}</p> : null}
+      {erro ? (
+        <p id={`${campo}-erro`} role="alert" className="text-destructive text-sm">
+          {erro}
+        </p>
+      ) : null}
     </div>
   )
 }

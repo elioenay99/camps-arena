@@ -102,8 +102,13 @@ function PontosInput({
         step={1}
         defaultValue={padrao}
         aria-invalid={Boolean(erro)}
+        aria-describedby={erro ? `${campo}-erro` : undefined}
       />
-      {erro ? <p className="text-destructive text-sm">{erro}</p> : null}
+      {erro ? (
+        <p id={`${campo}-erro`} role="alert" className="text-destructive text-sm">
+          {erro}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -219,7 +224,10 @@ function ClubesStep({
   }
 
   return (
-    <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
+    <fieldset
+      className="m-0 grid min-w-0 gap-2 border-0 p-0"
+      aria-describedby={erro ? "clubes-erro" : undefined}
+    >
       <legend className="flex items-baseline gap-2 pb-1 text-sm font-medium">
         Clubes
         <span className="text-muted-foreground text-xs font-normal">
@@ -271,7 +279,11 @@ function ClubesStep({
         </p>
       )}
 
-      {erro ? <p className="text-destructive text-sm">{erro}</p> : null}
+      {erro ? (
+        <p id="clubes-erro" role="alert" className="text-destructive text-sm">
+          {erro}
+        </p>
+      ) : null}
     </fieldset>
   )
 }
@@ -312,7 +324,10 @@ function NomesStep({
   }
 
   return (
-    <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
+    <fieldset
+      className="m-0 grid min-w-0 gap-2 border-0 p-0"
+      aria-describedby={erro ? "nomes-erro" : undefined}
+    >
       <legend className="flex items-baseline gap-2 pb-1 text-sm font-medium">
         Competidores
         <span className="text-muted-foreground text-xs font-normal">
@@ -373,7 +388,11 @@ function NomesStep({
         </p>
       )}
 
-      {erro ? <p className="text-destructive text-sm">{erro}</p> : null}
+      {erro ? (
+        <p id="nomes-erro" role="alert" className="text-destructive text-sm">
+          {erro}
+        </p>
+      ) : null}
     </fieldset>
   )
 }
@@ -423,16 +442,22 @@ export function TournamentForm() {
           autoComplete="off"
           placeholder="Ex.: Copa da Firma 2026"
           aria-invalid={Boolean(state.fieldErrors?.titulo)}
+          aria-describedby={state.fieldErrors?.titulo ? "titulo-erro" : undefined}
           required
         />
         {state.fieldErrors?.titulo ? (
-          <p className="text-destructive text-sm">{state.fieldErrors.titulo[0]}</p>
+          <p id="titulo-erro" role="alert" className="text-destructive text-sm">
+            {state.fieldErrors.titulo[0]}
+          </p>
         ) : null}
       </div>
 
       {/* border-0/p-0/m-0/min-w-0: o preflight do Tailwind v4 NÃO reseta
           fieldset/legend (mesma decisão da pontuação). */}
-      <fieldset className="m-0 grid min-w-0 gap-3 border-0 p-0">
+      <fieldset
+        className="m-0 grid min-w-0 gap-3 border-0 p-0"
+        aria-describedby={state.fieldErrors?.formato ? "formato-erro" : undefined}
+      >
         <legend className="pb-2 text-sm font-medium">Formato</legend>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {FORMATOS.map((f) => (
@@ -445,7 +470,9 @@ export function TournamentForm() {
           ))}
         </div>
         {state.fieldErrors?.formato ? (
-          <p className="text-destructive text-sm">{state.fieldErrors.formato[0]}</p>
+          <p id="formato-erro" role="alert" className="text-destructive text-sm">
+            {state.fieldErrors.formato[0]}
+          </p>
         ) : null}
       </fieldset>
 

@@ -33,10 +33,13 @@ export function ChangePasswordForm() {
           type="password"
           autoComplete="current-password"
           aria-invalid={Boolean(state.fieldErrors?.senhaAtual)}
+          aria-describedby={
+            state.fieldErrors?.senhaAtual ? "senhaAtual-erro" : undefined
+          }
           required
         />
         {state.fieldErrors?.senhaAtual ? (
-          <p className="text-destructive text-sm">
+          <p id="senhaAtual-erro" role="alert" className="text-destructive text-sm">
             {state.fieldErrors.senhaAtual[0]}
           </p>
         ) : null}
@@ -50,10 +53,13 @@ export function ChangePasswordForm() {
           type="password"
           autoComplete="new-password"
           aria-invalid={Boolean(state.fieldErrors?.novaSenha)}
+          aria-describedby={
+            state.fieldErrors?.novaSenha ? "novaSenha-erro" : undefined
+          }
           required
         />
         {state.fieldErrors?.novaSenha ? (
-          <p className="text-destructive text-sm">
+          <p id="novaSenha-erro" role="alert" className="text-destructive text-sm">
             {state.fieldErrors.novaSenha[0]}
           </p>
         ) : null}
@@ -67,10 +73,13 @@ export function ChangePasswordForm() {
           type="password"
           autoComplete="new-password"
           aria-invalid={Boolean(state.fieldErrors?.confirmar)}
+          aria-describedby={
+            state.fieldErrors?.confirmar ? "confirmar-erro" : undefined
+          }
           required
         />
         {state.fieldErrors?.confirmar ? (
-          <p className="text-destructive text-sm">
+          <p id="confirmar-erro" role="alert" className="text-destructive text-sm">
             {state.fieldErrors.confirmar[0]}
           </p>
         ) : null}

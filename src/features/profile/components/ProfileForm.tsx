@@ -41,10 +41,13 @@ export function ProfileForm({
           autoComplete="name"
           placeholder="Seu nome"
           aria-invalid={Boolean(state.fieldErrors?.nome)}
+          aria-describedby={state.fieldErrors?.nome ? "nome-erro" : undefined}
           required
         />
         {state.fieldErrors?.nome ? (
-          <p className="text-destructive text-sm">{state.fieldErrors.nome[0]}</p>
+          <p id="nome-erro" role="alert" className="text-destructive text-sm">
+            {state.fieldErrors.nome[0]}
+          </p>
         ) : null}
       </div>
 
@@ -58,10 +61,13 @@ export function ProfileForm({
           autoComplete="tel-national"
           placeholder="(11) 91234-5678"
           aria-invalid={Boolean(state.fieldErrors?.celular)}
+          aria-describedby={
+            state.fieldErrors?.celular ? "celular-erro" : undefined
+          }
           required
         />
         {state.fieldErrors?.celular ? (
-          <p className="text-destructive text-sm">
+          <p id="celular-erro" role="alert" className="text-destructive text-sm">
             {state.fieldErrors.celular[0]}
           </p>
         ) : null}
