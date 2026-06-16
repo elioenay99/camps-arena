@@ -34,7 +34,9 @@ export function InviteSection({
           <p className="bg-muted min-w-0 truncate rounded-md px-3 py-2 font-mono text-sm">
             {url}
           </p>
-          <div className="flex flex-wrap gap-2">
+          {/* gap-x-6: >=24px de folga ao redor do alvo de ação irreversível
+              (gerar novo link) — meta de toque mobile. */}
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
             <CopyInviteLinkButton url={url} />
             <RegenerateInviteButton tournamentId={tournamentId} temConvite />
           </div>

@@ -61,7 +61,14 @@ export default async function DashboardLayout({
               />
             </Link>
             <form action={logout}>
-              <Button variant="outline" size="sm" type="submit">
+              {/* Sair = ação irreversível (encerra a sessão): alvo de toque de
+                  40px no mobile (a base size="sm" tem h-7), com padding extra. */}
+              <Button
+                variant="outline"
+                size="sm"
+                type="submit"
+                className="min-h-10 px-4"
+              >
                 Sair
               </Button>
             </form>

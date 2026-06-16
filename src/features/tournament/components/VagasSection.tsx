@@ -105,7 +105,9 @@ export function VagasSection({
                         {url}
                       </p>
                     ) : null}
-                    <div className="flex flex-wrap gap-2">
+                    {/* gap-x-6: >=24px entre alvos de ação irreversível
+                        (regenerar/expulsar/assumir) — meta de toque mobile. */}
+                    <div className="flex flex-wrap gap-x-6 gap-y-2">
                       {url ? <CopyVagaLinkButton url={url} /> : null}
                       <RegenerarConviteVagaButton
                         slotId={vaga.id}

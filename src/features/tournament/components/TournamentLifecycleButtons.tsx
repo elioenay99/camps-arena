@@ -33,6 +33,8 @@ export function TournamentLifecycleButtons({
         type="button"
         variant="outline"
         size="sm"
+        // Ação de lifecycle do torneio: alvo de toque de 40px no mobile.
+        className="min-h-10 px-4"
         disabled={pendente}
         onClick={() =>
           startTransition(async () => {
@@ -53,6 +55,7 @@ export function TournamentLifecycleButtons({
         type="button"
         variant="outline"
         size="sm"
+        className="min-h-10 px-4"
         onClick={() => setConfirmando(true)}
       >
         Encerrar torneio
@@ -72,6 +75,7 @@ export function TournamentLifecycleButtons({
           type="button"
           variant="destructive"
           size="sm"
+          className="min-h-10 px-4"
           disabled={pendente}
           onClick={() =>
             startTransition(async () => {
@@ -88,6 +92,7 @@ export function TournamentLifecycleButtons({
           type="button"
           variant="ghost"
           size="sm"
+          className="min-h-10 px-4"
           disabled={pendente}
           onClick={() => setConfirmando(false)}
         >

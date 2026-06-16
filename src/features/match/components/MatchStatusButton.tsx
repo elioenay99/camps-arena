@@ -49,6 +49,10 @@ export function MatchStatusButton({
       type="button"
       size="sm"
       variant={acao === "encerrar" ? "default" : "outline"}
+      // Ação irreversível (encerrar/reabrir partida): alvo de toque de 40px
+      // no mobile (a base size="sm" tem h-7). Padding extra evita largura
+      // estreita demais para o dedo.
+      className="min-h-10 px-4"
       disabled={pendente}
       onClick={() =>
         startTransition(async () => {

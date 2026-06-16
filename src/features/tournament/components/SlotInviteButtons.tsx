@@ -17,6 +17,13 @@ import { Button } from "@/components/ui/button"
  * revalidatePath das actions atualiza a página — sem estado local além do
  * pending. Os botões são UX; a autorização real é action + RLS.
  */
+
+/**
+ * Alvo de toque mínimo (40px) para ações IRREVERSÍVEIS em mobile —
+ * expulsar/assumir/desistir/regenerar convite. A base size="sm" tem h-7;
+ * elevamos altura + padding sem mexer na base do Button.
+ */
+const ALVO_TOQUE = "min-h-10 px-4"
 function ActionButton({
   rotulo,
   pendente,
@@ -37,6 +44,7 @@ function ActionButton({
       type="button"
       size="sm"
       variant={variant}
+      className={ALVO_TOQUE}
       disabled={emAndamento}
       onClick={() =>
         startTransition(async () => {
@@ -62,6 +70,8 @@ export function CopyVagaLinkButton({ url }: { url: string }) {
       type="button"
       size="sm"
       variant="outline"
+      // Alvo de toque de 40px no mobile, alinhado às ações irmãs na mesma linha.
+      className="min-h-10 px-4"
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(url)

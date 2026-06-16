@@ -101,7 +101,9 @@ export function OpenMatchesList({
         <span className="sr-only">
           {`${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}${p.perna !== null ? ` (${p.perna === 1 ? "ida" : "volta"})` : ""}: ` : ""}Placar atual: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2} — partida ${LABEL_STATUS[p.status]}`}
         </span>
-        <span className="flex shrink-0 flex-wrap items-center gap-3">
+        {/* gap-x-6: >=24px entre alvos de ação irreversível
+            (solicitar/marcar W.O., encerrar) — meta de toque mobile. */}
+        <span className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3">
           <span
             aria-hidden="true"
             className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs"

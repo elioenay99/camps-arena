@@ -13,6 +13,13 @@ import { Button } from "@/components/ui/button"
  */
 
 /**
+ * Alvo de toque mínimo (40px) para ações IRREVERSÍVEIS em mobile. A base
+ * `size="sm"` tem h-7 (28px); aqui elevamos altura + padding sem inflar os
+ * botões pequenos legítimos do resto do app (a base do Button fica intacta).
+ */
+const ALVO_TOQUE = "min-h-10 px-4"
+
+/**
  * Marcar W.O. (DONO): o vencedor é apontado entre os dois clubes. Estado local
  * só para o passo de escolha (sem AlertDialog): fechado → "W.O."; aberto →
  * dois botões (vitória de cada lado) + cancelar.
@@ -51,6 +58,7 @@ export function MarcarWoButton({
         type="button"
         size="sm"
         variant="outline"
+        className={ALVO_TOQUE}
         onClick={() => setAberto(true)}
       >
         W.O.
@@ -59,12 +67,13 @@ export function MarcarWoButton({
   }
 
   return (
-    <span className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-md px-2 py-1">
+    <span className="bg-muted/40 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md px-3 py-2">
       <span className="text-muted-foreground text-xs">Vitória de:</span>
       <Button
         type="button"
         size="sm"
         variant="outline"
+        className={ALVO_TOQUE}
         disabled={pendente}
         onClick={() => marcar(vagaId1)}
       >
@@ -74,6 +83,7 @@ export function MarcarWoButton({
         type="button"
         size="sm"
         variant="outline"
+        className={ALVO_TOQUE}
         disabled={pendente}
         onClick={() => marcar(vagaId2)}
       >
@@ -83,6 +93,7 @@ export function MarcarWoButton({
         type="button"
         size="sm"
         variant="ghost"
+        className={ALVO_TOQUE}
         disabled={pendente}
         onClick={() => setAberto(false)}
       >
@@ -101,6 +112,7 @@ export function SolicitarWoButton({ matchId }: { matchId: string }) {
       type="button"
       size="sm"
       variant="outline"
+      className={ALVO_TOQUE}
       disabled={pendente}
       onClick={() =>
         startTransition(async () => {
@@ -130,6 +142,7 @@ export function FecharRodadaButton({
       type="button"
       size="sm"
       variant="outline"
+      className={ALVO_TOQUE}
       disabled={pendente}
       onClick={() =>
         startTransition(async () => {
@@ -164,11 +177,12 @@ export function ResponderWoButtons({ requestId }: { requestId: string }) {
   }
 
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex flex-wrap items-center gap-6">
       <Button
         type="button"
         size="sm"
         variant="default"
+        className={ALVO_TOQUE}
         disabled={pendente}
         onClick={() => responder(true)}
       >
@@ -178,6 +192,7 @@ export function ResponderWoButtons({ requestId }: { requestId: string }) {
         type="button"
         size="sm"
         variant="ghost"
+        className={ALVO_TOQUE}
         disabled={pendente}
         onClick={() => responder(false)}
       >
