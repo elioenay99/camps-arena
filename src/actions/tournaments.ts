@@ -9,6 +9,7 @@ import {
   gerarTabelaLiga,
   LIGA_MAX_PARTICIPANTES,
 } from "@/features/league/gerarTabelaLiga"
+import { enviarNotificacoes } from "@/features/notifications/enviar"
 import {
   FORMATOS_COM_CHAVE,
   gerarFaseInicial,
@@ -1463,7 +1464,7 @@ export async function liberarRodadas(
   // Posse + estado por filtro (mesmo padrão das demais actions; sem oráculo).
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
-    .select("id")
+    .select("id, titulo")
     .eq("id", parsedId.data)
     .eq("created_by", user.id)
     .neq("status", "encerrado")
@@ -1496,11 +1497,43 @@ export async function liberarRodadas(
   }
   // "tudo": sem filtro extra (todas as ocultas do torneio).
 
-  const { data: liberadas, error: updateError } = await query.select("id")
+  const { data: liberadas, error: updateError } = await query.select(
+    "id, participante_1, participante_2, vaga_1:tournament_slots!matches_vaga_1_fkey(user_id), vaga_2:tournament_slots!matches_vaga_2_fkey(user_id)"
+  )
   if (updateError) {
     return { ok: false, error: "Não foi possível liberar agora. Tente novamente." }
   }
 
   revalidatePath(`/dashboard/torneios/${parsedId.data}`)
+
+  // Notifica os jogadores das partidas liberadas NESTE batch (best-effort, nunca
+  // lança). Destinatários: lados avulsos + técnicos das vagas das linhas afetadas.
+  // O embed to-one volta como objeto único — cast de fronteira (os FK-hints de
+  // vaga ainda não constam nos Relationships de database.types).
+  type LinhaLiberada = {
+    participante_1: string | null
+    participante_2: string | null
+    vaga_1: { user_id: string | null } | null
+    vaga_2: { user_id: string | null } | null
+  }
+  const linhas = (liberadas ?? []) as unknown as LinhaLiberada[]
+  const destinatarios = linhas.flatMap((linha) => [
+    linha.participante_1,
+    linha.participante_2,
+    linha.vaga_1?.user_id,
+    linha.vaga_2?.user_id,
+  ])
+  await enviarNotificacoes(
+    supabase,
+    destinatarios,
+    {
+      title: "Rodada liberada",
+      body: `Novas partidas foram liberadas em ${torneio.titulo}.`,
+      url: `/dashboard/torneios/${parsedId.data}`,
+      tag: `torneio-${parsedId.data}-rodada`,
+    },
+    user.id
+  )
+
   return { ok: true, liberadas: liberadas?.length ?? 0 }
 }

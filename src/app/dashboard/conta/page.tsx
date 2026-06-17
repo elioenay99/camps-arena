@@ -1,4 +1,4 @@
-import { KeyRound, User } from "lucide-react"
+import { Bell, KeyRound, User } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import type { Metadata } from "next"
 
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card"
 import { AvatarUpload } from "@/features/profile/components/AvatarUpload"
 import { ChangePasswordForm } from "@/features/auth/components/ChangePasswordForm"
+import { PushToggle } from "@/features/notifications/components/PushToggle"
 import { ProfileForm } from "@/features/profile/components/ProfileForm"
 import { getPerfil } from "@/features/profile/data/getPerfil"
 
@@ -71,6 +72,14 @@ export default async function ContaPage() {
           nome={perfil?.nome ?? null}
           celular={perfil?.celular ?? null}
         />
+      </SecaoCard>
+
+      <SecaoCard
+        Icon={Bell}
+        titulo="Notificações"
+        descricao="Receba avisos de rodadas liberadas, placares e convites direto no celular."
+      >
+        <PushToggle />
       </SecaoCard>
 
       <SecaoCard

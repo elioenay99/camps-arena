@@ -23,6 +23,10 @@ const envSchema = z.object({
   // DSN do Sentry (público por design — vai no bundle client). OPCIONAL: sem
   // ele a instrumentação é no-op (Sentry.init(undefined) não envia nada).
   NEXT_PUBLIC_SENTRY_DSN: z.url(urlHttp).optional(),
+  // Chave PÚBLICA VAPID do Web Push (vai no bundle client; não é segredo).
+  // OPCIONAL: sem ela o opt-in de notificações fica indisponível e o envio é
+  // no-op — o app não quebra antes de a chave ser configurada no Vercel.
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -61,6 +65,7 @@ export const env = parseEnv({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
   NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
 })
 
 /**
@@ -82,5 +87,21 @@ export function apiFootballKey(): string | undefined {
  */
 export function sentryAuthToken(): string | undefined {
   const valor = process.env.SENTRY_AUTH_TOKEN
+  return valor ? valor : undefined
+}
+
+/**
+ * VAPID (Web Push) — `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` são server-only e
+ * OPCIONAIS, fora do parse eager (espelham `apiFootballKey`). Sem qualquer das
+ * três VAPID o envio de push é no-op silencioso (degrade gracioso). A chave
+ * PÚBLICA fica no objeto `env` (o client a lê). `""` conta como ausente.
+ */
+export function vapidPrivateKey(): string | undefined {
+  const valor = process.env.VAPID_PRIVATE_KEY
+  return valor ? valor : undefined
+}
+
+export function vapidSubject(): string | undefined {
+  const valor = process.env.VAPID_SUBJECT
   return valor ? valor : undefined
 }

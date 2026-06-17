@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
+import { enviarNotificacoes } from "@/features/notifications/enviar"
 import { gerarCodigoConvite } from "@/lib/invite-code"
 import { createClient } from "@/lib/supabase/server"
 import {
@@ -88,6 +89,27 @@ export async function aceitarConvite(
   // redirect() fora do try/catch (lança NEXT_REDIRECT).
   revalidatePath("/dashboard")
   revalidatePath(`/dashboard/torneios/${tournamentId}`)
+
+  // Notifica o DONO que entrou alguém (best-effort; o await tem de vir ANTES do
+  // redirect — em serverless a promessa solta é cortada). Corpo genérico (sem
+  // nome de quem entrou) para evitar PII.
+  const { data: torneio } = await supabase
+    .from("tournaments")
+    .select("created_by, titulo")
+    .eq("id", tournamentId)
+    .maybeSingle()
+  await enviarNotificacoes(
+    supabase,
+    [torneio?.created_by],
+    {
+      title: "Novo participante",
+      body: `Alguém entrou no torneio ${torneio?.titulo ?? "sem título"}.`,
+      url: `/dashboard/torneios/${tournamentId}`,
+      tag: `torneio-${tournamentId}-convite`,
+    },
+    user.id
+  )
+
   redirect(`/dashboard/torneios/${tournamentId}`)
 }
 

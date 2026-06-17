@@ -344,6 +344,37 @@ export interface Database {
           },
         ]
       }
+      push_subscriptions: {
+        Row: {
+          user_id: string
+          endpoint: string
+          p256dh: string
+          auth: string
+          created_at: string
+        }
+        Insert: {
+          user_id: string
+          endpoint: string
+          p256dh: string
+          auth: string
+          created_at?: string
+        }
+        Update: {
+          user_id?: string
+          endpoint?: string
+          p256dh?: string
+          auth?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tournament_slots: {
         Row: {
           id: string
@@ -824,6 +855,19 @@ export interface Database {
       celulares_de_contato: {
         Args: { p_user_ids: string[] }
         Returns: { user_id: string; celular: string | null }[]
+      }
+      subscriptions_de: {
+        Args: { p_user_ids: string[] }
+        Returns: {
+          user_id: string
+          endpoint: string
+          p256dh: string
+          auth: string
+        }[]
+      }
+      remover_push_endpoint: {
+        Args: { p_endpoint: string }
+        Returns: undefined
       }
       aceitar_convite: {
         Args: { codigo: string }

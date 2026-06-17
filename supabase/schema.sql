@@ -928,6 +928,66 @@ $$;
 revoke execute on function public.celulares_de_contato(uuid[]) from public, anon;
 grant execute on function public.celulares_de_contato(uuid[]) to authenticated;
 
+-- ====================== PUSH NOTIFICATIONS (PWA Fase 3) ======================
+-- Subscriptions de Web Push, uma por (user_id, endpoint). RLS self-service: cada
+-- usuário só lê/mexe nas próprias. A policy de UPDATE é OBRIGATÓRIA para o upsert
+-- de re-inscrição (o push service renova p256dh/auth no mesmo endpoint).
+create table if not exists public.push_subscriptions (
+  user_id    uuid not null references public.users (id) on delete cascade,
+  endpoint   text not null,
+  p256dh     text not null,
+  auth       text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, endpoint)
+);
+create index if not exists push_subscriptions_user_id_idx
+  on public.push_subscriptions (user_id);
+
+alter table public.push_subscriptions enable row level security;
+
+create policy push_subscriptions_select_self on public.push_subscriptions
+  for select to authenticated using (user_id = (select auth.uid()));
+create policy push_subscriptions_insert_self on public.push_subscriptions
+  for insert to authenticated with check (user_id = (select auth.uid()));
+create policy push_subscriptions_update_self on public.push_subscriptions
+  for update to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+create policy push_subscriptions_delete_self on public.push_subscriptions
+  for delete to authenticated using (user_id = (select auth.uid()));
+
+-- subscriptions_de: ÚNICO caminho de leitura cross-user das subscriptions (para o
+-- envio). Espelha celulares_de_contato — DEFINER gated por co-participação: só
+-- devolve a sub de um id que é o próprio caller OU eh_co_participante. Sem
+-- service_role em runtime; o endpoint sozinho não permite enviar (exige a priv VAPID).
+create or replace function public.subscriptions_de(p_user_ids uuid[])
+returns table (user_id uuid, endpoint text, p256dh text, auth text)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select s.user_id, s.endpoint, s.p256dh, s.auth
+  from public.push_subscriptions s
+  where s.user_id = any (p_user_ids)
+    and (s.user_id = (select auth.uid()) or public.eh_co_participante(s.user_id));
+$$;
+revoke execute on function public.subscriptions_de(uuid[]) from public, anon;
+grant execute on function public.subscriptions_de(uuid[]) to authenticated;
+
+-- remover_push_endpoint: poda uma sub expirada (410/404) por endpoint exato. O
+-- endpoint é opaco/secreto (só quem recebeu o 410 o conhece) → não é oráculo.
+create or replace function public.remover_push_endpoint(p_endpoint text)
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  delete from public.push_subscriptions where endpoint = p_endpoint;
+$$;
+revoke execute on function public.remover_push_endpoint(text) from public, anon;
+grant execute on function public.remover_push_endpoint(text) to authenticated;
+-- ============================================================================
+
 -- Convite: só logado (espelha o design — deslogado não vê preview nem aceita;
 -- aceitar_convite já exige auth.uid(), o revoke de anon é defesa em camada).
 revoke execute on function public.aceitar_convite(text) from public, anon;

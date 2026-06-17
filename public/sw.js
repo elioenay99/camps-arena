@@ -126,3 +126,43 @@ self.addEventListener("fetch", (event) => {
   // (6) resto same-origin (/_next/image, /dashboard/.../imagem, route handlers,
   //     /auth/confirm, /icon.svg, apple-icon) — bypass, network-only, sem gravar.
 });
+
+// --- Web Push (PWA Fase 3) ---
+// O payload JSON vem do envio server-side (web-push, chave VAPID). Defensivo:
+// payload ausente/malformado não derruba o handler (notificação genérica).
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {}
+  event.waitUntil(
+    self.registration.showNotification(data.title ?? "Goliseu", {
+      body: data.body,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      tag: data.tag,
+      lang: "pt-BR",
+      data: { url: data.url ?? "/dashboard" },
+    }),
+  );
+});
+
+// Clique na notificação: foca uma aba já aberta na URL-alvo se houver; senão abre.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/dashboard";
+  // Resolve para absoluto e compara por PATHNAME exato (includes casaria
+  // /dashboard com /dashboard/conta e focaria a aba errada).
+  const alvo = new URL(url, self.location.origin);
+  event.waitUntil(
+    (async () => {
+      const all = await clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      const hit = all.find((c) => new URL(c.url).pathname === alvo.pathname);
+      if (hit) return hit.focus();
+      return clients.openWindow(alvo.href);
+    })(),
+  );
+});

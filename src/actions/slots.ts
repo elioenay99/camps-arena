@@ -6,6 +6,7 @@ import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
+import { enviarNotificacoes } from "@/features/notifications/enviar"
 import { gerarCodigoConvite } from "@/lib/invite-code"
 import { createClient } from "@/lib/supabase/server"
 import { codigoConviteSchema } from "@/schema/participantSchema"
@@ -91,6 +92,33 @@ export async function aceitarConviteVaga(
   // redirect() fora do try/catch (lança NEXT_REDIRECT).
   revalidatePath("/dashboard")
   revalidatePath(`/dashboard/torneios/${tournamentId}`)
+
+  // Notifica o DONO que entrou um técnico (best-effort; o await vem ANTES do
+  // redirect — em serverless a promessa solta é cortada). A action não tinha o
+  // user em mãos (o RPC usa auth.uid() por dentro): obtém aqui só para o
+  // callerId. Corpo genérico (sem nome) para evitar PII.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (user) {
+    const { data: torneio } = await supabase
+      .from("tournaments")
+      .select("created_by, titulo")
+      .eq("id", tournamentId)
+      .maybeSingle()
+    await enviarNotificacoes(
+      supabase,
+      [torneio?.created_by],
+      {
+        title: "Novo participante",
+        body: `Alguém entrou no torneio ${torneio?.titulo ?? "sem título"}.`,
+        url: `/dashboard/torneios/${tournamentId}`,
+        tag: `torneio-${tournamentId}-convite`,
+      },
+      user.id
+    )
+  }
+
   redirect(`/dashboard/torneios/${tournamentId}`)
 }
 

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
+import { enviarNotificacoes } from "@/features/notifications/enviar"
 import { createClient } from "@/lib/supabase/server"
 import type { WoRequestStatus } from "@/lib/supabase/database.types"
 
@@ -298,6 +299,26 @@ export async function solicitarWO(matchId: unknown): Promise<WoResult> {
 
   revalidatePath("/dashboard")
   revalidatePath(`/dashboard/torneios/${match.tournament_id}`)
+
+  // Notifica o DONO do torneio que há um pedido de W.O. (best-effort, nunca
+  // lança). Re-query do torneio só para dono + título.
+  const { data: torneio } = await supabase
+    .from("tournaments")
+    .select("created_by, titulo")
+    .eq("id", match.tournament_id)
+    .maybeSingle()
+  await enviarNotificacoes(
+    supabase,
+    [torneio?.created_by],
+    {
+      title: "Solicitação de W.O.",
+      body: `Há um pedido de W.O. em ${torneio?.titulo ?? "um torneio"}.`,
+      url: `/dashboard/torneios/${match.tournament_id}`,
+      tag: `torneio-${match.tournament_id}-wo`,
+    },
+    user.id
+  )
+
   return { ok: true }
 }
 
@@ -382,6 +403,41 @@ export async function responderWO(
       .maybeSingle()
     revalidatePath("/dashboard")
     if (match) revalidatePath(`/dashboard/torneios/${match.tournament_id}`)
+  }
+
+  // Notifica os dois TÉCNICOS do confronto (solicitante + adversário) — o helper
+  // remove o caller (o dono que respondeu). Leitura única das vagas + título do
+  // torneio (a action não tinha o match-com-vagas carregado). Embed to-one das
+  // vagas e de tournaments volta como objeto único — cast de fronteira (FK-hints
+  // de vaga ainda fora dos Relationships de database.types). Best-effort.
+  const { data: matchWo } = await supabase
+    .from("matches")
+    .select(
+      `tournament_id,
+       v1:tournament_slots!matches_vaga_1_fkey ( user_id ),
+       v2:tournament_slots!matches_vaga_2_fkey ( user_id ),
+       tournaments ( titulo )`
+    )
+    .eq("id", req.match_id)
+    .maybeSingle()
+  if (matchWo) {
+    const dados = matchWo as unknown as {
+      tournament_id: string
+      v1: { user_id: string | null } | null
+      v2: { user_id: string | null } | null
+      tournaments: { titulo: string } | null
+    }
+    await enviarNotificacoes(
+      supabase,
+      [dados.v1?.user_id, dados.v2?.user_id],
+      {
+        title: "W.O. respondido",
+        body: `Uma decisão de W.O. saiu em ${dados.tournaments?.titulo ?? "um torneio"}.`,
+        url: `/dashboard/torneios/${dados.tournament_id}`,
+        tag: `torneio-${dados.tournament_id}-wo`,
+      },
+      user.id
+    )
   }
   return { ok: true }
 }

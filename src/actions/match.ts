@@ -7,6 +7,7 @@ import { z } from "zod"
 
 import { FORMATOS_COM_CHAVE } from "@/features/knockout/gerarChaveMataMata"
 import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
+import { enviarNotificacoes } from "@/features/notifications/enviar"
 import { createClient } from "@/lib/supabase/server"
 import {
   createMatchSchema,
@@ -99,7 +100,8 @@ export async function updateMatchScore(
     .select(
       `id, participante_1, participante_2, status, tournament_id,
        vaga_1:tournament_slots!matches_vaga_1_fkey ( user_id ),
-       vaga_2:tournament_slots!matches_vaga_2_fkey ( user_id )`
+       vaga_2:tournament_slots!matches_vaga_2_fkey ( user_id ),
+       tournaments ( titulo )`
     )
     .eq("id", matchId)
     .maybeSingle()
@@ -153,6 +155,35 @@ export async function updateMatchScore(
   // classificação) — revalidar as DUAS rotas.
   revalidatePath("/dashboard")
   revalidatePath(`/dashboard/torneios/${match.tournament_id}`)
+
+  // Notifica os demais jogadores da partida (o helper remove o caller → sobra o
+  // adversário). Corpo genérico de propósito: sem nomes/placar (evita PII e
+  // query extra). O embed to-one da vaga e de tournaments volta como objeto
+  // único — cast de fronteira (FK-hints de vaga ainda fora de database.types).
+  const dados = match as unknown as {
+    participante_1: string | null
+    participante_2: string | null
+    vaga_1: { user_id: string | null } | null
+    vaga_2: { user_id: string | null } | null
+    tournaments: { titulo: string } | null
+  }
+  await enviarNotificacoes(
+    supabase,
+    [
+      dados.participante_1,
+      dados.participante_2,
+      dados.vaga_1?.user_id,
+      dados.vaga_2?.user_id,
+    ],
+    {
+      title: "Placar atualizado",
+      body: `Há um novo placar em ${dados.tournaments?.titulo ?? "um torneio"}.`,
+      url: `/dashboard/torneios/${match.tournament_id}`,
+      tag: `torneio-${match.tournament_id}-placar`,
+    },
+    user.id
+  )
+
   return { ok: true }
 }
 
