@@ -30,9 +30,46 @@ const securityHeaders = [
     : []),
 ];
 
+// CSP da página de fallback offline (`public/offline.html`). Ela é excluída do
+// proxy (não recebe nonce), então autoriza o estilo inline e o script de
+// reconexão por HASH. O hash é o SHA-256 base64 do conteúdo EXATO do <script> da
+// offline.html; se aquele script mudar, regenerar com:
+//   python3 -c "import re,hashlib,base64;b=re.search(r'<script>(.*?)</script>',open('public/offline.html').read(),re.S).group(1);print('sha256-'+base64.b64encode(hashlib.sha256(b.encode()).digest()).decode())"
+const offlineHtmlCsp =
+  "default-src 'self'; style-src 'unsafe-inline'; " +
+  "script-src 'sha256-Jx2dlvRs3j0L9gdlycaNq5QkJ1uh1xtunrKdAShQll4='; " +
+  "img-src 'self' data:; base-uri 'none'; form-action 'none'";
+
 const nextConfig: NextConfig = {
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // Service worker: nunca cacheado pelo navegador (novas versões chegam
+      // sempre) + CSP própria estrita. O '/:path*' acima não define CSP, então
+      // não há header duplicado.
+      {
+        source: "/sw.js",
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/javascript; charset=utf-8",
+          },
+          {
+            key: "Cache-Control",
+            value: "no-cache, no-store, must-revalidate",
+          },
+          {
+            key: "Content-Security-Policy",
+            value: "default-src 'self'; script-src 'self'",
+          },
+        ],
+      },
+      // Página de fallback offline: CSP estática (sem nonce) — ver offlineHtmlCsp.
+      {
+        source: "/offline.html",
+        headers: [{ key: "Content-Security-Policy", value: offlineHtmlCsp }],
+      },
+    ];
   },
   images: {
     remotePatterns: [

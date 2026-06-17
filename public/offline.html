@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#282a36" />
+    <title>Você está offline — Goliseu</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #282a36;
+        color: #f8f8f2;
+        font-family:
+          ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        text-align: center;
+      }
+      main {
+        max-width: 22rem;
+      }
+      .escudo {
+        display: block;
+        margin: 0 auto 1.5rem;
+      }
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      p {
+        margin: 0 0 1.75rem;
+        color: #c7c9d9;
+        line-height: 1.5;
+      }
+      a.botao {
+        display: inline-block;
+        padding: 0.75rem 1.5rem;
+        min-height: 44px;
+        border-radius: 0.75rem;
+        background: #bd93f9;
+        color: #21222c;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      a.botao:active {
+        opacity: 0.85;
+      }
+      .dica {
+        margin-top: 1.25rem;
+        font-size: 0.8125rem;
+        color: #6b6f85;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg
+        class="escudo"
+        width="76"
+        height="84"
+        viewBox="0 0 76 84"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d="M38 4 L68 17 V45 C68 65 53 76 38 80 C23 76 8 65 8 45 V17 Z"
+          stroke="#bd93f9"
+          stroke-width="3"
+          stroke-linejoin="round"
+        />
+        <text
+          x="38"
+          y="54"
+          text-anchor="middle"
+          font-family="ui-sans-serif, system-ui, sans-serif"
+          font-size="38"
+          font-weight="700"
+          fill="#bd93f9"
+        >
+          G
+        </text>
+      </svg>
+      <h1>Você está offline</h1>
+      <p>
+        O Goliseu precisa de conexão para mostrar seus torneios e placares.
+        Reconecte-se para continuar.
+      </p>
+      <a class="botao" href="/">Tentar novamente</a>
+      <p class="dica">A página recarrega sozinha quando a conexão voltar.</p>
+    </main>
+    <script>
+      addEventListener("online", function () {
+        location.reload();
+      });
+    </script>
+  </body>
+</html>

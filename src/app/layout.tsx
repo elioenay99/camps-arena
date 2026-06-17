@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
+import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { env } from "@/lib/env";
@@ -103,6 +104,8 @@ export default async function RootLayout({
             same-origin; no-op fora do Vercel. */}
         <Analytics />
         <SpeedInsights />
+        {/* Registra o service worker (offline) só em produção. */}
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

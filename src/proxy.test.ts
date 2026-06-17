@@ -26,13 +26,16 @@ describe("proxy matcher", () => {
     }
   })
 
-  it("cards OG, túnel do Sentry e assets são isentos (skip)", () => {
+  it("cards OG, túnel do Sentry, SW/offline e assets são isentos (skip)", () => {
     for (const p of [
       "/opengraph-image",
       "/twitter-image",
       "/opengraph-image/foo",
       "/twitter-image/bar",
       "/sentry-tunnel",
+      // PWA Fase 2: o SW e a página offline não passam pelo proxy (nonce/sessão).
+      "/sw.js",
+      "/offline.html",
       "/_next/static/chunk.js",
       "/_next/image",
       "/favicon.ico",
@@ -44,8 +47,19 @@ describe("proxy matcher", () => {
   })
 
   it("boundary: rota que só COMPARTILHA prefixo com uma isenta segue protegida", () => {
-    // Sem o `(?:$|/)`, estas vazariam do auth-gate/CSP por prefixo.
-    for (const p of ["/opengraph-imagery", "/twitter-imageboard", "/sentry-tunnelish"]) {
+    // Sem o `(?:$|/)` e o ponto escapado, estas vazariam do auth-gate/CSP.
+    for (const p of [
+      "/opengraph-imagery",
+      "/twitter-imageboard",
+      "/sentry-tunnelish",
+      // sw\.js / offline\.html com o ponto ESCAPADO: estas não podem ser isentas.
+      "/swag",
+      "/offline-foo",
+      "/swxjs",
+      "/sw-js",
+      "/offlineXhtml",
+      "/offline_html",
+    ]) {
       expect(passa(p), `${p} NÃO deveria ser isento`).toBe(true)
     }
   })

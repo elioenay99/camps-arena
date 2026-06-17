@@ -35,13 +35,18 @@ export const config = {
      *   Supabase — sob Turbopack falharia em silêncio; 1º termo do lookahead)
      * - opengraph-image, twitter-image (cards OG da marca: PNG estático; não
      *   precisam de nonce/CSP nem de um getUser por hit de crawler)
+     * - sw.js, offline.html (PWA Fase 2: o nonce do proxy quebraria o estilo/
+     *   script inline da página offline servida do cache, e o SW recebe sua CSP
+     *   própria do next.config; ambos dispensam o updateSession)
      * - _next/static, _next/image
      * - favicon.ico e arquivos estáticos comuns
-     * O `(?:$|/)` ancora os três termos-palavra ao fim do segmento: só a rota
+     * O `(?:$|/)` ancora os termos-palavra ao fim do segmento: só a rota
      * exata (e filhos) é isenta — uma rota futura que só COMPARTILHE o prefixo
-     * (ex.: /opengraph-imagery) segue passando pelo auth-gate/CSP. Guard em
-     * src/proxy.test.ts. (Matcher é literal estático: exigência do Next.)
+     * (ex.: /opengraph-imagery, /swag, /offline-foo) segue passando pelo
+     * auth-gate/CSP. O ponto é ESCAPADO em sw\.js/offline\.html (sem o escape,
+     * /sw-js ou /offlineXhtml vazariam). Guard em src/proxy.test.ts. (Matcher é
+     * literal estático: exigência do Next.)
      */
-    "/((?!(?:sentry-tunnel|opengraph-image|twitter-image)(?:$|/)|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!(?:sentry-tunnel|opengraph-image|twitter-image|sw\\.js|offline\\.html)(?:$|/)|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }
