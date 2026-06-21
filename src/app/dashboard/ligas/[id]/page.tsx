@@ -14,6 +14,7 @@ import {
 import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge"
 import { FluxoTemporadaPanel } from "@/features/league/components/FluxoTemporadaPanel"
 import { IniciarDivisaoButton } from "@/features/league/components/IniciarDivisaoButton"
+import { TurnoDivisaoControl } from "@/features/league/components/TurnoDivisaoControl"
 import { MontarTemporadaButton } from "@/features/league/components/MontarTemporadaButton"
 import {
   PlayoffsPanel,
@@ -483,7 +484,20 @@ function DivisaoCard({
                 : "Divisão ainda não montada."}
             </p>
             {naoIniciada ? (
-              <IniciarDivisaoButton divisionSeasonId={divisao.id} />
+              <div className="flex flex-col items-center gap-3">
+                {/* Turno só é editável em LIGA e antes de iniciar (a tabela é
+                    gerada com o turno escolhido). Em grupos não se aplica. */}
+                {divisao.formato === "liga" ? (
+                  <TurnoDivisaoControl
+                    divisionSeasonId={divisao.id}
+                    seasonId={seasonId}
+                    tamanho={divisao.tamanho}
+                    idaEVolta={divisao.idaEVolta}
+                    disabled={divisao.iniciada}
+                  />
+                ) : null}
+                <IniciarDivisaoButton divisionSeasonId={divisao.id} />
+              </div>
             ) : null}
           </CardContent>
         </Card>

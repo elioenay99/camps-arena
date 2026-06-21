@@ -1873,6 +1873,20 @@ alter table public.league_division_seasons drop constraint if exists league_divi
 alter table public.league_division_seasons add  constraint league_division_seasons_cor_secundaria_hex
   check (cor_secundaria is null or cor_secundaria ~ '^#[0-9a-f]{6}$');
 
+-- Turno da divisão de liga (change add-ida-volta-divisao). false = turno único
+-- (default; preserva o legado); true = ida-e-volta (turno e returno). Só faz
+-- sentido em formato='liga' (a action/wizard normalizam; grupos_mata_mata fica
+-- false). montar_temporada COPIA para tournaments.ida_e_volta (o que o motor lê);
+-- montarProximaTemporada copia para a próxima temporada.
+alter table public.league_division_seasons
+  add column if not exists ida_e_volta boolean not null default false;
+-- Invariante liga-only no BANCO (defesa-em-profundidade além da app): grupos
+-- nunca grava ida_e_volta=true. Cobre createCompetition, atualizar_ida_e_volta_divisao
+-- e a cópia N+1. Linhas legadas (ida_e_volta=false) já satisfazem.
+alter table public.league_division_seasons drop constraint if exists league_division_seasons_ida_volta_so_liga;
+alter table public.league_division_seasons add  constraint league_division_seasons_ida_volta_so_liga
+  check (formato = 'liga' or ida_e_volta = false);
+
 -- ---------- Tabela: league_boundaries (regra sobe/cai por par adjacente) ----------
 -- Fronteira entre a divisão de nível `nivel_superior` (d) e a de baixo (d+1).
 -- Guardamos o nível superior; a inferior é nivel_superior + 1.
@@ -2123,7 +2137,7 @@ begin
   -- INDEPENDENTES (cada um com sua sentinela e seu v_holders_usados), para que o
   -- retry de uma montagem parcial complete só o que faltou.
   for v_div in
-    select id, nivel, nome, por_nome, desempate, formato,
+    select id, nivel, nome, por_nome, desempate, formato, ida_e_volta,
            classificados_por_grupo, tournament_id, tournament_id_clausura
       from public.league_division_seasons
      where season_id = p_season_id
@@ -2143,13 +2157,14 @@ begin
     -- título ganha o sufixo " — Apertura"; anual mantém o nome puro (byte-idêntico).
     if v_div.tournament_id is null then
       insert into public.tournaments
-        (titulo, status, created_by, formato, classificados_por_grupo,
+        (titulo, status, created_by, formato, ida_e_volta, classificados_por_grupo,
          por_nome, desempate_criterio, is_public)
       values
         (case when v_ciclo = 'apertura_clausura'
               then v_div.nome || ' — Apertura' else v_div.nome end,
          'rascunho', v_uid,
-         v_div.formato::public.tournament_format, v_div.classificados_por_grupo,
+         v_div.formato::public.tournament_format, v_div.ida_e_volta,
+         v_div.classificados_por_grupo,
          v_div.por_nome, v_div.desempate, v_is_public)
       returning id into v_tournament;
 
@@ -2232,11 +2247,12 @@ begin
     -- Apertura). Split é só liga (5.1b) ⇒ formato/K herdados são liga/null.
     if v_ciclo = 'apertura_clausura' and v_div.tournament_id_clausura is null then
       insert into public.tournaments
-        (titulo, status, created_by, formato, classificados_por_grupo,
+        (titulo, status, created_by, formato, ida_e_volta, classificados_por_grupo,
          por_nome, desempate_criterio, is_public)
       values
         (v_div.nome || ' — Clausura', 'rascunho', v_uid,
-         v_div.formato::public.tournament_format, v_div.classificados_por_grupo,
+         v_div.formato::public.tournament_format, v_div.ida_e_volta,
+         v_div.classificados_por_grupo,
          v_div.por_nome, v_div.desempate, v_is_public)
       returning id into v_tournament;
 
@@ -2297,6 +2313,89 @@ $$;
 
 revoke execute on function public.montar_temporada(uuid) from public, anon;
 grant execute on function public.montar_temporada(uuid) to authenticated;
+
+-- ---------- RPC: atualizar_ida_e_volta_divisao (SECURITY DEFINER) ----------
+-- Alterna o turno (ida-e-volta) de UMA divisão de liga AINDA EM RASCUNHO, sem
+-- recriar a pirâmide (change add-ida-volta-divisao). Escrita TRANSACIONAL (a
+-- função inteira é uma tx): grava league_division_seasons.ida_e_volta (fonte de
+-- verdade) E tournaments.ida_e_volta da Apertura e, no split, da Clausura — o que
+-- o motor lê ao iniciar. NUNCA via writes PostgREST separados (divergiriam em
+-- falha parcial). Auth por CAPACIDADE (pode_gerir_competition; herança de admin
+-- de liga), NÃO created_by (league_division_seasons não tem essa coluna).
+-- Guards: formato liga; torneio(s) em rascunho; e SEM rodadas geradas — sonda
+-- matches.rodada, pois 'rascunho' sozinho NÃO prova ausência (iniciarTorneio
+-- insere matches ANTES de promover a 'ativo'; a falha deixa matches+rascunho).
+-- tournament_id/_clausura podem ser null (pré-montagem/anual): o `in (...)` é
+-- null-safe (null nunca casa) e a divisão ainda recebe o turno para a montagem.
+create or replace function public.atualizar_ida_e_volta_divisao(
+  p_division_season_id uuid,
+  p_ida_e_volta boolean
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_competition  uuid;
+  v_formato      text;
+  v_tid          uuid;
+  v_tid_clausura uuid;
+begin
+  -- (1) Carrega a divisão + a competição-mãe (para a checagem de capacidade).
+  select ls.competition_id, lds.formato, lds.tournament_id, lds.tournament_id_clausura
+    into v_competition, v_formato, v_tid, v_tid_clausura
+    from public.league_division_seasons lds
+    join public.league_seasons ls on ls.id = lds.season_id
+   where lds.id = p_division_season_id;
+
+  if v_competition is null then
+    raise exception 'DIVISAO_INVALIDA';
+  end if;
+
+  -- (2) Auth por CAPACIDADE (dono OU admin de liga). NÃO created_by.
+  if not public.pode_gerir_competition(v_competition) then
+    raise exception 'NAO_AUTORIZADO';
+  end if;
+
+  -- (3) Só liga: em grupos_mata_mata o turno teria semântica intragrupo (fora de escopo).
+  if v_formato <> 'liga' then
+    raise exception 'FORMATO_INVALIDO';
+  end if;
+
+  -- (4) Só em rascunho: após iniciar, a tabela já foi gerada com o turno.
+  if exists (
+    select 1 from public.tournaments t
+     where t.id in (v_tid, v_tid_clausura)
+       and t.status <> 'rascunho'
+  ) then
+    raise exception 'JA_INICIADA';
+  end if;
+
+  -- (5) 'rascunho' não prova ausência de rodadas (recuperação de iniciarTorneio
+  -- deixa matches+rascunho). Sonda matches.rodada nos torneios da divisão.
+  if exists (
+    select 1 from public.matches m
+     where m.tournament_id in (v_tid, v_tid_clausura)
+       and m.rodada is not null
+  ) then
+    raise exception 'JA_TEM_RODADAS';
+  end if;
+
+  -- (6) Escrita transacional: a divisão (fonte de verdade) + o(s) torneio(s) que
+  -- o motor lê. final_tournament_id (mata_mata) NÃO é tocado.
+  update public.league_division_seasons
+     set ida_e_volta = p_ida_e_volta
+   where id = p_division_season_id;
+
+  update public.tournaments
+     set ida_e_volta = p_ida_e_volta
+   where id in (v_tid, v_tid_clausura);
+end;
+$$;
+
+revoke execute on function public.atualizar_ida_e_volta_divisao(uuid, boolean) from public, anon;
+grant execute on function public.atualizar_ida_e_volta_divisao(uuid, boolean) to authenticated;
 
 -- ---------- RPC: montar_playoff (SECURITY DEFINER) — Fase 2 ----------
 -- Cria o tournaments formato='mata_mata' de UMA fronteira de playoff e insere os

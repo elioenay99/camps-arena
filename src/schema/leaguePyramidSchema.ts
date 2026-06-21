@@ -186,6 +186,11 @@ const divisaoSchema = z.object({
   formato: z.enum(["liga", "grupos_mata_mata"], {
     error: "Formato de divisão inválido.",
   }).default("liga"),
+  // Turno da divisão de liga (change add-ida-volta-divisao). false = turno único
+  // (default); true = ida-e-volta. Só vale em formato 'liga' — a normalização
+  // liga-only fica na action/wizard (booleano default-false é inofensivo aqui;
+  // diferente de qtdGrupos, não há o que rejeitar).
+  idaEVolta: z.boolean().default(false),
   qtdGrupos: z.number().int().positive().optional(),
   classificadosPorGrupo: z.number().int().positive().optional(),
   tamanho: z

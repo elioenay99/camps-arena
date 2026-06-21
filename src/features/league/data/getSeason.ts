@@ -32,6 +32,14 @@ export interface DivisaoTemporada {
    * competição. A página resolve `divisão.cor ?? competição.cor` por card. */
   corPrimaria: string | null
   corSecundaria: string | null
+  /** Formato interno (Fase 5.2). Só 'liga' tem o toggle de turno. */
+  formato: string
+  /** Turno da divisão (change add-ida-volta-divisao): false = turno único; true
+   * = ida e volta. Editável enquanto em rascunho via atualizarIdaEVoltaDivisao. */
+  idaEVolta: boolean
+  /** A Apertura saiu de rascunho? (true ⇒ tabela gerada; turno congelado). Gate
+   * de UX do toggle de turno; a barreira REAL é a RPC (status + sonda matches). */
+  iniciada: boolean
 }
 
 /** Fronteira sobe/cai entre `nivelSuperior` (d) e a divisão de baixo (d+1). */
@@ -81,6 +89,10 @@ interface DivisaoEmbed {
   final_tournament_id: string | null
   cor_primaria: string | null
   cor_secundaria: string | null
+  formato: string
+  ida_e_volta: boolean
+  /** Embed do torneio APERTURA (FK-hint desambigua entre as 3 FKs→tournaments). */
+  apertura: { status: string } | null
 }
 
 interface FronteiraEmbed {
@@ -138,7 +150,7 @@ export const getSeason = cache(async function getSeason(
     .select(
       `id, numero, status, ciclo,
        competition:league_competitions!inner ( id, nome, created_by, cor_primaria, cor_secundaria ),
-       league_division_seasons ( id, nivel, nome, por_nome, desempate, tamanho, tournament_id, tournament_id_clausura, final_tournament_id, cor_primaria, cor_secundaria ),
+       league_division_seasons ( id, nivel, nome, por_nome, desempate, tamanho, tournament_id, tournament_id_clausura, final_tournament_id, cor_primaria, cor_secundaria, formato, ida_e_volta, apertura:tournaments!league_division_seasons_tournament_id_fkey ( status ) ),
        league_boundaries ( nivel_superior, vagas_acesso, vagas_rebaixamento )`
     )
     .eq("id", seasonId)
@@ -215,6 +227,11 @@ export const getSeason = cache(async function getSeason(
       finalTournamentId: d.final_tournament_id,
       corPrimaria: d.cor_primaria,
       corSecundaria: d.cor_secundaria,
+      formato: d.formato,
+      idaEVolta: d.ida_e_volta,
+      // Iniciada = a Apertura existe e saiu de rascunho. Embed parcial (status só);
+      // a barreira real do turno é a RPC (status + sonda matches.rodada).
+      iniciada: d.apertura != null && d.apertura.status !== "rascunho",
     }))
 
   const fronteiras: FronteiraTemporada[] = [...linha.league_boundaries]

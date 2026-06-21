@@ -8,7 +8,11 @@ vi.mock("@/features/standings/data/getTournamentClassificacao", () => ({
   getTournamentClassificacao: vi.fn(),
 }))
 
-import { createCompetition, montarTemporada } from "@/actions/leaguePyramid"
+import {
+  atualizarIdaEVoltaDivisao,
+  createCompetition,
+  montarTemporada,
+} from "@/actions/leaguePyramid"
 import {
   calcularPlanoFluxo,
   calcularPromedio,
@@ -633,6 +637,99 @@ describe("montarTemporada (action thin sobre a RPC)", () => {
     const r = await montarTemporada("11111111-1111-4111-8111-111111111111")
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toMatch(/não foi possível montar/i)
+  })
+})
+
+describe("atualizarIdaEVoltaDivisao (action thin sobre a RPC)", () => {
+  const DIV = "22222222-2222-4222-8222-222222222222"
+  const SEASON = "33333333-3333-4333-8333-333333333333"
+
+  function clientComRpc(opts: {
+    user?: { id: string } | null
+    rpcError?: { message?: string } | null
+  }) {
+    const rpcSpy = vi.fn(async () => ({ data: null, error: opts.rpcError ?? null }))
+    mockCreateClient.mockResolvedValue({
+      auth: {
+        getUser: vi.fn(async () => ({
+          data: { user: opts.user === undefined ? { id: "dono" } : opts.user },
+          error: null,
+        })),
+      },
+      rpc: rpcSpy,
+    } as unknown as never)
+    return rpcSpy
+  }
+
+  const entrada = (over: Record<string, unknown> = {}) => ({
+    divisionSeasonId: DIV,
+    seasonId: SEASON,
+    idaEVolta: true,
+    ...over,
+  })
+
+  it("input inválido rejeita sem tocar o banco", async () => {
+    const r = await atualizarIdaEVoltaDivisao(entrada({ divisionSeasonId: "nao-uuid" }))
+    expect(r).toEqual({ ok: false, error: "Dados inválidos." })
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("idaEVolta não-booleano rejeita sem tocar o banco", async () => {
+    const r = await atualizarIdaEVoltaDivisao(entrada({ idaEVolta: "sim" }))
+    expect(r.ok).toBe(false)
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("sem sessão rejeita sem chamar a RPC", async () => {
+    const rpcSpy = clientComRpc({ user: null })
+    const r = await atualizarIdaEVoltaDivisao(entrada())
+    expect(r.ok).toBe(false)
+    expect(rpcSpy).not.toHaveBeenCalled()
+  })
+
+  it("sucesso chama a RPC com os args certos e retorna ok", async () => {
+    const rpcSpy = clientComRpc({})
+    const r = await atualizarIdaEVoltaDivisao(entrada({ idaEVolta: true }))
+    expect(r).toEqual({ ok: true })
+    expect(rpcSpy).toHaveBeenCalledWith("atualizar_ida_e_volta_divisao", {
+      p_division_season_id: DIV,
+      p_ida_e_volta: true,
+    })
+  })
+
+  it("NAO_AUTORIZADO vira mensagem de permissão (cross-tenant/sem capacidade)", async () => {
+    clientComRpc({ rpcError: { message: "NAO_AUTORIZADO" } })
+    const r = await atualizarIdaEVoltaDivisao(entrada())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/permissão/i)
+  })
+
+  it("FORMATO_INVALIDO vira mensagem de só-liga", async () => {
+    clientComRpc({ rpcError: { message: "FORMATO_INVALIDO" } })
+    const r = await atualizarIdaEVoltaDivisao(entrada())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/só divisões de liga/i)
+  })
+
+  it("JA_INICIADA vira mensagem de turno congelado", async () => {
+    clientComRpc({ rpcError: { message: "JA_INICIADA" } })
+    const r = await atualizarIdaEVoltaDivisao(entrada())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/já foi iniciada/i)
+  })
+
+  it("JA_TEM_RODADAS vira mensagem de rodadas geradas", async () => {
+    clientComRpc({ rpcError: { message: "JA_TEM_RODADAS" } })
+    const r = await atualizarIdaEVoltaDivisao(entrada())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/já tem rodadas/i)
+  })
+
+  it("erro desconhecido vira mensagem genérica (sem vazar detalhe)", async () => {
+    clientComRpc({ rpcError: { message: "boom interno xyz" } })
+    const r = await atualizarIdaEVoltaDivisao(entrada())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/não foi possível alterar o turno/i)
   })
 })
 

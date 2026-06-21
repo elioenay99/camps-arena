@@ -740,3 +740,36 @@ describe("createCompetitionSchema (formato grupos+mata-mata — Fase 5.2)", () =
     expect(r.success).toBe(true)
   })
 })
+
+describe("createCompetitionSchema (turno ida-e-volta — change add-ida-volta-divisao)", () => {
+  const piramide = (divExtra: Record<string, unknown>) =>
+    createCompetitionSchema.safeParse({
+      nome: "Liga Turno",
+      divisoes: [{ ...divisao(1, 8), ...divExtra }],
+      fronteiras: [],
+    })
+
+  it("idaEVolta ausente assume false (default; turno único — não-regressão)", () => {
+    const r = piramide({})
+    expect(r.success).toBe(true)
+    if (r.success) expect(r.data.divisoes[0].idaEVolta).toBe(false)
+  })
+
+  it("idaEVolta=true é aceito numa divisão de liga", () => {
+    const r = piramide({ idaEVolta: true })
+    expect(r.success).toBe(true)
+    if (r.success) expect(r.data.divisoes[0].idaEVolta).toBe(true)
+  })
+
+  it("idaEVolta=true convive com grupos no SCHEMA (normalização liga-only é server-side)", () => {
+    // O schema não rejeita o booleano; a action/wizard zeram em grupos_mata_mata.
+    const r = piramide({
+      formato: "grupos_mata_mata",
+      qtdGrupos: 2,
+      classificadosPorGrupo: 2,
+      idaEVolta: true,
+    })
+    expect(r.success).toBe(true)
+    if (r.success) expect(r.data.divisoes[0].idaEVolta).toBe(true)
+  })
+})

@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { TeamSearchInput } from "@/features/team/components/TeamSearchInput"
+import { previaLiga } from "@/features/league/gerarTabelaLiga"
 import { cn } from "@/lib/utils"
 import type { TeamResult } from "@/schema/teamSchema"
 import {
@@ -72,6 +73,9 @@ interface DivisaoRascunho {
   rankingBase: (typeof RANKING_BASES_DISPONIVEIS)[number]
   /** Fase 5.2: formato interno (liga | grupos+mata-mata). */
   formato: "liga" | "grupos_mata_mata"
+  /** Turno da divisão de liga (change add-ida-volta-divisao): false = turno único;
+   * true = ida e volta. Só vale em formato 'liga'. */
+  idaEVolta: boolean
   /** Geometria de grupos (só em grupos_mata_mata). */
   qtdGrupos?: number
   classificadosPorGrupo?: number
@@ -266,6 +270,7 @@ function novaDivisao(
     desempate,
     rankingBase: "posicao",
     formato: "liga",
+    idaEVolta: false,
     tamanho: 20,
     corPrimaria: "",
     corSecundaria: "",
@@ -792,6 +797,8 @@ export function LeagueWizard() {
         desempate: d.desempate,
         rankingBase: d.rankingBase,
         formato: d.formato,
+        // Turno só vale em liga (normalização liga-only — espelha qtdGrupos).
+        idaEVolta: d.formato === "liga" ? d.idaEVolta : false,
         qtdGrupos: d.formato === "grupos_mata_mata" ? d.qtdGrupos : undefined,
         classificadosPorGrupo:
           d.formato === "grupos_mata_mata" ? d.classificadosPorGrupo : undefined,
@@ -1296,6 +1303,26 @@ function BlocoFormatoDivisao({
           ))}
         </select>
       </div>
+
+      {!ehGrupos && (
+        <label className="bg-card/40 hover:border-primary/40 has-[:focus-visible]:ring-ring flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors has-[:focus-visible]:ring-2">
+          <input
+            type="checkbox"
+            checked={d.idaEVolta}
+            onChange={(e) => onAtualizar(idx, { idaEVolta: e.target.checked })}
+            className="border-input accent-primary size-4 rounded"
+          />
+          <span className="text-sm">
+            Ida e volta (dois turnos)
+            <span className="text-muted-foreground block text-xs font-normal">
+              {(() => {
+                const p = previaLiga(d.tamanho, d.idaEVolta)
+                return `${p.partidas} ${p.partidas === 1 ? "partida" : "partidas"} em ${p.rodadas} ${p.rodadas === 1 ? "rodada" : "rodadas"}. Cada par se enfrenta ${d.idaEVolta ? "duas vezes (casa e fora)" : "uma vez (turno único)"}.`
+              })()}
+            </span>
+          </span>
+        </label>
+      )}
 
       {ehGrupos &&
         (grupoSemViavel ? (

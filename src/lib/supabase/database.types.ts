@@ -603,6 +603,7 @@ export interface Database {
           tamanho: number
           cor_primaria: string | null
           cor_secundaria: string | null
+          ida_e_volta: boolean
           created_at: string
         }
         Insert: {
@@ -622,6 +623,7 @@ export interface Database {
           tamanho: number
           cor_primaria?: string | null
           cor_secundaria?: string | null
+          ida_e_volta?: boolean
           created_at?: string
         }
         Update: {
@@ -641,6 +643,7 @@ export interface Database {
           tamanho?: number
           cor_primaria?: string | null
           cor_secundaria?: string | null
+          ida_e_volta?: boolean
           created_at?: string
         }
         Relationships: [
@@ -1360,6 +1363,10 @@ export interface Database {
       }
       montar_temporada: {
         Args: { p_season_id: string }
+        Returns: undefined
+      }
+      atualizar_ida_e_volta_divisao: {
+        Args: { p_division_season_id: string; p_ida_e_volta: boolean }
         Returns: undefined
       }
       montar_playoff: {

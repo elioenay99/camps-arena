@@ -186,6 +186,9 @@ export async function createCompetition(
         formato: div.formato,
         qtd_grupos: div.qtdGrupos ?? null,
         classificados_por_grupo: div.classificadosPorGrupo ?? null,
+        // Turno da divisão (change add-ida-volta-divisao): só vale em liga; em
+        // grupos_mata_mata o servidor força false (normalização liga-only).
+        ida_e_volta: div.formato === "liga" ? div.idaEVolta : false,
         tamanho: div.tamanho,
         // Cores da divisão (change add-cores-campeonato): null = herda a cor da
         // competição na leitura. `montarProximaTemporada` copia nas N+1 (2 pontas).
@@ -586,6 +589,79 @@ export async function iniciarDivisao(input: unknown): Promise<LeaguePyramidResul
 
   revalidatePath("/dashboard/ligas")
   revalidatePath(`/dashboard/ligas/${seasonId}`)
+  return { ok: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/* atualizarIdaEVoltaDivisao — turno (ida-e-volta) de uma divisão em rascunho   */
+/* -------------------------------------------------------------------------- */
+
+const idaVoltaDivisaoSchema = z.object({
+  divisionSeasonId: z.uuid({ error: "Divisão inválida." }),
+  // `seasonId` é só para revalidar a página da liga (não tem papel de segurança —
+  // a autorização real é por capacidade DENTRO da RPC, chaveada pela divisão).
+  seasonId: z.uuid({ error: "Temporada inválida." }),
+  idaEVolta: z.boolean({ error: "Valor inválido." }),
+})
+
+/** Mapeia as exceções da RPC `atualizar_ida_e_volta_divisao` para pt-BR. */
+function mensagemDoTurno(error: { message?: string }): string {
+  const m = error.message ?? ""
+  if (m.includes("NAO_AUTORIZADO")) {
+    return "Você não tem permissão para alterar esta divisão."
+  }
+  if (m.includes("FORMATO_INVALIDO")) {
+    return "Só divisões de liga têm turno único ou ida e volta."
+  }
+  if (m.includes("JA_INICIADA")) {
+    return "A divisão já foi iniciada — o turno não pode mais mudar."
+  }
+  if (m.includes("JA_TEM_RODADAS")) {
+    return "A divisão já tem rodadas geradas — o turno não pode mais mudar."
+  }
+  if (m.includes("DIVISAO_INVALIDA")) {
+    return "Divisão não encontrada."
+  }
+  return "Não foi possível alterar o turno agora. Tente novamente."
+}
+
+/**
+ * Alterna o turno (ida-e-volta) de UMA divisão de liga AINDA EM RASCUNHO, sem
+ * recriar a pirâmide. Thin sobre a RPC `SECURITY DEFINER` transacional
+ * `atualizar_ida_e_volta_divisao` (escreve a division-season + o[s] torneio[s]
+ * numa só tx; autoriza por capacidade; barra divisão já iniciada/com rodadas).
+ */
+export async function atualizarIdaEVoltaDivisao(input: unknown): Promise<LeaguePyramidResult> {
+  const parsed = idaVoltaDivisaoSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: "Dados inválidos." }
+  }
+
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  try {
+    const { error } = await supabase.rpc("atualizar_ida_e_volta_divisao", {
+      p_division_season_id: parsed.data.divisionSeasonId,
+      p_ida_e_volta: parsed.data.idaEVolta,
+    })
+    if (error) {
+      return { ok: false, error: mensagemDoTurno(error) }
+    }
+  } catch (error) {
+    Sentry.captureException(error, { tags: { action: "atualizarIdaEVoltaDivisao" } })
+    return { ok: false, error: "Não foi possível alterar o turno agora. Tente novamente." }
+  }
+
+  revalidatePath("/dashboard/ligas")
+  revalidatePath(`/dashboard/ligas/${parsed.data.seasonId}`)
   return { ok: true }
 }
 
@@ -1905,7 +1981,7 @@ export async function montarProximaTemporada(
 
   const { data: divisoesN, error: divsError } = await supabase
     .from("league_division_seasons")
-    .select("nivel, nome, por_nome, desempate, ranking_base, formato, qtd_grupos, classificados_por_grupo, cor_primaria, cor_secundaria")
+    .select("nivel, nome, por_nome, desempate, ranking_base, formato, qtd_grupos, classificados_por_grupo, cor_primaria, cor_secundaria, ida_e_volta")
     .eq("season_id", seasonId)
     .order("nivel")
   if (divsError || !divisoesN || divisoesN.length === 0) {
@@ -2056,6 +2132,13 @@ export async function montarProximaTemporada(
         // 1 ciclo). 2ª ponta da cópia (a 1ª é o `.select()` de divisoesN acima).
         cor_primaria: geo?.cor_primaria ?? null,
         cor_secundaria: geo?.cor_secundaria ?? null,
+        // Turno da divisão (change add-ida-volta-divisao): COPIAR para a N+1 — sem
+        // isto a divisão perderia o ida-e-volta após 1 ciclo. 2ª ponta da cópia (a
+        // 1ª é o `.select()` de divisoesN acima — sem ele, geo.ida_e_volta seria
+        // undefined→false, regressão silenciosa não pega por typecheck). Normaliza
+        // liga-only: se o fechamento rebaixou a divisão para grupos, zera (mantém o
+        // CHECK league_division_seasons_ida_volta_so_liga).
+        ida_e_volta: formato === "liga" ? (geo?.ida_e_volta ?? false) : false,
       }
     })
 
