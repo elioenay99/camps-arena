@@ -30,6 +30,11 @@ export type LeagueBoundaryMode =
   | "playoff_acesso"
   | "playout"
   | "barragem_cruzada"
+export type CupFormat = "mata_mata" | "grupos_mata_mata"
+export type CupScope = "nacional" | "continental"
+export type CupOriginType = "divisao" | "copa"
+export type CupSeasonStatus = "rascunho" | "montada" | "ativa" | "encerrada"
+export type CupCompetitionStatus = "ativa" | "arquivada"
 
 export interface Database {
   public: {
@@ -983,6 +988,309 @@ export interface Database {
           },
         ]
       }
+      cup_competitions: {
+        Row: {
+          id: string
+          nome: string
+          created_by: string | null
+          status: CupCompetitionStatus
+          abrangencia: CupScope
+          formato: CupFormat
+          por_nome: boolean
+          ida_e_volta: boolean
+          terceiro_lugar: boolean
+          qtd_grupos: number | null
+          classificados_por_grupo: number | null
+          desempate_criterio: string
+          is_public: boolean
+          cor_primaria: string | null
+          cor_secundaria: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          nome: string
+          created_by?: string | null
+          status?: CupCompetitionStatus
+          abrangencia?: CupScope
+          formato?: CupFormat
+          por_nome?: boolean
+          ida_e_volta?: boolean
+          terceiro_lugar?: boolean
+          qtd_grupos?: number | null
+          classificados_por_grupo?: number | null
+          desempate_criterio?: string
+          is_public?: boolean
+          cor_primaria?: string | null
+          cor_secundaria?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          nome?: string
+          created_by?: string | null
+          status?: CupCompetitionStatus
+          abrangencia?: CupScope
+          formato?: CupFormat
+          por_nome?: boolean
+          ida_e_volta?: boolean
+          terceiro_lugar?: boolean
+          qtd_grupos?: number | null
+          classificados_por_grupo?: number | null
+          desempate_criterio?: string
+          is_public?: boolean
+          cor_primaria?: string | null
+          cor_secundaria?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cup_competitions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cup_qualification_rules: {
+        Row: {
+          id: string
+          cup_competition_id: string
+          origem_tipo: CupOriginType
+          origem_competition_id: string | null
+          origem_nivel: number | null
+          origem_cup_id: string | null
+          posicao_inicio: number
+          posicao_fim: number
+          prioridade: number
+          rotulo: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          cup_competition_id: string
+          origem_tipo: CupOriginType
+          origem_competition_id?: string | null
+          origem_nivel?: number | null
+          origem_cup_id?: string | null
+          posicao_inicio: number
+          posicao_fim: number
+          prioridade?: number
+          rotulo?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          cup_competition_id?: string
+          origem_tipo?: CupOriginType
+          origem_competition_id?: string | null
+          origem_nivel?: number | null
+          origem_cup_id?: string | null
+          posicao_inicio?: number
+          posicao_fim?: number
+          prioridade?: number
+          rotulo?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cup_qualification_rules_cup_competition_id_fkey"
+            columns: ["cup_competition_id"]
+            isOneToOne: false
+            referencedRelation: "cup_competitions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_qualification_rules_origem_competition_id_fkey"
+            columns: ["origem_competition_id"]
+            isOneToOne: false
+            referencedRelation: "league_competitions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_qualification_rules_origem_cup_id_fkey"
+            columns: ["origem_cup_id"]
+            isOneToOne: false
+            referencedRelation: "cup_competitions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cup_seasons: {
+        Row: {
+          id: string
+          cup_competition_id: string
+          numero: number
+          status: CupSeasonStatus
+          tournament_id: string | null
+          config_snapshot: Json | null
+          previous_season_id: string | null
+          montada_em: string | null
+          encerrada_em: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          cup_competition_id: string
+          numero: number
+          status?: CupSeasonStatus
+          tournament_id?: string | null
+          config_snapshot?: Json | null
+          previous_season_id?: string | null
+          montada_em?: string | null
+          encerrada_em?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          cup_competition_id?: string
+          numero?: number
+          status?: CupSeasonStatus
+          tournament_id?: string | null
+          config_snapshot?: Json | null
+          previous_season_id?: string | null
+          montada_em?: string | null
+          encerrada_em?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cup_seasons_cup_competition_id_fkey"
+            columns: ["cup_competition_id"]
+            isOneToOne: false
+            referencedRelation: "cup_competitions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_seasons_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_seasons_previous_season_id_fkey"
+            columns: ["previous_season_id"]
+            isOneToOne: false
+            referencedRelation: "cup_seasons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cup_entries: {
+        Row: {
+          id: string
+          cup_season_id: string
+          team_id: string | null
+          rotulo: string | null
+          origem_rule_id: string | null
+          origem_season_id: string | null
+          origem_descricao: string | null
+          seed: number | null
+          posicao_final: number | null
+          slot_id: string | null
+          manual: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          cup_season_id: string
+          team_id?: string | null
+          rotulo?: string | null
+          origem_rule_id?: string | null
+          origem_season_id?: string | null
+          origem_descricao?: string | null
+          seed?: number | null
+          posicao_final?: number | null
+          slot_id?: string | null
+          manual?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          cup_season_id?: string
+          team_id?: string | null
+          rotulo?: string | null
+          origem_rule_id?: string | null
+          origem_season_id?: string | null
+          origem_descricao?: string | null
+          seed?: number | null
+          posicao_final?: number | null
+          slot_id?: string | null
+          manual?: boolean
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cup_entries_cup_season_id_fkey"
+            columns: ["cup_season_id"]
+            isOneToOne: false
+            referencedRelation: "cup_seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_entries_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_entries_origem_rule_id_fkey"
+            columns: ["origem_rule_id"]
+            isOneToOne: false
+            referencedRelation: "cup_qualification_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_entries_slot_id_fkey"
+            columns: ["slot_id"]
+            isOneToOne: false
+            referencedRelation: "tournament_slots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cup_season_exclusions: {
+        Row: {
+          id: string
+          cup_season_id: string
+          team_id: string | null
+          rotulo: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          cup_season_id: string
+          team_id?: string | null
+          rotulo?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          cup_season_id?: string
+          team_id?: string | null
+          rotulo?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cup_season_exclusions_cup_season_id_fkey"
+            columns: ["cup_season_id"]
+            isOneToOne: false
+            referencedRelation: "cup_seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_season_exclusions_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       users_public: {
@@ -1128,6 +1436,34 @@ export interface Database {
           auth: string
         }[]
       }
+      eh_dono_cup: {
+        Args: { p_cup_id: string }
+        Returns: boolean
+      }
+      classificacao_final_divisao: {
+        Args: { p_competition_id: string; p_nivel: number }
+        Returns: {
+          team_id: string
+          rotulo: string
+          posicao_final: number
+          rank: number
+          origem_season_id: string
+        }[]
+      }
+      classificacao_final_copa: {
+        Args: { p_cup_id: string }
+        Returns: {
+          team_id: string
+          rotulo: string
+          posicao_final: number
+          rank: number
+          origem_season_id: string
+        }[]
+      }
+      montar_copa: {
+        Args: { p_cup_season_id: string; p_seeded_entry_ids: string[] }
+        Returns: string
+      }
     }
     Enums: {
       tournament_status: TournamentStatus
@@ -1137,6 +1473,11 @@ export interface Database {
       league_season_status: LeagueSeasonStatus
       league_ranking_base: LeagueRankingBase
       league_boundary_mode: LeagueBoundaryMode
+      cup_format: CupFormat
+      cup_scope: CupScope
+      cup_origin_type: CupOriginType
+      cup_season_status: CupSeasonStatus
+      cup_competition_status: CupCompetitionStatus
     }
     CompositeTypes: Record<string, never>
   }

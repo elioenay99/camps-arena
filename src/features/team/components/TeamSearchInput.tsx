@@ -14,6 +14,8 @@ export interface TeamSearchInputProps {
   placeholder?: string
   onSelect: (team: TeamResult) => void
   className?: string
+  /** Bloqueia o campo (ex.: enquanto uma mutação relacionada está em voo). */
+  disabled?: boolean
 }
 
 const DEBOUNCE_MS = 350
@@ -28,6 +30,7 @@ export function TeamSearchInput({
   placeholder = "Buscar clube…",
   onSelect,
   className,
+  disabled = false,
 }: TeamSearchInputProps) {
   const baseId = React.useId()
   const listboxId = `${baseId}-listbox`
@@ -136,6 +139,7 @@ export function TeamSearchInput({
         autoComplete="off"
         placeholder={placeholder}
         value={query}
+        disabled={disabled}
         onChange={(e) => {
           setQuery(e.target.value)
           setOpen(true)

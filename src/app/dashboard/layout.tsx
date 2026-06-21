@@ -18,6 +18,8 @@ const LINKS: NavLink[] = [
   // "Ligas" cobre o índice das pirâmides e as sub-rotas (nova, temporada,
   // página do competidor) por prefixo.
   { href: "/dashboard/ligas", rotulo: "Ligas" },
+  // "Copas" cobre o índice, nova, página da copa e da edição por prefixo.
+  { href: "/dashboard/copas", rotulo: "Copas" },
   { href: "/dashboard/partidas/nova", rotulo: "Nova partida" },
 ];
 
