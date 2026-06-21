@@ -40,7 +40,7 @@ function renderSection(over: Partial<Parameters<typeof VagasSection>[0]> = {}) {
     <VagasSection
       vagas={VAGAS}
       userId="visitante"
-      ehDono={false}
+      podeModerar={false}
       tournamentId={TORNEIO}
       torneioEncerrado={false}
       {...over}
@@ -70,14 +70,14 @@ describe("VagasSection", () => {
     expect(
       screen.getAllByRole("button", { name: "Desistir do clube" })
     ).toHaveLength(1)
-    // Não ganha console de dono (convite/expulsar/assumir).
+    // Não ganha console de moderação (convite/expulsar/assumir).
     expect(screen.queryByRole("button", { name: /Gerar/ })).toBeNull()
   })
 
-  it("dono vê o console por vaga: link+copiar (com code), expulsar na ocupada e assumir na vazia", () => {
+  it("quem modera vê o console por vaga: link+copiar (com code), expulsar na ocupada e assumir na vazia", () => {
     renderSection({
       userId: DONO,
-      ehDono: true,
+      podeModerar: true,
       codigos: new Map([["s1", "aaaaaaaaaaaaaaaa"]]),
     })
     // Vaga s1 tem code → URL visível + Copiar; s2 sem code → só "Gerar link".
@@ -98,16 +98,16 @@ describe("VagasSection", () => {
     ).toHaveLength(1)
   })
 
-  it("sem `codigos` (gate da page) o dono não vê nenhuma URL de convite", () => {
-    renderSection({ userId: DONO, ehDono: true })
+  it("sem `codigos` (gate da page) quem modera não vê nenhuma URL de convite", () => {
+    renderSection({ userId: DONO, podeModerar: true })
     expect(screen.queryByText(/\/convite\//)).toBeNull()
     expect(screen.queryByRole("button", { name: "Copiar link" })).toBeNull()
   })
 
-  it("torneio ENCERRADO esconde todas as ações (dono e técnico)", () => {
+  it("torneio ENCERRADO esconde todas as ações (moderação e técnico)", () => {
     renderSection({
       userId: TECNICO,
-      ehDono: true,
+      podeModerar: true,
       torneioEncerrado: true,
       codigos: new Map([["s1", "aaaaaaaaaaaaaaaa"]]),
     })

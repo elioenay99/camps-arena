@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import { podeVerBastidores } from "@/lib/autorizacao"
 import type { LinhaComNome } from "@/features/standings/data/getTournamentClassificacao"
 import {
   carregarPosicoesDeCorte,
@@ -185,37 +186,52 @@ export function derivarZonas(
  * `participanteId` para o `competitor_id` (estável entre temporadas), mantendo o
  * nome/escudo já resolvido. As zonas (acesso/rebaixamento) saem das fronteiras.
  *
- * Retorna `null` se a divisão não existe, é de liga alheia ou ainda não foi
- * montada (sem torneio) — a página decide o que mostrar.
+ * Retorna `null` se a divisão não existe, a leitura é negada (sem capacidade) ou
+ * ainda não foi montada (sem torneio) — a página decide o que mostrar.
+ *
+ * O parâmetro `_userId` é mantido por compatibilidade com os call-sites; a
+ * autorização NÃO o usa mais — deriva a capacidade da `competition_id` da season.
  */
 export async function getDivisionStandings(
   divisionSeasonId: string,
-  userId: string,
+  _userId: string | undefined,
   fronteiras: readonly {
     nivelSuperior: number
     vagasAcesso: number
     vagasRebaixamento: number
   }[]
 ): Promise<DivisaoStandings | null> {
+  void _userId
   const supabase = await createClient()
 
-  // Divisão + posse por FILTRO transitivo (divisão → season → competition).
+  // Divisão + competition_id (para a checagem de capacidade de leitura).
   // `season_id` alimenta o fetch de metadados de playoff das fronteiras (modo/
   // estilo/vagas) — a página passa só o sobe/cai DIRETO, então enriquecemos aqui.
   // Fase 5.1: + tournament_id_clausura/formato/desempate + ciclo da season (split).
   const { data: divisao, error: divError } = await supabase
     .from("league_division_seasons")
     .select(
-      "id, nivel, season_id, tournament_id, tournament_id_clausura, ranking_base, formato, desempate, league_seasons!inner ( ciclo, league_competitions!inner ( created_by ) )"
+      "id, nivel, season_id, tournament_id, tournament_id_clausura, ranking_base, formato, desempate, league_seasons!inner ( ciclo, league_competitions!inner ( id ) )"
     )
     .eq("id", divisionSeasonId)
-    .eq("league_seasons.league_competitions.created_by", userId)
     .maybeSingle()
 
   if (divError) {
     throw new Error(`Falha ao carregar a divisão: ${divError.message}`)
   }
   if (!divisao || !divisao.tournament_id) {
+    return null
+  }
+
+  // Autorização por CAPACIDADE: ver bastidores (dono ou qualquer membro/papel da
+  // liga). A página de gestão já passou por `podeGerir` (getSeason); aqui a leitura
+  // basta `podeVerBastidores`. Sem capacidade → null.
+  const competitionId = (
+    divisao.league_seasons as unknown as {
+      league_competitions: { id: string } | null
+    } | null
+  )?.league_competitions?.id
+  if (!competitionId || !(await podeVerBastidores(supabase, { competitionId }))) {
     return null
   }
 

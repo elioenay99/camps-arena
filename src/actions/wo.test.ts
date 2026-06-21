@@ -41,6 +41,8 @@ interface Cenario {
   requestUpdateError?: boolean
   insertError?: boolean
   insertCode?: string
+  /** Nega a capacidade ARBITRAR (RPC pode_arbitrar_* devolve false). */
+  negarCapacidade?: boolean
 }
 
 function montarClient(cfg: Cenario) {
@@ -134,6 +136,10 @@ function montarClient(cfg: Cenario) {
   }
 
   const client = {
+    rpc: vi.fn().mockResolvedValue({
+      data: cfg.negarCapacidade ? false : true,
+      error: null,
+    }),
     auth: {
       getUser: vi.fn(async () => ({
         data: { user: cfg.user ?? null },
@@ -190,9 +196,23 @@ describe("marcarWO", () => {
     const r = await marcarWO(MATCH, VAGA_1)
     expect(r.ok).toBe(false)
     expect(c.matchUpdateSpy).not.toHaveBeenCalled()
-    // Propriedade + estado ATIVO por filtro.
-    expect(c.tournamentFiltroSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
+    // Estado ATIVO por filtro (a posse vem da capacidade ARBITRAR, via RPC).
     expect(c.tournamentFiltroSpy).toHaveBeenCalledWith("eq", "status", "ativo")
+  })
+
+  it("sem capacidade ARBITRAR: recusa sem oráculo e NÃO marca o W.O.", async () => {
+    const c = montarClient({
+      user: { id: DONO },
+      match: partidaAberta(),
+      torneio: { id: TORNEIO },
+      negarCapacidade: true,
+    })
+    const r = await marcarWO(MATCH, VAGA_1)
+    expect(r.ok).toBe(false)
+    // Pré-check de capacidade barra ANTES de qualquer escrita.
+    expect(c.matchUpdateSpy).not.toHaveBeenCalled()
+    // E nem chega a filtrar o torneio por estado (curto-circuito no pré-check).
+    expect(c.tournamentFiltroSpy).not.toHaveBeenCalled()
   })
 
   it("partida já encerrada é recusada (corrigir = reabrir antes)", async () => {

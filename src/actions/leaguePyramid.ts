@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { iniciarTorneio } from "@/actions/tournaments"
+import { podeGerir } from "@/lib/autorizacao"
 import { gerarChaveSemeada } from "@/features/knockout/data/gerarChaveSemeada"
 import { getTournamentClassificacao } from "@/features/standings/data/getTournamentClassificacao"
 import {
@@ -448,8 +449,8 @@ export async function montarTemporada(input: unknown): Promise<LeaguePyramidResu
  * Inicia UMA divisão de uma temporada: carrega o `tournament_id` da divisão e
  * delega a `iniciarTorneio` (reúso TOTAL do motor de liga). Quando TODAS as
  * divisões da temporada já têm o torneio fora de rascunho, transiciona a
- * temporada para 'ativa'. Posse conferida por FILTRO transitivo (divisão →
- * season → competition.created_by) + RLS como 2ª barreira.
+ * temporada para 'ativa'. Autorização por CAPACIDADE (`podeGerir` = dono ou
+ * admin de liga — herança via `pode_gerir_competition`) + RLS como backstop.
  */
 export async function iniciarDivisao(input: unknown): Promise<LeaguePyramidResult> {
   const parsed = divisionSeasonIdSchema.safeParse(input)
@@ -467,9 +468,9 @@ export async function iniciarDivisao(input: unknown): Promise<LeaguePyramidResul
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
-  const erroPropriedade = "Divisão não encontrada ou você não é o dono da liga."
+  const erroPropriedade = "Divisão não encontrada ou você não tem acesso a esta liga."
 
-  // Carrega a divisão + season + posse por FILTRO transitivo (inner joins).
+  // Carrega a divisão + season + competition_id (para a checagem de capacidade).
   // Fase 5.2: formato/qtd_grupos/classificados_por_grupo + ida_e_volta da Apertura.
   // Fase 5.1: ciclo da season + tournament_id_clausura + status das DUAS meias
   // (embeds DESAMBIGUADOS por FK — há 3 FKs league_division_seasons→tournaments).
@@ -479,16 +480,26 @@ export async function iniciarDivisao(input: unknown): Promise<LeaguePyramidResul
       `id, tournament_id, tournament_id_clausura, season_id, formato, qtd_grupos, classificados_por_grupo,
        apertura:tournaments!league_division_seasons_tournament_id_fkey(status, ida_e_volta),
        clausura:tournaments!league_division_seasons_tournament_id_clausura_fkey(status),
-       league_seasons!inner(ciclo, league_competitions!inner(created_by))`
+       league_seasons!inner(ciclo, league_competitions!inner(id))`
     )
     .eq("id", parsed.data)
-    .eq("league_seasons.league_competitions.created_by", user.id)
     .maybeSingle()
   if (divError) {
     return { ok: false, error: "Não foi possível iniciar a divisão agora. Tente novamente." }
   }
   if (!divisao || !divisao.tournament_id) {
-    // Divisão inexistente, de liga alheia, ou ainda não montada (sem torneio).
+    // Divisão inexistente, de liga sem acesso, ou ainda não montada (sem torneio).
+    return { ok: false, error: erroPropriedade }
+  }
+
+  // Autorização por CAPACIDADE: gerir (dono ou admin de liga). Substitui o filtro
+  // transitivo por `created_by` — a herança de admin de liga passa a funcionar.
+  const competitionId = (
+    divisao.league_seasons as unknown as {
+      league_competitions: { id: string } | null
+    } | null
+  )?.league_competitions?.id
+  if (!competitionId || !(await podeGerir(supabase, { competitionId }))) {
     return { ok: false, error: erroPropriedade }
   }
 
@@ -748,7 +759,8 @@ async function lerResultadoBarragem(
  * (best-first), chama a RPC `montar_playoff` (cria o tournaments mata_mata + slots
  * pré-preenchidos) e gera a chave SEMEADA por posição (`gerarChaveSemeada`).
  * Idempotente: a RPC retorna a chave já criada e `gerarChaveSemeada` pula se as
- * partidas já existem (retomada parcial). Posse por FILTRO transitivo + RLS.
+ * partidas já existem (retomada parcial). Autorização por CAPACIDADE (`podeGerir`
+ * = dono ou admin de liga) + RLS como backstop.
  */
 export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResult> {
   const parsed = seasonIdSchema.safeParse(input)
@@ -766,20 +778,23 @@ export async function montarPlayoffs(input: unknown): Promise<LeaguePyramidResul
   }
 
   const erroGenerico = "Não foi possível montar os playoffs agora. Tente novamente."
-  const erroPropriedade = "Temporada não encontrada ou você não é o dono da liga."
+  const erroPropriedade = "Temporada não encontrada ou você não tem acesso a esta liga."
 
-  // Posse + status: a temporada precisa estar 'ativa' (em disputa). Fase 5.1:
+  // Capacidade + status: a temporada precisa estar 'ativa' (em disputa). Fase 5.1:
   // `ciclo` alimenta `carregarLinhasBaseDivisao` (split).
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
-    .select("id, status, ciclo, league_competitions!inner(created_by)")
+    .select("id, status, ciclo, competition_id")
     .eq("id", parsed.data)
-    .eq("league_competitions.created_by", user.id)
     .maybeSingle()
   if (seasonError) {
     return { ok: false, error: erroGenerico }
   }
   if (!season) {
+    return { ok: false, error: erroPropriedade }
+  }
+  // Autorização por CAPACIDADE: gerir (dono ou admin de liga).
+  if (!(await podeGerir(supabase, { competitionId: season.competition_id }))) {
     return { ok: false, error: erroPropriedade }
   }
   if (season.status !== "ativa") {
@@ -1097,19 +1112,22 @@ export async function montarGrandesFinais(input: unknown): Promise<LeaguePyramid
   }
 
   const erroGenerico = "Não foi possível montar as grandes finais agora. Tente novamente."
-  const erroPropriedade = "Temporada não encontrada ou você não é o dono da liga."
+  const erroPropriedade = "Temporada não encontrada ou você não tem acesso a esta liga."
 
-  // Posse + ciclo: só faz sentido numa temporada split.
+  // Capacidade + ciclo: só faz sentido numa temporada split.
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
-    .select("id, ciclo, league_competitions!inner(created_by)")
+    .select("id, ciclo, competition_id")
     .eq("id", parsed.data)
-    .eq("league_competitions.created_by", user.id)
     .maybeSingle()
   if (seasonError) {
     return { ok: false, error: erroGenerico }
   }
   if (!season) {
+    return { ok: false, error: erroPropriedade }
+  }
+  // Autorização por CAPACIDADE: gerir (dono ou admin de liga).
+  if (!(await podeGerir(supabase, { competitionId: season.competition_id }))) {
     return { ok: false, error: erroPropriedade }
   }
   if (season.ciclo !== "apertura_clausura") {
@@ -1254,7 +1272,8 @@ export type CalcularFluxoResult =
  * corte é resolvido por sorteio DETERMINÍSTICO semeado pelo id da temporada —
  * estável e reproduzível (calcular e confirmar produzem o MESMO plano em todo
  * retry; o id da temporada É a semente auditável). Retorna o plano para a tela
- * de fluxo (2 cliques: calcular → confirmar). Posse por FILTRO transitivo + RLS.
+ * de fluxo (2 cliques: calcular → confirmar). Autorização por CAPACIDADE
+ * (`podeGerir` = dono ou admin de liga) + RLS como backstop.
  *
  * EXIGE que TODAS as divisões estejam ENCERRADAS — 'ativa' significa apenas que
  * as divisões foram iniciadas, não concluídas; congelar a classificação parcial
@@ -1277,20 +1296,23 @@ export async function calcularFluxoTemporada(input: unknown): Promise<CalcularFl
   }
 
   const erroGenerico = "Não foi possível calcular o fluxo agora. Tente novamente."
-  const erroPropriedade = "Temporada não encontrada ou você não é o dono da liga."
+  const erroPropriedade = "Temporada não encontrada ou você não tem acesso a esta liga."
 
-  // Posse + carrega divisões (com tournament_id) e fronteiras por FILTRO.
+  // Capacidade + carrega divisões (com tournament_id) e fronteiras.
   // Fase 5.1: `ciclo` da season alimenta `carregarLinhasBaseDivisao` (split).
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
-    .select("id, status, ciclo, league_competitions!inner(created_by)")
+    .select("id, status, ciclo, competition_id")
     .eq("id", parsed.data)
-    .eq("league_competitions.created_by", user.id)
     .maybeSingle()
   if (seasonError) {
     return { ok: false, error: erroGenerico }
   }
   if (!season) {
+    return { ok: false, error: erroPropriedade }
+  }
+  // Autorização por CAPACIDADE: gerir (dono ou admin de liga).
+  if (!(await podeGerir(supabase, { competitionId: season.competition_id }))) {
     return { ok: false, error: erroPropriedade }
   }
 
@@ -2121,11 +2143,11 @@ export async function montarProximaTemporada(
 export type AtualizarCoresResult = { ok: true } | { ok: false; error: string }
 
 /**
- * Atualiza as cores DEFAULT de uma PIRÂMIDE (`league_competitions`). Só o dono:
- * a posse é validada pelo FILTRO (`created_by = user.id`) no próprio UPDATE — 0
- * linhas cobre inexistente/alheio com a MESMA resposta (sem oráculo). A RLS é a
- * 2ª barreira. Cor `undefined`/vazia GRAVA null (limpa); as divisões que não têm
- * cor própria voltam a herdar o tema base do app.
+ * Atualiza as cores DEFAULT de uma PIRÂMIDE (`league_competitions`). Autorização
+ * por CAPACIDADE GERIR (`podeGerir` = dono ou admin de liga) no app-layer; a RLS
+ * (`league_competitions_update_owner` = `pode_gerir_competition`) é o backstop.
+ * Cor `undefined`/vazia GRAVA null (limpa); as divisões que não têm cor própria
+ * voltam a herdar o tema base do app.
  */
 export async function atualizarCoresPiramide(
   competitionId: unknown,
@@ -2150,6 +2172,14 @@ export async function atualizarCoresPiramide(
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
+  // Capacidade GERIR (dono ou admin) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeGerir(supabase, { competitionId: parsedId.data }))) {
+    return {
+      ok: false,
+      error: "Campeonato não encontrado ou você não tem acesso a esta ação.",
+    }
+  }
+
   const { data: atualizados, error: updateError } = await supabase
     .from("league_competitions")
     .update({
@@ -2157,7 +2187,6 @@ export async function atualizarCoresPiramide(
       cor_secundaria: parsedCores.data.corSecundaria ?? null,
     })
     .eq("id", parsedId.data)
-    .eq("created_by", user.id)
     .select("id")
   if (updateError) {
     return {
@@ -2166,7 +2195,10 @@ export async function atualizarCoresPiramide(
     }
   }
   if (!atualizados || atualizados.length === 0) {
-    return { ok: false, error: "Liga não encontrada ou você não é o dono dela." }
+    return {
+      ok: false,
+      error: "Campeonato não encontrado ou você não tem acesso a esta ação.",
+    }
   }
 
   revalidatePath("/dashboard/ligas")
@@ -2176,14 +2208,16 @@ export async function atualizarCoresPiramide(
 
 /**
  * Atualiza as cores de uma DIVISÃO de temporada (`league_division_seasons`).
- * `league_division_seasons` NÃO tem `created_by`: a posse é TRANSITIVA
- * (`division → season → competition.created_by`). Por isso a checagem é em DUAS
- * etapas (PostgREST não filtra UPDATE por coluna de tabela relacionada):
- *   1. SELECT por filtro transitivo (`!inner` até `created_by = user.id`) —
- *      0 linhas = inexistente/alheio (mesma resposta, sem oráculo);
- *   2. UPDATE por id (a posse já foi provada no passo 1; a RLS é a 2ª barreira).
- * Cor `undefined`/vazia GRAVA null (limpa) → a divisão volta a herdar a cor da
- * competição. A cópia da N+1 (`montarProximaTemporada`) propaga o valor adiante.
+ * `league_division_seasons` NÃO tem `created_by`: a autorização é TRANSITIVA
+ * (`division → season → competition`). Por isso a checagem é em DUAS etapas
+ * (PostgREST não filtra UPDATE por coluna de tabela relacionada):
+ *   1. SELECT da divisão para descobrir a `competition_id`, seguido do PRÉ-CHECK
+ *      de capacidade GERIR (`podeGerir` = dono ou admin) sobre essa competição —
+ *      0 linhas/sem acesso = mesma resposta (sem oráculo);
+ *   2. UPDATE por id (a autorização já foi provada no passo 1; a RLS é a 2ª
+ *      barreira). Cor `undefined`/vazia GRAVA null (limpa) → a divisão volta a
+ *      herdar a cor da competição. A cópia da N+1 (`montarProximaTemporada`)
+ *      propaga o valor adiante.
  */
 export async function atualizarCoresDivisao(
   divisionSeasonId: unknown,
@@ -2210,14 +2244,15 @@ export async function atualizarCoresDivisao(
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
-  const erroPropriedade = "Divisão não encontrada ou você não é o dono da liga."
+  const erroPropriedade =
+    "Campeonato não encontrado ou você não tem acesso a esta ação."
 
-  // (1) Posse por FILTRO transitivo: a divisão pertence à competição do dono.
+  // (1) Descobre a competição da divisão; o pré-check de capacidade GERIR
+  // (dono ou admin) abaixo autoriza por capacidade — a RLS é a 2ª barreira.
   const { data: divisao, error: divError } = await supabase
     .from("league_division_seasons")
-    .select("id, season_id, league_seasons!inner(league_competitions!inner(created_by))")
+    .select("id, season_id, league_seasons!inner(competition_id)")
     .eq("id", parsedId.data)
-    .eq("league_seasons.league_competitions.created_by", user.id)
     .maybeSingle()
   if (divError) {
     return {
@@ -2226,6 +2261,11 @@ export async function atualizarCoresDivisao(
     }
   }
   if (!divisao) {
+    return { ok: false, error: erroPropriedade }
+  }
+
+  const competitionId = divisao.league_seasons?.competition_id
+  if (!competitionId || !(await podeGerir(supabase, { competitionId }))) {
     return { ok: false, error: erroPropriedade }
   }
 

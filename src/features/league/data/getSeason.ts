@@ -3,6 +3,7 @@ import "server-only"
 import { cache } from "react"
 
 import { createClient } from "@/lib/supabase/server"
+import { podeGerir } from "@/lib/autorizacao"
 import type { LeagueSeasonStatus } from "@/features/league/leagueStatus"
 
 /** Identidade exibível de um competidor persistente (clube OU rótulo livre). */
@@ -51,6 +52,10 @@ export interface TemporadaCompleta {
   competicao: {
     id: string
     nome: string
+    /** Dono da pirâmide (`created_by`). Usado para gatear ações DONO-only no
+     * console de fim de temporada (a virada de temporada é exclusiva do dono;
+     * admin de liga gere mas não confirma). null = competição sem dono. */
+    criadaPor: string | null
     /** Cores DEFAULT da pirâmide (change add-cores-campeonato): herança das
      * divisões sem cor própria + cor do header/seções cross-divisão. null = base. */
     corPrimaria: string | null
@@ -99,10 +104,16 @@ function nomeDoCompetidor(c: CompetidorEmbed): string {
 
 /**
  * Carrega a temporada de uma pirâmide (config + divisões + fronteiras +
- * identidade dos competidores) para a página da temporada. Posse por FILTRO
- * transitivo (`league_competitions.created_by = user`) + RLS como 2ª barreira:
- * temporada de liga alheia (ou inexistente) → `null` (a página converte em
- * notFound; resposta única, sem oráculo de existência).
+ * identidade dos competidores) para a PÁGINA DE GESTÃO da temporada.
+ * Autorização por CAPACIDADE (`podeGerir` = dono ou admin de liga — a herança de
+ * admin passa a funcionar) + RLS como backstop: sem capacidade (ou season
+ * inexistente) → `null` (a página converte em notFound; resposta única, sem
+ * oráculo de existência).
+ *
+ * O parâmetro `_userId` é mantido por compatibilidade com os call-sites (a página
+ * ainda passa `user.id`); a autorização NÃO o usa mais — deriva a capacidade da
+ * `competition_id` da própria season. Pode ser removido quando os call-sites
+ * (page.tsx) forem ajustados.
  *
  * Resolve a identidade dos competidores DA PIRÂMIDE (clube → nome/escudo; rótulo
  * livre; técnico → avatar) num único embed — o FluxoTemporadaPanel e a tabela
@@ -113,11 +124,15 @@ function nomeDoCompetidor(c: CompetidorEmbed): string {
  */
 export const getSeason = cache(async function getSeason(
   seasonId: string,
-  userId: string
+  _userId?: string
 ): Promise<TemporadaCompleta | null> {
+  void _userId
   const supabase = await createClient()
 
-  // Temporada + pirâmide (posse por filtro) + divisões + fronteiras num só hop.
+  // Temporada + pirâmide + divisões + fronteiras num só hop. SEM filtro de posse
+  // por `created_by`: a autorização é a checagem de capacidade abaixo (a RLS
+  // libera a leitura para dono OU liga ativa; admin de liga rascunho depende do
+  // backstop da RLS — ver nota da página). O `competition_id` alimenta `podeGerir`.
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
     .select(
@@ -127,15 +142,21 @@ export const getSeason = cache(async function getSeason(
        league_boundaries ( nivel_superior, vagas_acesso, vagas_rebaixamento )`
     )
     .eq("id", seasonId)
-    // Embed aliasado: o filtro usa o ALIAS (`competition`), não o nome da tabela
-    // (PostgREST resolve a relação pelo apelido — ver getVagasDoTorneio).
-    .eq("competition.created_by", userId)
     .maybeSingle()
 
   if (seasonError) {
     throw new Error(`Falha ao carregar a temporada: ${seasonError.message}`)
   }
   if (!season) {
+    return null
+  }
+
+  // Autorização por CAPACIDADE: gerir (dono ou admin de liga). A página de gestão
+  // exige `podeGerir` (controles de iniciar/montar/fluxo). Sem capacidade → null
+  // (= notFound na página; mesma resposta de inexistente, sem oráculo).
+  const competitionId = (season as unknown as { competition: { id: string } })
+    .competition.id
+  if (!(await podeGerir(supabase, { competitionId }))) {
     return null
   }
 
@@ -212,6 +233,7 @@ export const getSeason = cache(async function getSeason(
     competicao: {
       id: linha.competition.id,
       nome: linha.competition.nome,
+      criadaPor: linha.competition.created_by,
       corPrimaria: linha.competition.cor_primaria,
       corSecundaria: linha.competition.cor_secundaria,
     },

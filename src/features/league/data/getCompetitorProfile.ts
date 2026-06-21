@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import { podeVerBastidores } from "@/lib/autorizacao"
 import { calcularPromedio } from "@/features/league/flowEngine"
 import { resolverCampeaoDivisaoSplit } from "@/features/league/data/getGrandeFinal"
 
@@ -58,10 +59,12 @@ export interface CompetidorPerfil {
 
 /**
  * Perfil de um competidor persistente da pirâmide. Gate de leitura: a pirâmide
- * precisa estar ATIVA (`status='ativa'`) OU o leitor ser o dono — ESPELHA a RLS
- * das tabelas `league_*` (a estrutura é pública enquanto ativa; só placares de
- * PARTIDA herdam o sigilo via `tournaments.is_public`). Esta página expõe SÓ
- * agregados das entries (pontos/jogos/posição/destino), nunca placares de jogo.
+ * precisa estar ATIVA (`status='ativa'`) OU o leitor ter capacidade de ver
+ * bastidores (`podeVerBastidores` = dono OU qualquer membro/papel da liga — a
+ * herança de admin/árbitro/moderador passa a funcionar). ESPELHA a RLS das
+ * tabelas `league_*` (a estrutura é pública enquanto ativa; só placares de PARTIDA
+ * herdam o sigilo via `tournaments.is_public`). Esta página expõe SÓ agregados das
+ * entries (pontos/jogos/posição/destino), nunca placares de jogo.
  *
  * Retorna `null` se o competidor não existe ou a leitura é negada (RLS/gate).
  */
@@ -80,7 +83,7 @@ export async function getCompetitorProfile(
     .select(
       `id, rotulo, team_id,
        team:teams ( nome, escudo_url ),
-       competition:league_competitions!inner ( id, nome, status, created_by )`
+       competition:league_competitions!inner ( id, nome, status )`
     )
     .eq("id", competitorId)
     .maybeSingle()
@@ -90,11 +93,17 @@ export async function getCompetitorProfile(
     id: string
     nome: string
     status: string
-    created_by: string | null
   } | null
   if (!competition) return null
-  const ehDono = !!user && user.id === competition.created_by
-  if (competition.status !== "ativa" && !ehDono) return null
+  // Gate de leitura: pirâmide ATIVA (público) OU capacidade de ver bastidores
+  // (dono OU qualquer membro/papel — herança de admin/árbitro/moderador). Sem
+  // sessão e fora de 'ativa' → negado (podeVerBastidores resolve auth.uid()=null).
+  if (
+    competition.status !== "ativa" &&
+    !(user && (await podeVerBastidores(supabase, { competitionId: competition.id })))
+  ) {
+    return null
+  }
 
   const team = comp.team as unknown as { nome: string | null; escudo_url: string | null } | null
   const porNome = comp.rotulo != null

@@ -173,6 +173,7 @@ function montarClient(c: Cenario) {
   const matchesSelectSpy = vi.fn(() => cadeiaMatchesSelect)
 
   const client = {
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
     auth: {
       getUser: vi.fn(async () => ({
         data: { user: c.user ?? null },
@@ -273,9 +274,8 @@ describe("iniciarMataMata", () => {
     )
     expect(insertSpy).not.toHaveBeenCalled()
     expect(updateSpy).not.toHaveBeenCalled()
-    // Propriedade + formato + estado conferidos por FILTRO no servidor.
+    // Formato + estado por FILTRO; a posse vem da capacidade GERIR (via RPC).
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
-    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "formato", "mata_mata")
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "status", "rascunho")
   })
@@ -417,7 +417,6 @@ describe("iniciarMataMata", () => {
 
     expect(updateSpy).toHaveBeenCalledWith({ status: "ativo" })
     expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
-    expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "status", "rascunho")
 
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
@@ -678,7 +677,6 @@ describe("avancarFase", () => {
     })
     expect(insertSpy).not.toHaveBeenCalled()
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
-    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroTorneioSpy).toHaveBeenCalledWith("in", "formato", [
       "mata_mata",
       "grupos_mata_mata",

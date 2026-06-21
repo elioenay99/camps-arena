@@ -31,6 +31,7 @@ import {
   validarGeometria,
   type PartidaGrupoJogada,
 } from "@/features/groups/gerarFaseDeGrupos"
+import { podeArbitrar, podeGerir } from "@/lib/autorizacao"
 import { gerarCodigoConvite } from "@/lib/invite-code"
 import { randIntCrypto } from "@/lib/rand"
 import { createClient } from "@/lib/supabase/server"
@@ -311,12 +312,16 @@ export async function iniciarTorneio(
   const erroPropriedade =
     "Torneio não encontrado, já iniciado ou você não é o dono dele."
 
-  // Propriedade + formato + estado por FILTRO (padrão das actions).
+  // Capacidade GERIR (dono ou admin) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeGerir(supabase, { tournamentId: parsed.data }))) {
+    return { ok: false, error: erroPropriedade }
+  }
+
+  // Formato + estado por FILTRO (a autorização já passou pelo pré-check).
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select("id, ida_e_volta")
     .eq("id", parsed.data)
-    .eq("created_by", user.id)
     .eq("formato", "liga")
     .eq("status", "rascunho")
     .maybeSingle()
@@ -410,7 +415,6 @@ export async function iniciarTorneio(
     .from("tournaments")
     .update({ status: "ativo" })
     .eq("id", parsed.data)
-    .eq("created_by", user.id)
     .eq("status", "rascunho")
     .select("id")
   if (updateError) {
@@ -460,11 +464,18 @@ export async function encerrarTorneio(
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
+  // Capacidade GERIR (dono ou admin) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeGerir(supabase, { tournamentId: parsed.data }))) {
+    return {
+      ok: false,
+      error: "Torneio não encontrado, já encerrado ou você não é o dono dele.",
+    }
+  }
+
   const { data: atualizados, error: updateError } = await supabase
     .from("tournaments")
     .update({ status: "encerrado" })
     .eq("id", parsed.data)
-    .eq("created_by", user.id)
     .neq("status", "encerrado")
     .select("id")
   if (updateError) {
@@ -676,12 +687,16 @@ export async function iniciarMataMata(
   const erroPropriedade =
     "Torneio não encontrado, já iniciado ou você não é o dono dele."
 
-  // Propriedade + formato + estado por FILTRO (padrão das actions).
+  // Capacidade GERIR (dono ou admin) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeGerir(supabase, { tournamentId }))) {
+    return { error: erroPropriedade }
+  }
+
+  // Formato + estado por FILTRO (a autorização já passou pelo pré-check).
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select("id, ida_e_volta, terceiro_lugar")
     .eq("id", tournamentId)
-    .eq("created_by", user.id)
     .eq("formato", "mata_mata")
     .eq("status", "rascunho")
     .maybeSingle()
@@ -790,7 +805,6 @@ export async function iniciarMataMata(
     .from("tournaments")
     .update({ status: "ativo" })
     .eq("id", tournamentId)
-    .eq("created_by", user.id)
     .eq("status", "rascunho")
     .select("id")
   if (updateError) {
@@ -839,6 +853,11 @@ export async function avancarFase(
   const erroPropriedade =
     "Torneio não encontrado, não iniciado ou você não é o dono dele."
 
+  // Capacidade GERIR (dono ou admin) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeGerir(supabase, { tournamentId: parsed.data }))) {
+    return { ok: false, error: erroPropriedade }
+  }
+
   // Formatos COM CHAVE: o avanço opera nas partidas com `posicao` — nos
   // formatos de grupos a chave começa após as rodadas de grupos (rodada-base
   // derivada pelo motor).
@@ -846,7 +865,6 @@ export async function avancarFase(
     .from("tournaments")
     .select("id, formato, ida_e_volta, terceiro_lugar")
     .eq("id", parsed.data)
-    .eq("created_by", user.id)
     .in("formato", [...FORMATOS_COM_CHAVE])
     .eq("status", "ativo")
     .maybeSingle()
@@ -1034,13 +1052,17 @@ export async function iniciarTorneioGrupos(
   const erroPropriedade =
     "Torneio não encontrado, já iniciado ou você não é o dono dele."
 
+  // Capacidade GERIR (dono ou admin) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeGerir(supabase, { tournamentId }))) {
+    return { error: erroPropriedade }
+  }
+
   // `ativo` também entra no filtro: é o estado de RECUPERAÇÃO (crash entre a
   // promoção e o INSERT) — ver o comentário da função.
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select("id, formato, ida_e_volta, status")
     .eq("id", tournamentId)
-    .eq("created_by", user.id)
     .in("formato", ["grupos_mata_mata", "fase_liga"])
     .in("status", ["rascunho", "ativo"])
     .maybeSingle()
@@ -1163,7 +1185,6 @@ export async function iniciarTorneioGrupos(
     .from("tournaments")
     .update({ status: "ativo", classificados_por_grupo: classificadosPorGrupo })
     .eq("id", tournamentId)
-    .eq("created_by", user.id)
     .eq("status", "rascunho")
     .select("id")
   if (updateError) {
@@ -1241,13 +1262,17 @@ export async function gerarMataMataDosGrupos(
   const erroPropriedade =
     "Torneio não encontrado, não iniciado ou você não é o dono dele."
 
+  // Capacidade GERIR (dono ou admin) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeGerir(supabase, { tournamentId: parsed.data }))) {
+    return { ok: false, error: erroPropriedade }
+  }
+
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select(
       "id, ida_e_volta, terceiro_lugar, classificados_por_grupo, pontos_vitoria, pontos_empate, pontos_derrota"
     )
     .eq("id", parsed.data)
-    .eq("created_by", user.id)
     .in("formato", ["grupos_mata_mata", "fase_liga"])
     .eq("status", "ativo")
     .maybeSingle()
@@ -1401,6 +1426,14 @@ export async function atualizarCoresTorneio(
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
+  // Capacidade GERIR (dono ou admin) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeGerir(supabase, { tournamentId: parsedId.data }))) {
+    return {
+      ok: false,
+      error: "Torneio não encontrado ou você não é o dono dele.",
+    }
+  }
+
   const { data: atualizados, error: updateError } = await supabase
     .from("tournaments")
     .update({
@@ -1409,7 +1442,6 @@ export async function atualizarCoresTorneio(
       cor_secundaria: parsedCores.data.corSecundaria ?? null,
     })
     .eq("id", parsedId.data)
-    .eq("created_by", user.id)
     .select("id")
   if (updateError) {
     return {
@@ -1461,12 +1493,20 @@ export async function liberarRodadas(
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
-  // Posse + estado por filtro (mesmo padrão das demais actions; sem oráculo).
+  // Capacidade ARBITRAR (dono, admin ou árbitro) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeArbitrar(supabase, { tournamentId: parsedId.data }))) {
+    return {
+      ok: false,
+      error: "Torneio não encontrado, encerrado ou você não é o dono dele.",
+    }
+  }
+
+  // Estado por filtro (a autorização já passou pelo pré-check). O título alimenta
+  // a notificação abaixo.
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select("id, titulo")
     .eq("id", parsedId.data)
-    .eq("created_by", user.id)
     .neq("status", "encerrado")
     .maybeSingle()
   if (torneioError) {

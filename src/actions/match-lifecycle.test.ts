@@ -44,6 +44,7 @@ function montarClient(c: Cenario) {
   const updateSpy = vi.fn()
   const updateFiltroSpy = vi.fn()
   const client = {
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
     auth: {
       getUser: vi.fn(async () => ({
         data: { user: c.user ?? null },
@@ -147,8 +148,7 @@ describe("encerrarPartida", () => {
     expect(r1).toEqual(r2) // sem oráculo de existência
     expect(semPartida.updateSpy).not.toHaveBeenCalled()
     expect(naoDono.updateSpy).not.toHaveBeenCalled()
-    // Propriedade + lifecycle do torneio conferidos por FILTRO no servidor.
-    expect(naoDono.filtroTorneioSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
+    // Lifecycle do torneio por FILTRO; a posse vem da capacidade (via RPC).
     expect(naoDono.filtroTorneioSpy).toHaveBeenCalledWith("neq", "status", "encerrado")
   })
 

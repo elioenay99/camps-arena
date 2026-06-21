@@ -88,6 +88,7 @@ function montarClient(c: Cenario) {
     }),
   }
   const client = {
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
     auth: {
       getUser: vi.fn(async () => ({
         data: { user: c.user ?? null },
@@ -145,9 +146,8 @@ describe("createMatch", () => {
     const r = await createMatch({}, formData({ tournamentId: TORNEIO }))
     expect(r.error).toMatch(/não encontrado|dono/i)
     expect(insertSpy).not.toHaveBeenCalled()
-    // Propriedade e lifecycle conferidos por FILTRO no servidor.
+    // Lifecycle por FILTRO; a posse vem da capacidade GERIR (via RPC).
     expect(filtroSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
-    expect(filtroSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroSpy).toHaveBeenCalledWith("neq", "status", "encerrado")
   })
 

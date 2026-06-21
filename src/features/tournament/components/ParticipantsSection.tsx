@@ -10,9 +10,11 @@ import { UserAvatar } from "@/features/profile/components/UserAvatar"
  * Lista de participantes confirmados (RSC) — EXCLUSIVA do formato AVULSO
  * (modelo clube-cêntrico: competitivos usam VagasSection). Ações por papel:
  * - a PRÓPRIA linha tem "Sair" (qualquer participante, dono incluso);
- * - as demais linhas têm "Remover" quando o usuário é o DONO;
- * - dono fora da lista vê "Participar" (reentrada / torneio legado), só com
- *   torneio não-encerrado (espelha a policy de INSERT).
+ * - as demais linhas têm "Remover" quando o usuário pode MODERAR (dono, admin
+ *   ou moderador da equipe);
+ * - o DONO fora da lista vê "Participar" (reentrada / torneio legado) — é uma
+ *   afordância de auto-participação do dono, não de moderação; só com torneio
+ *   não-encerrado (espelha a policy de INSERT).
  * O congelamento de lista do mata-mata MORREU com o escopo avulso (a chave
  * competitiva é entre vagas; participants não a sustenta mais).
  * Os botões são UX — a autorização real é action + RLS.
@@ -22,12 +24,16 @@ export function ParticipantsSection({
   participantes,
   userId,
   ehDono,
+  podeModerar,
   torneioEncerrado,
 }: {
   tournamentId: string
   participantes: ParticipanteDoTorneio[]
   userId: string
+  /** Dono do torneio — afordância de auto-participação ("Participar"). */
   ehDono: boolean
+  /** Pode moderar (dono/admin/moderador) — gate de "Remover participante". */
+  podeModerar: boolean
   torneioEncerrado: boolean
 }) {
   const souParticipante = participantes.some((p) => p.id === userId)
@@ -66,7 +72,7 @@ export function ParticipantsSection({
               </span>
               {p.id === userId ? (
                 <LeaveTournamentButton tournamentId={tournamentId} />
-              ) : ehDono ? (
+              ) : podeModerar ? (
                 <RemoveParticipantButton
                   tournamentId={tournamentId}
                   userId={p.id}

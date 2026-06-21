@@ -45,6 +45,8 @@ interface Cenario {
   /** Resultado do UPDATE de promoção. */
   updateData?: { id: string }[] | null
   updateError?: boolean
+  /** Nega a capacidade GERIR (RPC pode_gerir_* devolve false). */
+  negarCapacidade?: boolean
 }
 
 /**
@@ -108,6 +110,10 @@ function montarClient(c: Cenario) {
   const updateSpy = vi.fn(() => cadeiaUpdate)
 
   const client = {
+    rpc: vi.fn().mockResolvedValue({
+      data: c.negarCapacidade ? false : true,
+      error: null,
+    }),
     auth: {
       getUser: vi.fn(async () => ({
         data: { user: c.user ?? null },
@@ -162,11 +168,27 @@ describe("iniciarTorneio", () => {
     })
     expect(insertSpy).not.toHaveBeenCalled()
     expect(updateSpy).not.toHaveBeenCalled()
-    // Propriedade + formato + estado conferidos por FILTRO no servidor.
+    // Formato + estado por FILTRO; a posse vem da capacidade GERIR (via RPC).
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
-    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "formato", "liga")
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "status", "rascunho")
+  })
+
+  it("sem capacidade GERIR: recusa por propriedade e NÃO escreve nem filtra", async () => {
+    const { insertSpy, updateSpy, filtroTorneioSpy } = montarClient({
+      user: { id: DONO },
+      torneio: { id: TORNEIO, ida_e_volta: false },
+      negarCapacidade: true,
+    })
+    const r = await iniciarTorneio(TORNEIO)
+    expect(r).toEqual({
+      ok: false,
+      error: "Torneio não encontrado, já iniciado ou você não é o dono dele.",
+    })
+    // Pré-check de capacidade barra ANTES de qualquer filtro ou escrita.
+    expect(insertSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+    expect(filtroTorneioSpy).not.toHaveBeenCalled()
   })
 
   it("menos de 2 clubes rejeita com orientação, sem escrever", async () => {
@@ -277,10 +299,9 @@ describe("iniciarTorneio", () => {
     )
     expect(chaves.size).toBe(6)
 
-    // Promoção filtrada (dono + rascunho) e confirmada por select.
+    // Promoção filtrada por estado (rascunho) e confirmada por select; posse via RPC.
     expect(updateSpy).toHaveBeenCalledWith({ status: "ativo" })
     expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
-    expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "status", "rascunho")
 
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")

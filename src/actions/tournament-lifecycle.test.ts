@@ -121,6 +121,7 @@ function montarClient(c: Cenario) {
   }
 
   const client = {
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
     auth: {
       getUser: vi.fn(async () => ({
         data: { user: c.user ?? null },
@@ -171,9 +172,8 @@ describe("encerrarTorneio", () => {
     const r = await encerrarTorneio(TORNEIO)
     expect(r).toEqual({ ok: true })
     expect(updatePayloadSpy).toHaveBeenCalledWith({ status: "encerrado" })
-    // Dono e transição conferidos por FILTRO — sem fetch prévio, sem oráculo.
+    // Transição por FILTRO; a posse vem da capacidade GERIR (via RPC).
     expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
-    expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroUpdateSpy).toHaveBeenCalledWith("neq", "status", "encerrado")
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard/torneios")

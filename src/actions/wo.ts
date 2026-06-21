@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
 import { enviarNotificacoes } from "@/features/notifications/enviar"
+import { podeArbitrar } from "@/lib/autorizacao"
 import { createClient } from "@/lib/supabase/server"
 import type { WoRequestStatus } from "@/lib/supabase/database.types"
 
@@ -76,16 +77,16 @@ async function validarWoChave(
 }
 
 /**
- * Marca W.O. numa partida ABERTA, como o DONO, apontando o slot vencedor (um
- * dos lados). UPDATE único (wo + vencedor + placar 0x0 + encerrada) — não bate
- * no lock de imutabilidade (a partida sai de aberta). Compartilhado por
- * marcarWO (adm direto) e responderWO (aceite da solicitação). A propriedade é
- * por FILTRO (dono + torneio ativo); o trigger valida_resultado_mata_mata faz
- * early-return em `wo` (W.O. é decisão explícita, não valida placar).
+ * Marca W.O. numa partida ABERTA, apontando o slot vencedor (um dos lados).
+ * UPDATE único (wo + vencedor + placar 0x0 + encerrada) — não bate no lock de
+ * imutabilidade (a partida sai de aberta). Compartilhado por marcarWO (adm
+ * direto) e responderWO (aceite da solicitação). A autorização é por CAPACIDADE
+ * ARBITRAR (dono, admin ou árbitro), transitiva pelo torneio da partida, com o
+ * estado ATIVO por FILTRO; o trigger valida_resultado_mata_mata faz early-return
+ * em `wo` (W.O. é decisão explícita, não valida placar).
  */
 async function marcarWoInterno(
   supabase: SupabaseServer,
-  userId: string,
   matchId: string,
   vencedorSlotId: string
 ): Promise<WoResult> {
@@ -101,11 +102,18 @@ async function marcarWoInterno(
     return { ok: false, error: ERRO_PROPRIEDADE }
   }
 
+  // Capacidade ARBITRAR (dono, admin ou árbitro) por PRÉ-CHECK, TRANSITIVA pelo
+  // torneio da partida; a RLS é o backstop.
+  if (!(await podeArbitrar(supabase, { tournamentId: match.tournament_id }))) {
+    return { ok: false, error: ERRO_PROPRIEDADE }
+  }
+
+  // Estado por FILTRO (a autorização já passou pelo pré-check): só torneio ATIVO
+  // aceita W.O.
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select("id")
     .eq("id", match.tournament_id)
-    .eq("created_by", userId)
     .eq("status", "ativo")
     .maybeSingle()
   if (torneioError) {
@@ -182,7 +190,7 @@ export async function marcarWO(
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
-  return marcarWoInterno(supabase, user.id, m.data, v.data)
+  return marcarWoInterno(supabase, m.data, v.data)
 }
 
 /**
@@ -210,11 +218,21 @@ export async function fecharRodada(
     return { ok: false, error: "Você precisa estar autenticado." }
   }
 
+  // Capacidade ARBITRAR (dono, admin ou árbitro) por PRÉ-CHECK; a RLS (e a do
+  // helper de varredura) é o backstop.
+  if (!(await podeArbitrar(supabase, { tournamentId: t.data }))) {
+    return {
+      ok: false,
+      error: "Torneio não encontrado, não está ativo ou você não é o dono dele.",
+    }
+  }
+
+  // Estado por FILTRO (a autorização já passou pelo pré-check): só torneio ATIVO
+  // fecha rodada.
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select("id")
     .eq("id", t.data)
-    .eq("created_by", user.id)
     .eq("status", "ativo")
     .maybeSingle()
   if (torneioError) {
@@ -368,7 +386,6 @@ export async function responderWO(
     // real). Falhou (partida já encerrada/corrida) → não resolve a solicitação.
     const marcou = await marcarWoInterno(
       supabase,
-      user.id,
       req.match_id,
       req.solicitante_slot
     )

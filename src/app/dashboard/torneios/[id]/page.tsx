@@ -17,6 +17,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
+import { podeArbitrar, podeGerir, podeModerar } from "@/lib/autorizacao";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { mensagemRodada } from "@/lib/whatsapp";
@@ -121,13 +122,38 @@ export default async function TorneioPage({
     proximaRodadaOculta,
   } = classificacao;
   const titulo = torneio.titulo.trim() || "Torneio";
-  // Console do dono para PARTIDAS (encerrar/reabrir partida). O botão é UX —
-  // a autorização real é a action + RLS + trigger de matches. Torneio
-  // encerrado congela o lifecycle das partidas (o destrave é reabrir o
-  // TORNEIO, na seção Administração); torneio sem dono (created_by NULL,
-  // semeados) não tem console.
+
+  // Capacidades da EQUIPE (change add-equipe-campeonato): derivadas de uma vez
+  // (1 hop cada, em paralelo) da fonte única no banco. `gerir` (estrutura/ciclo:
+  // dono ou admin), `arbitrar` (placar/W.O./rodadas: + árbitro), `moderar`
+  // (convites/vagas/participantes: + moderador). O botão é UX — a autorização
+  // real é a action + RLS. A herança de divisão de liga já vem resolvida no banco.
+  const [gerir, arbitrar, moderar] = await Promise.all([
+    podeGerir(supabase, { tournamentId: id }),
+    podeArbitrar(supabase, { tournamentId: id }),
+    podeModerar(supabase, { tournamentId: id }),
+  ]);
+
+  // Torneio de DIVISÃO (change add-equipe-campeonato): quando o torneio É uma
+  // divisão de uma pirâmide, a equipe é a da LIGA-mãe (superfície única) — não há
+  // equipe própria a gerir aqui. `liga_do_torneio` devolve a competição-mãe (uuid)
+  // ou null para torneio avulso. Não-nulo ⇒ esconde o link "Equipe" (a gestão é
+  // pela liga); a tela de equipe da divisão também retorna 404 (defesa em prof.).
+  const { data: ligaDoTorneio } = await supabase.rpc("liga_do_torneio", {
+    p_tid: id,
+  });
+  const ehDivisao = ligaDoTorneio !== null;
+
+  // `ehDono` permanece SÓ para usos NÃO-autorizativos: (a) data-visibility ligada
+  // à RLS (que ainda chaveia por created_by — só o DONO recebe as rodadas ainda
+  // não liberadas, então os painéis "tudo liberado/iniciar" seguem o dono, não a
+  // capacidade); (b) ações exclusivas do dono (Reabrir torneio). Torneio sem dono
+  // (created_by NULL, semeados) não tem console de dono.
   const ehDono = torneio.created_by !== null && torneio.created_by === user.id;
-  const podeGerirPartidas = ehDono && torneio.status !== "encerrado";
+  // Lifecycle das PARTIDAS (encerrar/reabrir partida) e edição de placar/W.O. são
+  // capacidade ARBITRAR; torneio encerrado congela o lifecycle (o destrave é
+  // reabrir o TORNEIO, na seção Administração).
+  const podeArbitrarPartidas = arbitrar && torneio.status !== "encerrado";
   // Formato gerado: partidas nascem da geração (sem "Nova partida"); o
   // painel de início só existe no rascunho do dono.
   const ehLiga = torneio.formato === "liga";
@@ -161,8 +187,11 @@ export default async function TorneioPage({
     torneio.status === "ativo" &&
     grupos.length === 0 &&
     chave.length === 0;
+  // Iniciar torneio (estrutural) = capacidade GERIR. O rascunho/recuperação só
+  // chega aqui via RLS (chaveada por created_by) — na prática o dono; um admin
+  // sem posse de RLS não veria o estado, mas o gate de UX correto é `gerir`.
   const mostrarIniciar =
-    ehDono &&
+    gerir &&
     ehGerado &&
     (torneio.status === "rascunho" || gruposEmRecuperacao);
 
@@ -181,30 +210,30 @@ export default async function TorneioPage({
         .maybeSingle()
     : { data: null };
 
-  // Avançar fase: dono de formato com chave, ativo, chave gerada e final
-  // ainda não criada (a action revalida tudo; o gate aqui é UX). Geometria
-  // derivada da PRÓPRIA chave em FASES RELATIVAS (rodada-base ≠ 1 nos
-  // formatos de grupos — rodadas contínuas).
+  // Avançar fase (estrutural) = capacidade GERIR. Formato com chave, ativo,
+  // chave gerada e final ainda não criada (a action revalida tudo; o gate aqui é
+  // UX). Geometria derivada da PRÓPRIA chave em FASES RELATIVAS (rodada-base ≠ 1
+  // nos formatos de grupos — rodadas contínuas).
   const fasesTotais = chave.length > 0 ? totalFases(tamanhoChaveDasPartidas(chave)) : 0;
   const faseAtual =
     chave.length > 0
       ? Math.max(...chave.map((p) => p.rodada)) - rodadaBaseDaChave(chave) + 1
       : 0;
   const mostrarAvancar =
-    podeGerirPartidas &&
+    gerir &&
     (ehMataMata || ehGrupos) &&
     torneio.status === "ativo" &&
     chave.length > 0 &&
     faseAtual < fasesTotais &&
     barragemPares === null;
 
-  // Gerar mata-mata (formatos de grupos): dono, ativo, grupos gerados e
-  // chave ainda não criada. `pendentes` orienta o que falta (gate de UX).
+  // Gerar mata-mata (estrutural, formatos de grupos) = capacidade GERIR: ativo,
+  // grupos gerados e chave ainda não criada. `pendentes` orienta o que falta.
   const jogosDeGrupoPendentes = partidasAbertas.filter(
     (p) => p.grupo !== null
   ).length;
   const mostrarGerarMataMata =
-    podeGerirPartidas &&
+    gerir &&
     ehGrupos &&
     torneio.status === "ativo" &&
     grupos.length > 0 &&
@@ -215,17 +244,22 @@ export default async function TorneioPage({
   const formatoMeta = FORMATO_META[torneio.formato];
   const temTabela = ehLiga || ehGrupos;
 
+  // Convites/vagas/participantes = capacidade MODERAR (+ torneio não-encerrado:
+  // encerrado é beco sem saída para entrada). Os códigos de convite são segredo
+  // de gestão — o gate evita a query inútil (a RLS de slot_invites /
+  // tournament_invites é a defesa real).
+  const podeModerarParticipacao = moderar && torneio.status !== "encerrado";
+
   // Modelo clube-cêntrico: AVULSO lista participantes + convite genérico;
-  // COMPETITIVO lista VAGAS (clubes) + códigos POR VAGA. Os códigos são
-  // segredo do dono — o gate evita a query inútil (a RLS de slot_invites /
-  // tournament_invites é a defesa real); torneio encerrado não exibe convite
-  // (beco sem saída).
+  // COMPETITIVO lista VAGAS (clubes) + códigos POR VAGA.
   const [participantes, codigoConvite, vagas, codigosVagas, solicitacoesWO] =
     await Promise.all([
       ehGerado ? Promise.resolve([]) : getParticipantesDoTorneio(id),
-      !ehGerado && podeGerirPartidas ? getConviteDoTorneio(id) : Promise.resolve(null),
+      !ehGerado && podeModerarParticipacao
+        ? getConviteDoTorneio(id)
+        : Promise.resolve(null),
       ehGerado ? getVagasDoTorneio(id) : Promise.resolve([]),
-      ehGerado && podeGerirPartidas
+      ehGerado && podeModerarParticipacao
         ? getCodigosDasVagas(id)
         : Promise.resolve(undefined),
       // Solicitações de W.O. pendentes: a RLS devolve ao DONO (todas do
@@ -279,9 +313,10 @@ export default async function TorneioPage({
             </div>
           </div>
         </div>
-        {/* Ações do dono no cabeçalho: identidade (cores) sempre disponível ao
-            dono; "Nova partida" só no avulso (formato gerado nasce da chave). */}
-        {ehDono ? (
+        {/* Ações de gestão no cabeçalho (capacidade GERIR): identidade (cores)
+            sempre disponível a quem gere; "Nova partida" (estrutural) só no
+            avulso não-encerrado (formato gerado nasce da chave). */}
+        {gerir ? (
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Button
               asChild
@@ -294,7 +329,7 @@ export default async function TorneioPage({
                 Cores
               </Link>
             </Button>
-            {podeGerirPartidas && !ehGerado ? (
+            {!ehGerado && torneio.status !== "encerrado" ? (
               <Button asChild size="sm" className="rounded-full">
                 <Link href={`/dashboard/torneios/${id}/partidas/nova`}>
                   <Plus aria-hidden="true" />
@@ -436,10 +471,13 @@ export default async function TorneioPage({
         </SecaoTorneio>
       ) : null}
 
-      {/* Liberação de rodadas (DONO, change add-liberacao-rodadas): só quando
-          há controle de cadência a exercer (formato gerado com mapa de
-          rodadas). O console é UX — a action + RLS + posse são a defesa. */}
-      {ehDono && ehGerado && rodadasLiberacao.length > 0 ? (
+      {/* Liberação de rodadas (capacidade ARBITRAR; change add-liberacao-rodadas):
+          só quando há cadência a exercer (formato gerado com mapa de rodadas). O
+          console é UX — a action + RLS + posse são a defesa. NOTA: `rodadasLiberacao`
+          (rodadas ainda ocultas) vem completo só ao DONO pela RLS; um árbitro
+          sem posse de RLS veria apenas as já liberadas (limitação de RLS, fora
+          do escopo desta camada). */}
+      {arbitrar && ehGerado && rodadasLiberacao.length > 0 ? (
         <SecaoTorneio
           id="liberacao-titulo"
           titulo="Liberação de rodadas"
@@ -484,12 +522,13 @@ export default async function TorneioPage({
         </SecaoTorneio>
       ) : null}
 
-      {/* Em aberto: contexto para todos; botão Encerrar só para o dono. */}
+      {/* Em aberto: contexto para todos; botão Encerrar/placar só para quem
+          ARBITRA (dono, admin ou árbitro). */}
       {partidasAbertas.length > 0 ? (
         <SecaoTorneio id="abertas-titulo" titulo="Partidas em aberto" Icon={Swords}>
           <OpenMatchesList
             partidas={partidasAbertas}
-            mostrarEncerrar={podeGerirPartidas}
+            mostrarEncerrar={podeArbitrarPartidas}
             convocacao={{ userId: user.id, titulo, tournamentId: id }}
             rodadaAtiva={rodadaAtiva}
             tournamentId={id}
@@ -497,10 +536,10 @@ export default async function TorneioPage({
         </SecaoTorneio>
       ) : null}
 
-      {/* Solicitações de W.O. pendentes: console do DONO (aceitar/recusar). A
-          RLS devolve só ao dono as do torneio; o gate aqui evita exibir o
-          console a quem não gere as partidas. */}
-      {podeGerirPartidas && solicitacoesWO.length > 0 ? (
+      {/* Solicitações de W.O. pendentes: console de quem ARBITRA (aceitar/recusar).
+          A RLS devolve só ao dono as do torneio; o gate aqui evita exibir o
+          console a quem não arbitra as partidas. */}
+      {podeArbitrarPartidas && solicitacoesWO.length > 0 ? (
         <SecaoTorneio id="wo-titulo" titulo="Solicitações de W.O." Icon={Flag}>
           <ul className="flex list-none flex-col gap-2 p-0">
             {solicitacoesWO.map((s) => (
@@ -529,7 +568,7 @@ export default async function TorneioPage({
         <SecaoTorneio id="historico-titulo" titulo="Partidas encerradas" Icon={History}>
           <MatchHistoryList
             partidas={partidasEncerradas}
-            mostrarReabrir={podeGerirPartidas}
+            mostrarReabrir={podeArbitrarPartidas}
           />
         </SecaoTorneio>
       ) : null}
@@ -550,7 +589,7 @@ export default async function TorneioPage({
         <VagasSection
           vagas={vagas}
           userId={user.id}
-          ehDono={ehDono}
+          podeModerar={moderar}
           tournamentId={id}
           torneioEncerrado={torneio.status === "encerrado"}
           codigos={codigosVagas}
@@ -562,25 +601,27 @@ export default async function TorneioPage({
             participantes={participantes}
             userId={user.id}
             ehDono={ehDono}
+            podeModerar={moderar}
             torneioEncerrado={torneio.status === "encerrado"}
           />
 
-          {/* Convite genérico (EXCLUSIVO do avulso): só o dono de torneio
-              aberto gerencia (encerrado não aceita entrada — exibir o link
-              seria um beco sem saída). */}
-          {podeGerirPartidas ? (
+          {/* Convite genérico (EXCLUSIVO do avulso) = capacidade MODERAR em
+              torneio aberto (encerrado não aceita entrada — exibir o link seria
+              um beco sem saída). */}
+          {podeModerarParticipacao ? (
             <InviteSection tournamentId={id} code={codigoConvite} />
           ) : null}
         </>
       )}
 
-      {/* Lifecycle do TORNEIO (dono): Encerrar fica FORA do gate
-          podeGerirPartidas de propósito — em torneio encerrado, Reabrir é o
-          único controle de ADMINISTRAÇÃO visível (a gestão de participantes
-          permanece liberada em encerrado, exceto mata-mata com chave). Fim da
-          página: ação de consequência ampla, longe dos controles do dia a
-          dia. */}
-      {ehDono ? (
+      {/* Administração do torneio = capacidade GERIR (dono ou admin da equipe):
+          gestão da equipe + lifecycle. Encerrar é GERIR; Reabrir é exclusivo do
+          DONO (`podeReabrir={ehDono}`) — um admin gere mas não reabre. Em torneio
+          encerrado, Reabrir é o único controle de lifecycle visível (a gestão de
+          participantes permanece liberada em encerrado, exceto mata-mata com
+          chave). Fim da página: ação de consequência ampla, longe dos controles
+          do dia a dia. */}
+      {gerir ? (
         <section
           aria-labelledby="lifecycle-titulo"
           className="mt-2 flex flex-col gap-3 border-t pt-6"
@@ -592,11 +633,28 @@ export default async function TorneioPage({
             <Settings2 className="size-3.5" aria-hidden="true" />
             Administração do torneio
           </h2>
-          <div>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Equipe própria só no torneio AVULSO/raiz: numa DIVISÃO a equipe é
+                a da liga-mãe (superfície única) — o link é omitido (a gestão é
+                pela página da liga). */}
+            {!ehDivisao ? (
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="min-h-10 rounded-full px-4"
+              >
+                <Link href={`/dashboard/torneios/${id}/equipe`}>
+                  <Users aria-hidden="true" />
+                  Equipe
+                </Link>
+              </Button>
+            ) : null}
             <TournamentLifecycleButtons
               tournamentId={id}
               encerrado={torneio.status === "encerrado"}
               partidasAbertas={partidasAbertas.length}
+              podeReabrir={ehDono}
             />
           </div>
         </section>

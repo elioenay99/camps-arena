@@ -836,6 +836,153 @@ export interface Database {
           },
         ]
       }
+      tournament_members: {
+        Row: {
+          tournament_id: string
+          user_id: string
+          papel: string
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          tournament_id: string
+          user_id: string
+          papel: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          tournament_id?: string
+          user_id?: string
+          papel?: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tournament_members_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tournament_members_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      league_members: {
+        Row: {
+          competition_id: string
+          user_id: string
+          papel: string
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          competition_id: string
+          user_id: string
+          papel: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          competition_id?: string
+          user_id?: string
+          papel?: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "league_members_competition_id_fkey"
+            columns: ["competition_id"]
+            isOneToOne: false
+            referencedRelation: "league_competitions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "league_members_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      member_invites: {
+        Row: {
+          id: string
+          escopo: string
+          tournament_id: string | null
+          competition_id: string | null
+          papel: string
+          code: string
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          escopo: string
+          tournament_id?: string | null
+          competition_id?: string | null
+          papel: string
+          code: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          escopo?: string
+          tournament_id?: string | null
+          competition_id?: string | null
+          papel?: string
+          code?: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_invites_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "member_invites_competition_id_fkey"
+            columns: ["competition_id"]
+            isOneToOne: false
+            referencedRelation: "league_competitions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "member_invites_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       users_public: {
@@ -918,6 +1065,68 @@ export interface Database {
       montar_grande_final: {
         Args: { p_division_season_id: string; p_competitor_ids: string[] }
         Returns: string
+      }
+      liga_do_torneio: {
+        Args: { p_tid: string }
+        Returns: string
+      }
+      pode_gerir_torneio: {
+        Args: { p_tid: string }
+        Returns: boolean
+      }
+      pode_arbitrar_torneio: {
+        Args: { p_tid: string }
+        Returns: boolean
+      }
+      pode_moderar_torneio: {
+        Args: { p_tid: string }
+        Returns: boolean
+      }
+      pode_ver_bastidores_torneio: {
+        Args: { p_tid: string }
+        Returns: boolean
+      }
+      pode_gerir_competition: {
+        Args: { p_cid: string }
+        Returns: boolean
+      }
+      pode_arbitrar_competition: {
+        Args: { p_cid: string }
+        Returns: boolean
+      }
+      pode_moderar_competition: {
+        Args: { p_cid: string }
+        Returns: boolean
+      }
+      pode_ver_bastidores_competition: {
+        Args: { p_cid: string }
+        Returns: boolean
+      }
+      info_convite_membro: {
+        Args: { p_code: string }
+        Returns: {
+          escopo: string
+          alvo_id: string
+          titulo: string
+          papel: string
+          ja_membro: boolean
+        }[]
+      }
+      aceitar_convite_membro: {
+        Args: { p_code: string }
+        Returns: {
+          escopo: string
+          alvo_id: string
+        }[]
+      }
+      subscriptions_para_nomeacao: {
+        Args: { p_user_id: string; p_escopo: string; p_id: string }
+        Returns: {
+          user_id: string
+          endpoint: string
+          p256dh: string
+          auth: string
+        }[]
       }
     }
     Enums: {

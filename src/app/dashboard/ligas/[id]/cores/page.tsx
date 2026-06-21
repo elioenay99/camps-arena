@@ -42,8 +42,9 @@ export default async function CoresDaLigaPage({
     redirect(`/login?redirectTo=/dashboard/ligas/${id}/cores`)
   }
 
-  // getSeason filtra por created_by: só o DONO carrega a temporada (alheia ou
-  // inexistente → null → 404, sem oráculo). A action revalida a posse.
+  // Editar a identidade é capacidade GERIR (dono ou admin da equipe). getSeason
+  // já gateia internamente por `podeGerir({ competitionId })` — sem capacidade
+  // (ou inexistente) → null → 404 (sem oráculo). A action revalida a posse.
   const temporada = await getSeason(id, user.id)
   if (!temporada) {
     notFound()

@@ -8,6 +8,7 @@ import { z } from "zod"
 import { FORMATOS_COM_CHAVE } from "@/features/knockout/gerarChaveMataMata"
 import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
 import { enviarNotificacoes } from "@/features/notifications/enviar"
+import { podeArbitrar, podeGerir } from "@/lib/autorizacao"
 import { createClient } from "@/lib/supabase/server"
 import {
   createMatchSchema,
@@ -236,13 +237,20 @@ export async function createMatch(
   }
 
   try {
-    // Propriedade + lifecycle: `.neq` falha-segura (rascunho aceita partidas;
-    // status futuro não bloqueia silenciosamente) — espelha a policy de INSERT.
+    // Capacidade GERIR (dono ou admin) por PRÉ-CHECK; a RLS é o backstop.
+    if (!(await podeGerir(supabase, { tournamentId: parsed.data.tournamentId }))) {
+      return {
+        error: "Torneio não encontrado, encerrado ou você não é o dono dele.",
+      }
+    }
+
+    // Lifecycle + formato por FILTRO (a autorização já passou pelo pré-check).
+    // `.neq` falha-segura (rascunho aceita partidas; status futuro não bloqueia
+    // silenciosamente) — espelha a policy de INSERT.
     const { data: torneio, error: fetchError } = await supabase
       .from("tournaments")
       .select("id, formato")
       .eq("id", parsed.data.tournamentId)
-      .eq("created_by", user.id)
       .neq("status", "encerrado")
       .maybeSingle()
     if (fetchError) {
@@ -448,20 +456,25 @@ async function mudarStatusComoDono(
     return { ok: false, error: opts.erroGenerico }
   }
 
-  // Propriedade do TORNEIO por filtro — partida inexistente, invisível, de
-  // torneio alheio OU de torneio encerrado recebem a MESMA resposta (sem
-  // oráculo). Torneio encerrado congela o lifecycle das partidas: reabrir ali
-  // seria beco sem saída (a partida some do dashboard e de toda edição).
+  // Propriedade do TORNEIO — partida inexistente, invisível, de torneio alheio
+  // OU de torneio encerrado recebem a MESMA resposta (sem oráculo). Torneio
+  // encerrado congela o lifecycle das partidas: reabrir ali seria beco sem saída
+  // (a partida some do dashboard e de toda edição).
   const erroPropriedade =
     "Partida não encontrada, torneio encerrado ou você não é o dono dele."
   if (!match) {
     return { ok: false, error: erroPropriedade }
   }
+  // Capacidade ARBITRAR (dono, admin ou árbitro) por PRÉ-CHECK, TRANSITIVA pelo
+  // torneio da partida; a RLS é o backstop.
+  if (!(await podeArbitrar(supabase, { tournamentId: match.tournament_id }))) {
+    return { ok: false, error: erroPropriedade }
+  }
+  // Lifecycle + formato por FILTRO (a autorização já passou pelo pré-check).
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select("id, formato")
     .eq("id", match.tournament_id)
-    .eq("created_by", user.id)
     .neq("status", "encerrado")
     .maybeSingle()
   if (torneioError) {

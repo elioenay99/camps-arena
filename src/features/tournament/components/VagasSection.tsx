@@ -14,30 +14,32 @@ import {
  * Vagas (clubes) de um torneio COMPETITIVO — RSC puro. Cada vaga é um CLUBE
  * (escudo + nome) com o técnico atual como detalhe ("téc. Fulano" /
  * "vaga aberta"). Ações por papel:
- * - DONO: por vaga, copia/gera o link do convite (segredo SÓ dele), e
- *   expulsa o técnico (vaga ocupada) OU assume o clube para si (vaga vazia).
+ * - quem MODERA (dono, admin ou moderador): por vaga, copia/gera o link do
+ *   convite (segredo de gestão), e expulsa o técnico (vaga ocupada) OU assume o
+ *   clube para si (vaga vazia).
  * - TÉCNICO da própria vaga: "desistir do clube".
  * - Visitante: só vê a lista.
  *
- * `codigos` (mapa slot_id → code) chega APENAS para o dono (a page gateia o
- * fetcher e só passa quando `ehDono`): os links de convite nunca são
- * renderizados para quem não é dono — defesa em profundidade com a RLS de
+ * `codigos` (mapa slot_id → code) chega APENAS para quem modera (a page gateia o
+ * fetcher e só passa quando há capacidade de moderar): os links de convite nunca
+ * são renderizados para quem não modera — defesa em profundidade com a RLS de
  * slot_invites. Torneio encerrado esconde as ações de troca (a RLS rejeita).
  */
 export function VagasSection({
   vagas,
   userId,
-  ehDono,
+  podeModerar,
   tournamentId,
   torneioEncerrado,
   codigos,
 }: {
   vagas: VagaDoTorneio[]
   userId: string
-  ehDono: boolean
+  /** Pode moderar (dono/admin/moderador) — gate do console por vaga. */
+  podeModerar: boolean
   tournamentId: string
   torneioEncerrado: boolean
-  /** slot_id → code (só presente para o dono). */
+  /** slot_id → code (só presente para quem modera). */
   codigos?: Map<string, string>
 }) {
   return (
@@ -95,10 +97,10 @@ export function VagasSection({
                   ) : null}
                 </div>
 
-                {/* Console do dono por vaga: convite + troca de técnico. Só
-                    renderizado para o dono — o code é segredo dele. Modo
-                    por-nome NÃO tem convite/técnico: sem console. */}
-                {ehDono && !torneioEncerrado && !vaga.porNome ? (
+                {/* Console de moderação por vaga: convite + troca de técnico. Só
+                    renderizado para quem modera — o code é segredo de gestão.
+                    Modo por-nome NÃO tem convite/técnico: sem console. */}
+                {podeModerar && !torneioEncerrado && !vaga.porNome ? (
                   <div className="flex flex-col gap-2 border-t pt-3">
                     {url ? (
                       <p className="bg-muted min-w-0 truncate rounded-md px-3 py-1.5 font-mono text-xs">

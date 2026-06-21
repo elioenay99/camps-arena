@@ -9,6 +9,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 // ParticipantsSection, com suas folhas mockadas) renderizam de verdade.
 vi.mock("server-only", () => ({}))
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }))
+// Capacidades da equipe (change add-equipe-campeonato): a página deriva
+// gerir/arbitrar/moderar do app-layer. Mockadas como vi.fn() — `montarCenario`
+// ajusta o retorno conforme o cenário (dono = todas; visitante = nenhuma).
+vi.mock("@/lib/autorizacao", () => ({
+  podeGerir: vi.fn(async () => true),
+  podeArbitrar: vi.fn(async () => true),
+  podeModerar: vi.fn(async () => true),
+  podeVerBastidores: vi.fn(async () => true),
+}))
 vi.mock("@/features/standings/data/getTournamentClassificacao", () => ({
   getTournamentClassificacao: vi.fn(),
   // Cores (change add-cores-campeonato): default tema base — não tematiza, as
@@ -96,8 +105,12 @@ import {
 import { getParticipantesDoTorneio } from "@/features/tournament/data/getParticipantesDoTorneio"
 import { getConviteDoTorneio } from "@/features/tournament/data/getConviteDoTorneio"
 import { createClient } from "@/lib/supabase/server"
+import { podeArbitrar, podeGerir, podeModerar } from "@/lib/autorizacao"
 
 const mockCreateClient = vi.mocked(createClient)
+const mockGerir = vi.mocked(podeGerir)
+const mockArbitrar = vi.mocked(podeArbitrar)
+const mockModerar = vi.mocked(podeModerar)
 const mockClassificacao = vi.mocked(getTournamentClassificacao)
 const mockVagas = vi.mocked(getVagasDoTorneio)
 const mockCodigos = vi.mocked(getCodigosDasVagas)
@@ -127,6 +140,9 @@ function torneioBase(over: Record<string, unknown> = {}) {
 function montarCenario(c: {
   user?: { id: string } | null
   torneio?: Record<string, unknown>
+  /** Retorno da RPC `liga_do_torneio`: uuid da liga-mãe (divisão) ou null
+   * (avulso/raiz). Default null = NÃO é divisão (comportamento existente). */
+  ligaDoTorneio?: string | null
 }) {
   // Cadeia mínima para a query de barragem 'pares' (esconde "Avançar fase");
   // retorna { data: null } → não-barragem, preserva o comportamento existente.
@@ -136,10 +152,19 @@ function montarCenario(c: {
     limit: () => chain,
     maybeSingle: async () => ({ data: null }),
   }
+  const user = c.user ?? { id: DONO }
   mockCreateClient.mockResolvedValue({
-    auth: { getUser: vi.fn(async () => ({ data: { user: c.user ?? { id: DONO } } })) },
+    auth: { getUser: vi.fn(async () => ({ data: { user } })) },
     from: vi.fn(() => chain),
+    // `liga_do_torneio` define `ehDivisao`: não-nulo esconde o link "Equipe".
+    rpc: vi.fn(async () => ({ data: c.ligaDoTorneio ?? null, error: null })),
   } as unknown as never)
+  // Capacidades = posse no modelo do teste: o DONO (created_by) tem todas; o
+  // visitante, nenhuma. A page deriva gerir/arbitrar/moderar daqui.
+  const ehDono = user.id === DONO
+  mockGerir.mockResolvedValue(ehDono)
+  mockArbitrar.mockResolvedValue(ehDono)
+  mockModerar.mockResolvedValue(ehDono)
   mockClassificacao.mockResolvedValue({
     torneio: torneioBase(c.torneio),
     linhas: [],
@@ -306,5 +331,25 @@ describe("TorneioPage — liberação de rodadas (change add-liberacao-rodadas)"
     expect(
       screen.queryByRole("heading", { name: "Liberação de rodadas" })
     ).toBeNull()
+  })
+})
+
+describe("TorneioPage — link 'Equipe' por tipo de torneio (must_fix divisão)", () => {
+  const LIGA_MAE = "22222222-2222-4222-8222-222222222222"
+
+  it("torneio RAIZ (não-divisão): dono vê o link 'Equipe' na Administração", async () => {
+    montarCenario({ torneio: { formato: "liga", status: "ativo" } })
+    await renderPage()
+    const equipe = screen.getByRole("link", { name: /equipe/i })
+    expect(equipe).toHaveAttribute("href", `/dashboard/torneios/${TORNEIO}/equipe`)
+  })
+
+  it("torneio de DIVISÃO (liga_do_torneio não-nulo): link 'Equipe' é OCULTO", async () => {
+    montarCenario({
+      torneio: { formato: "liga", status: "ativo" },
+      ligaDoTorneio: LIGA_MAE,
+    })
+    await renderPage()
+    expect(screen.queryByRole("link", { name: /equipe/i })).toBeNull()
   })
 })

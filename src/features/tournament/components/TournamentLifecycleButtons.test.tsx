@@ -29,6 +29,7 @@ describe("TournamentLifecycleButtons — encerrar com confirmação", () => {
         tournamentId={TORNEIO}
         encerrado={false}
         partidasAbertas={3}
+        podeReabrir
       />
     )
     fireEvent.click(screen.getByRole("button", { name: "Encerrar torneio" }))
@@ -46,6 +47,7 @@ describe("TournamentLifecycleButtons — encerrar com confirmação", () => {
         tournamentId={TORNEIO}
         encerrado={false}
         partidasAbertas={0}
+        podeReabrir
       />
     )
     fireEvent.click(screen.getByRole("button", { name: "Encerrar torneio" }))
@@ -59,6 +61,7 @@ describe("TournamentLifecycleButtons — encerrar com confirmação", () => {
         tournamentId={TORNEIO}
         encerrado={false}
         partidasAbertas={0}
+        podeReabrir
       />
     )
     fireEvent.click(screen.getByRole("button", { name: "Encerrar torneio" }))
@@ -72,6 +75,7 @@ describe("TournamentLifecycleButtons — encerrar com confirmação", () => {
         tournamentId={TORNEIO}
         encerrado={false}
         partidasAbertas={1}
+        podeReabrir
       />
     )
     fireEvent.click(screen.getByRole("button", { name: "Encerrar torneio" }))
@@ -82,16 +86,30 @@ describe("TournamentLifecycleButtons — encerrar com confirmação", () => {
 })
 
 describe("TournamentLifecycleButtons — reabrir", () => {
-  it("torneio encerrado mostra só Reabrir, que roda direto (não-destrutivo)", async () => {
+  it("torneio encerrado (dono) mostra só Reabrir, que roda direto (não-destrutivo)", async () => {
     render(
       <TournamentLifecycleButtons
         tournamentId={TORNEIO}
         encerrado
         partidasAbertas={0}
+        podeReabrir
       />
     )
     expect(screen.queryByRole("button", { name: /Encerrar/ })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "Reabrir torneio" }))
     await waitFor(() => expect(mockReabrir).toHaveBeenCalledWith(TORNEIO))
+  })
+
+  it("torneio encerrado SEM podeReabrir (admin não-dono) não mostra controle nenhum", () => {
+    const { container } = render(
+      <TournamentLifecycleButtons
+        tournamentId={TORNEIO}
+        encerrado
+        partidasAbertas={0}
+        podeReabrir={false}
+      />
+    )
+    expect(screen.queryAllByRole("button")).toEqual([])
+    expect(container).toBeEmptyDOMElement()
   })
 })

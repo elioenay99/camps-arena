@@ -117,6 +117,7 @@ function montarClient(c: Cenario) {
   }
 
   const client = {
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
     auth: {
       getUser: vi.fn(async () => ({
         data: { user: c.user ?? { id: DONO } },

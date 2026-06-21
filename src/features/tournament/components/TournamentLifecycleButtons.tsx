@@ -7,27 +7,37 @@ import { encerrarTorneio, reabrirTorneio } from "@/actions/tournaments"
 import { Button } from "@/components/ui/button"
 
 /**
- * Console de lifecycle do TORNEIO (dono — gate na página; autorização real é
- * action + RLS). Encerrar é destrutivo na prática (congela tudo): exige
- * confirmação em DOIS cliques com o aviso de partidas abertas — padrão do
- * repo sem AlertDialog (estado local; Cancelar desarma). Reabrir é
- * não-destrutivo e roda direto (useTransition + toast, padrão
- * MatchStatusButton).
+ * Console de lifecycle do TORNEIO (gate na página por capacidade GERIR;
+ * autorização real é action + RLS). Encerrar = capacidade GERIR; é destrutivo na
+ * prática (congela tudo): exige confirmação em DOIS cliques com o aviso de
+ * partidas abertas — padrão do repo sem AlertDialog (estado local; Cancelar
+ * desarma). Reabrir é restrito ao DONO (`podeReabrir`): um admin de equipe gere
+ * mas não reabre — decisão reservada a quem criou o torneio. É não-destrutivo e
+ * roda direto (useTransition + toast, padrão MatchStatusButton).
  */
 export function TournamentLifecycleButtons({
   tournamentId,
   encerrado,
   partidasAbertas,
+  podeReabrir,
 }: {
   tournamentId: string
   encerrado: boolean
   /** Nº de partidas em aberto — vem dos dados que a página já tem. */
   partidasAbertas: number
+  /** Reabrir é exclusivo do DONO (gerir não basta). Torneio encerrado sem esta
+   * capacidade não exibe nenhum controle de lifecycle. */
+  podeReabrir: boolean
 }) {
   const [pendente, startTransition] = useTransition()
   const [confirmando, setConfirmando] = useState(false)
 
   if (encerrado) {
+    // Encerrado: só o dono reabre. Admin de equipe (gerir, não-dono) não vê
+    // controle de lifecycle aqui.
+    if (!podeReabrir) {
+      return null
+    }
     return (
       <Button
         type="button"

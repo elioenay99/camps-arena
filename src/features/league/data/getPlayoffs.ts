@@ -10,6 +10,7 @@ import {
   type PartidaDaChave,
 } from "@/features/standings/data/getTournamentClassificacao"
 import { createClient } from "@/lib/supabase/server"
+import { podeVerBastidores } from "@/lib/autorizacao"
 import { getSeasonBoundaries } from "@/features/league/data/getSeasonBoundaries"
 import type { TournamentStatus } from "@/lib/supabase/database.types"
 
@@ -62,9 +63,13 @@ function paraPartidaJogada(partidas: PartidaDaChave[]): PartidaJogada[] {
 
 /**
  * Carrega o estado de PLAYOFF de uma temporada (fronteiras não-`direto` + as
- * chaves montadas) para a página da temporada. Posse por FILTRO transitivo
- * (`league_competitions.created_by = user`) + RLS como 2ª barreira: temporada de
- * liga alheia (ou inexistente) → estado vazio (`temPlayoffs: false`).
+ * chaves montadas) para a página da temporada. Autorização por CAPACIDADE
+ * (`podeVerBastidores` = dono ou qualquer membro/papel da liga) + RLS como
+ * backstop: temporada inexistente ou sem capacidade → estado vazio
+ * (`temPlayoffs: false`).
+ *
+ * O parâmetro `_userId` é mantido por compatibilidade com os call-sites; a
+ * autorização NÃO o usa mais — deriva a capacidade da `competition_id` da season.
  *
  * Para cada fronteira de playoff já montada, busca a CHAVE via
  * `getTournamentClassificacao(playoffTournamentId).chave` (reúso TOTAL do motor)
@@ -75,8 +80,9 @@ function paraPartidaJogada(partidas: PartidaDaChave[]): PartidaJogada[] {
  */
 export async function getPlayoffs(
   seasonId: string,
-  userId: string
+  _userId?: string
 ): Promise<PlayoffsTemporada> {
+  void _userId
   const supabase = await createClient()
   const vazio: PlayoffsTemporada = {
     temPlayoffs: false,
@@ -85,21 +91,23 @@ export async function getPlayoffs(
     fronteiras: [],
   }
 
-  // Posse por FILTRO transitivo (season → competition.created_by). Mantém o gate
-  // de posse aqui (season de liga alheia/inexistente → estado vazio); as
-  // fronteiras vêm da FONTE ÚNICA memoizada (abaixo), não mais embutidas — a
-  // página é só do dono, logo o conjunto de linhas é idêntico ao embed gateado.
+  // Carrega a season + competition_id (para a checagem de capacidade). Sem filtro
+  // por `created_by`: a autorização é `podeVerBastidores` abaixo. As fronteiras
+  // vêm da FONTE ÚNICA memoizada (abaixo), não mais embutidas.
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
-    .select(`id, league_competitions!inner ( created_by )`)
+    .select(`id, competition_id`)
     .eq("id", seasonId)
-    .eq("league_competitions.created_by", userId)
     .maybeSingle()
 
   if (seasonError) {
     throw new Error(`Falha ao carregar os playoffs: ${seasonError.message}`)
   }
   if (!season) {
+    return vazio
+  }
+  // Autorização por CAPACIDADE: ver bastidores (dono ou qualquer membro/papel).
+  if (!(await podeVerBastidores(supabase, { competitionId: season.competition_id }))) {
     return vazio
   }
 

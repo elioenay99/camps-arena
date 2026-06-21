@@ -196,6 +196,7 @@ function montarClient(c: Cenario) {
   const matchesSelectSpy = vi.fn(() => cadeiaMatchesSelect)
 
   const client = {
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
     auth: {
       getUser: vi.fn(async () => ({
         data: { user: c.user ?? null },
@@ -331,9 +332,8 @@ describe("iniciarTorneioGrupos", () => {
     )
     expect(insertSpy).not.toHaveBeenCalled()
     expect(updateSpy).not.toHaveBeenCalled()
-    // Dono e estado conferidos no servidor; formato restrito aos de grupos.
+    // Estado por FILTRO; formato restrito aos de grupos. Posse via capacidade (RPC).
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
-    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroTorneioSpy).toHaveBeenCalledWith("in", "formato", [
       "grupos_mata_mata",
       "fase_liga",
@@ -538,7 +538,6 @@ describe("iniciarTorneioGrupos", () => {
       classificados_por_grupo: 1,
     })
     expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
-    expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroUpdateSpy).toHaveBeenCalledWith("eq", "status", "rascunho")
 
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
@@ -904,7 +903,6 @@ describe("gerarMataMataDosGrupos", () => {
     })
     expect(insertSpy).not.toHaveBeenCalled()
     expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "id", TORNEIO)
-    expect(filtroTorneioSpy).toHaveBeenCalledWith("eq", "created_by", DONO)
     expect(filtroTorneioSpy).toHaveBeenCalledWith("in", "formato", [
       "grupos_mata_mata",
       "fase_liga",

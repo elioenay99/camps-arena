@@ -53,6 +53,14 @@ export interface FluxoTemporadaPanelProps {
   competidores?: Record<string, CompetidorRotulo | undefined>
   /** Nome legível de cada nível (ex.: 1 → "Série A"). */
   nivelNomes?: Record<number, string | undefined>
+  /**
+   * O usuário logado é o DONO da pirâmide? Só o dono confirma a virada de
+   * temporada (`confirmarFluxoTemporada` retorna NAO_DONO a admin não-dono).
+   * Calcular/Recalcular o plano segue liberado a quem gere (admin). Default
+   * `false` = trata como não-dono (esconde o botão de confirmar). Espelha o
+   * padrão `podeReabrir={ehDono}` de TournamentLifecycleButtons.
+   */
+  ehDono?: boolean
 }
 
 /* -------------------------------------------------------------------------- */
@@ -196,6 +204,7 @@ export function FluxoTemporadaPanel({
   seasonId,
   competidores,
   nivelNomes,
+  ehDono = false,
 }: FluxoTemporadaPanelProps) {
   const router = useRouter()
   const [fase, setFase] = useState<Fase>("vazio")
@@ -380,21 +389,31 @@ export function FluxoTemporadaPanel({
             "Recalcular"
           )}
         </Button>
-        <Button
-          type="button"
-          className="rounded-full"
-          onClick={confirmar}
-          disabled={pendente}
-        >
-          {confirmando ? (
-            <>
-              <Loader2 className="animate-spin" aria-hidden="true" />
-              Gerando temporada…
-            </>
-          ) : (
-            "Confirmar e gerar próxima temporada"
-          )}
-        </Button>
+        {/* Confirmar a virada é DONO-only (a action retorna NAO_DONO a admin
+            não-dono). Esconder evita o beco sem saída — admin não-dono só calcula
+            e revisa o plano. Espelha `podeReabrir={ehDono}` de
+            TournamentLifecycleButtons (que retorna null ao não-dono). */}
+        {ehDono ? (
+          <Button
+            type="button"
+            className="rounded-full"
+            onClick={confirmar}
+            disabled={pendente}
+          >
+            {confirmando ? (
+              <>
+                <Loader2 className="animate-spin" aria-hidden="true" />
+                Gerando temporada…
+              </>
+            ) : (
+              "Confirmar e gerar próxima temporada"
+            )}
+          </Button>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            Só o dono da pirâmide confirma a virada de temporada.
+          </p>
+        )}
       </div>
     </div>
   )

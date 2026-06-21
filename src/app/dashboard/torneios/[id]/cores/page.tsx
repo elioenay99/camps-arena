@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { ChampionshipColorsForm } from "@/features/championship/components/ChampionshipColorsForm"
+import { podeGerir } from "@/lib/autorizacao"
 import { createClient } from "@/lib/supabase/server"
 
 export const metadata: Metadata = {
@@ -41,18 +42,19 @@ export default async function CoresDoTorneioPage({
     redirect(`/login?redirectTo=/dashboard/torneios/${id}/cores`)
   }
 
-  // Gate por FILTRO: só o DONO edita a identidade. Inexistente/alheio → o MESMO
-  // 404 (sem oráculo). A autorização real é a action + RLS.
+  // Editar a identidade é capacidade GERIR (dono ou admin da equipe). Carrega o
+  // torneio sem filtrar por posse e gateia por capacidade. Inexistente/alheio
+  // ou sem capacidade → o MESMO 404 (sem oráculo). A autorização real é a
+  // action + RLS.
   const { data: torneio, error } = await supabase
     .from("tournaments")
     .select("id, titulo, cor_primaria, cor_secundaria")
     .eq("id", id)
-    .eq("created_by", user.id)
     .maybeSingle()
   if (error) {
     throw new Error(`Falha ao carregar o torneio: ${error.message}`)
   }
-  if (!torneio) {
+  if (!torneio || !(await podeGerir(supabase, { tournamentId: id }))) {
     notFound()
   }
 

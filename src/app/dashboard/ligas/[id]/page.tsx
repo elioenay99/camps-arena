@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
-import { ExternalLink, Layers, Palette } from "lucide-react"
+import { ExternalLink, Layers, Palette, Users } from "lucide-react"
 import { z } from "zod"
 
 import { Button } from "@/components/ui/button"
@@ -88,6 +88,14 @@ export default async function TemporadaPage({
   if (!temporada) {
     notFound()
   }
+
+  // `ehDono` = o usuário criou a pirâmide (`league_competitions.created_by`).
+  // A página é gateada por `podeGerir` (dono OU admin de liga); este flag separa
+  // as ações DONO-only — a virada de temporada (confirmarFluxoTemporada retorna
+  // NAO_DONO a admin não-dono). Espelha `podeReabrir={ehDono}` desta feature.
+  const ehDono =
+    temporada.competicao.criadaPor !== null &&
+    temporada.competicao.criadaPor === user.id
 
   // "Não montada" = nenhuma divisão virou torneio ainda (tournament_id null).
   // NÃO usar o status da season: ele continua 'rascunho' DEPOIS de montar (só
@@ -181,19 +189,34 @@ export default async function TemporadaPage({
             </div>
           </div>
         </div>
-        {/* Só o dono carrega a página (getSeason filtra por created_by): a
-            edição de identidade fica sempre disponível aqui. */}
-        <Button
-          asChild
-          size="sm"
-          variant="ghost"
-          className="text-muted-foreground shrink-0 rounded-full"
-        >
-          <Link href={`/dashboard/ligas/${id}/cores`}>
-            <Palette aria-hidden="true" />
-            Identidade
-          </Link>
-        </Button>
+        {/* Quem chega aqui tem capacidade GERIR: getSeason já gateia por
+            `podeGerir({ competitionId })` (dono OU admin da equipe). Logo os
+            controles de gestão (Equipe, Identidade) ficam disponíveis a todos
+            que carregam a página. */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <Button
+            asChild
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground rounded-full"
+          >
+            <Link href={`/dashboard/ligas/${id}/equipe`}>
+              <Users aria-hidden="true" />
+              Equipe
+            </Link>
+          </Button>
+          <Button
+            asChild
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground rounded-full"
+          >
+            <Link href={`/dashboard/ligas/${id}/cores`}>
+              <Palette aria-hidden="true" />
+              Identidade
+            </Link>
+          </Button>
+        </div>
       </header>
 
       {/* Não montada: a temporada existe mas as divisões ainda não viraram
@@ -301,6 +324,7 @@ export default async function TemporadaPage({
             seasonId={temporada.seasonId}
             competidores={temporada.competidores}
             nivelNomes={nivelNomes}
+            ehDono={ehDono}
           />
         </section>
       ) : null}
