@@ -9,7 +9,7 @@ const PROPS = {
   tournamentId: "11111111-1111-4111-8111-111111111111",
   rodada: 2,
   titulo: "Copa",
-  texto: "Copa — 2a rodada\n\nA x B\n\nAcompanhe: http://x",
+  texto: "Copa — 2a rodada Liberada\n\nA x B\n\nAcompanhe: http://x",
 }
 
 function setNav(props: Record<string, unknown>) {

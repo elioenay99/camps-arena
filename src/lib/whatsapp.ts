@@ -56,9 +56,10 @@ export interface LadoRodadaTexto {
 
 /**
  * Texto do anúncio de uma rodada para o WhatsApp (change add-compartilhar-rodada).
- * Cabeçalho + uma linha por confronto (clube + comandante; com o link `wa.me` do
- * comandante quando há celular — decisão do dono; sem comandante ⇒ ❌) + a URL
- * absoluta da página. Sem emoji decorativo (o ❌ é caractere unicode estável e
+ * Cabeçalho "<título> — Nª rodada Liberada" + um confronto por linha (clube +
+ * comandante; com o link `wa.me` do comandante quando há celular — decisão do dono;
+ * sem comandante ⇒ ❌) SEPARADOS POR LINHA EM BRANCO (legibilidade no WhatsApp) + a
+ * URL absoluta da página. Sem emoji decorativo (o ❌ é caractere unicode estável e
  * desejado). Montado no SERVIDOR — o celular entra só embutido no `wa.me`.
  */
 export function mensagemRodada({
@@ -80,7 +81,7 @@ export function mensagemRodada({
     const wa = linkWhatsApp(l.celular)
     return wa ? `${l.clube} (${nome}: ${wa})` : `${l.clube} (${nome})`
   }
-  const linhas = confrontos.map((c) => `${lado(c.lado1)} x ${lado(c.lado2)}`).join("\n")
+  const linhas = confrontos.map((c) => `${lado(c.lado1)} x ${lado(c.lado2)}`).join("\n\n")
   const corpo = linhas ? `${linhas}\n\n` : ""
-  return `${t} — ${rodada}a rodada\n\n${corpo}Acompanhe: ${url}`
+  return `${t} — ${rodada}a rodada Liberada\n\n${corpo}Acompanhe: ${url}`
 }

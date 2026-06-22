@@ -78,10 +78,32 @@ describe("mensagemRodada", () => {
       tournamentId,
     })
     expect(msg).toBe(
-      `Copa da Firma — 3a rodada\n\n` +
+      `Copa da Firma — 3a rodada Liberada\n\n` +
         `Grêmio (Ana: https://wa.me/5511912345678) x Inter (Beto: https://wa.me/5511987654321)\n\n` +
         `Acompanhe: ${url}`
     )
+  })
+
+  it("separa cada confronto por uma linha em branco (mais espaçado)", () => {
+    const msg = mensagemRodada({
+      titulo: "Brasileirão",
+      rodada: 1,
+      confrontos: [
+        { lado1: { clube: "Remo", comandante: null }, lado2: { clube: "Galo", comandante: null } },
+        { lado1: { clube: "Inter", comandante: null }, lado2: { clube: "Mirassol", comandante: null } },
+        { lado1: { clube: "Vasco", comandante: null }, lado2: { clube: "Timão", comandante: null } },
+      ],
+      tournamentId,
+    })
+    expect(msg).toBe(
+      `Brasileirão — 1a rodada Liberada\n\n` +
+        `Remo (❌) x Galo (❌)\n\n` +
+        `Inter (❌) x Mirassol (❌)\n\n` +
+        `Vasco (❌) x Timão (❌)\n\n` +
+        `Acompanhe: ${url}`
+    )
+    // linha em branco entre blocos — nunca confrontos colados por \n simples.
+    expect(msg).toContain("Galo (❌)\n\nInter (❌)")
   })
 
   it("vaga sem comandante vira ❌; comandante sem celular sai sem wa.me", () => {
@@ -102,7 +124,7 @@ describe("mensagemRodada", () => {
 
   it("título ausente usa fallback; sem confrontos só cabeçalho + URL", () => {
     const msg = mensagemRodada({ titulo: "  ", rodada: 2, confrontos: [], tournamentId })
-    expect(msg).toBe(`Campeonato — 2a rodada\n\nAcompanhe: ${url}`)
+    expect(msg).toBe(`Campeonato — 2a rodada Liberada\n\nAcompanhe: ${url}`)
   })
 
   it("não contém emoji decorativo (só o ❌ funcional)", () => {
