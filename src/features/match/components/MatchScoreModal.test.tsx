@@ -72,6 +72,38 @@ describe("MatchScoreModal — atalho wa.me com mensagem POR COLUNA", () => {
     expect(screen.queryByRole("link", { name: /Chamar Beto/ })).toBeNull()
   })
 
+  it("competitivo (sem onSelecionarClube): clube só é exibido, sem campo 'Buscar clube'", () => {
+    render(
+      <MatchScoreModal
+        matchId="m1"
+        tituloPartida="Bahia x Flamengo"
+        subtitulo="Brasileirão • agendada"
+        descricao="Bahia enfrenta Flamengo"
+        participante1={{ nome: "Bahia", convocavel: false }}
+        participante2={{ nome: "Flamengo", convocavel: false }}
+      />
+    )
+    fireEvent.click(screen.getByRole("button"))
+    // O clube vem do torneio: sem busca para trocá-lo.
+    expect(screen.queryByPlaceholderText(/Buscar clube/)).toBeNull()
+  })
+
+  it("avulso (com onSelecionarClube): mostra a busca de clube em cada lado", () => {
+    render(
+      <MatchScoreModal
+        matchId="m1"
+        tituloPartida="Ana x Beto"
+        subtitulo="Avulso • agendada"
+        descricao="Ana enfrenta Beto"
+        participante1={{ nome: "Ana", convocavel: false }}
+        participante2={{ nome: "Beto", convocavel: false }}
+        onSelecionarClube={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole("button"))
+    expect(screen.getAllByPlaceholderText(/Buscar clube/)).toHaveLength(2)
+  })
+
   it("não há auto-chamada: o lado NÃO convocável (próprio usuário) não tem botão mesmo com celular", () => {
     render(
       <MatchScoreModal

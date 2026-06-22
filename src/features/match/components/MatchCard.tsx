@@ -262,6 +262,8 @@ export function MatchCard({
             participante2={p2}
             placarInicial1={partida.placar_1}
             placarInicial2={partida.placar_2}
+            // Competitivo: clube vem do torneio (vaga), só exibido. Avulso: pode trocar.
+            permitirEscolherClube={!ehCompetitivo}
             trigger={
               <Button
                 aria-label={`Menu da partida ${tituloPartida}`}

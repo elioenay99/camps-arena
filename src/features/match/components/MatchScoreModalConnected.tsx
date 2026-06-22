@@ -12,7 +12,14 @@ import {
 export type MatchScoreModalConnectedProps = Omit<
   MatchScoreModalProps,
   "onSave" | "onSelecionarClube"
->
+> & {
+  /**
+   * Habilita a busca/troca de clube de cada lado. Só faz sentido no AVULSO (o
+   * clube é cosmético por partida). No COMPETITIVO o clube vem do torneio (a
+   * vaga) e é apenas EXIBIDO — sem busca. Default `false` (apenas exibe).
+   */
+  permitirEscolherClube?: boolean
+}
 
 /**
  * Conecta o `MatchScoreModal` (apresentacional) à Server Action
@@ -24,7 +31,10 @@ export type MatchScoreModalConnectedProps = Omit<
  * quando a action falha, para o modal manter o dialog aberto e exibir o
  * toast de erro.
  */
-export function MatchScoreModalConnected(props: MatchScoreModalConnectedProps) {
+export function MatchScoreModalConnected({
+  permitirEscolherClube = false,
+  ...props
+}: MatchScoreModalConnectedProps) {
   return (
     <MatchScoreModal
       {...props}
@@ -34,21 +44,26 @@ export function MatchScoreModalConnected(props: MatchScoreModalConnectedProps) {
           throw new Error(resultado.error)
         }
       }}
-      onSelecionarClube={async (lado, team) => {
-        // Cacheia o clube e associa ao lado escolhido da partida.
-        const sel = await selectTeam(team)
-        if (!sel.ok) {
-          toast.error(sel.error)
-          return
-        }
-        const patch = lado === 1 ? { time_1: sel.teamId } : { time_2: sel.teamId }
-        const upd = await updateMatchTeams({ matchId: props.matchId, ...patch })
-        if (!upd.ok) {
-          toast.error(upd.error)
-          return
-        }
-        toast.success("Clube atualizado.")
-      }}
+      // Sem a busca no competitivo: o clube vem do torneio e é só exibido.
+      onSelecionarClube={
+        permitirEscolherClube
+          ? async (lado, team) => {
+              // Cacheia o clube e associa ao lado escolhido da partida.
+              const sel = await selectTeam(team)
+              if (!sel.ok) {
+                toast.error(sel.error)
+                return
+              }
+              const patch = lado === 1 ? { time_1: sel.teamId } : { time_2: sel.teamId }
+              const upd = await updateMatchTeams({ matchId: props.matchId, ...patch })
+              if (!upd.ok) {
+                toast.error(upd.error)
+                return
+              }
+              toast.success("Clube atualizado.")
+            }
+          : undefined
+      }
     />
   )
 }
