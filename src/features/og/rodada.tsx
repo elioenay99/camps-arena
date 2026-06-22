@@ -13,8 +13,30 @@ import { carregarAssets, paraArrayBuffer } from "./brand"
  * cai em monograma. Tematizada pelas cores do campeonato (fallback Dracula).
  */
 
-const SIZE = { width: 1080, height: 1080 } as const
+const WIDTH = 1080
 export const RODADA_CONTENT_TYPE = "image/png"
+
+// Métricas do layout (px) para dimensionar a altura DINÂMICA: a imagem cresce
+// com o nº de confrontos para não cortar (um Brasileirão tem 10 jogos/rodada).
+// O termo por-linha (LINHA_H) é EXATO — a linha é dominada pelo escudo de 92px, não
+// pelo texto — então o erro NÃO acumula com n. Já o cabeçalho e o rodapé têm textos
+// SEM lineHeight, cujo line-box no Satori mede ~1,276× o fontSize: somamos esse fator
+// (título 44→~56, rodapé 26→~33) para a estimativa ficar de fato conservadora, deixando
+// um respiro de fundo embaixo (inócuo) em vez de cortar. Conferido renderizando o PNG real.
+const ALTURA_MIN = 1080 // piso: rodadas pequenas seguem ~quadradas
+const LINHA_H = 128 // escudo 92 + padding vertical (18*2) — EXATO (escudo domina o texto)
+const LINHA_GAP = 14
+const CABECALHO_H = 385 // padding-top 64 + logo 64 + título(28+~56) + RODADA(4+96) + barra(28+8+36)
+const RESTANTES_H = 48 // linha "+N confrontos" (fontSize 28 + marginTop 8)
+const RODAPE_H = 126 // marginTop 28 + texto(~33, line-box do fontSize 26) + padding-bottom 64
+
+/** Altura do PNG da rodada a partir do nº de confrontos desenhados. Crescente em
+ * `n`, com piso `ALTURA_MIN`. Puro/determinístico (testável sem renderizar). */
+export function alturaDaRodada(n: number, temRestantes: boolean): number {
+  const linhas = n * LINHA_H + Math.max(0, n - 1) * LINHA_GAP
+  const restantes = temRestantes ? RESTANTES_H : 0
+  return Math.max(ALTURA_MIN, CABECALHO_H + linhas + restantes + RODAPE_H)
+}
 
 // Tema base (Dracula) quando o campeonato não tem cor própria.
 const FUNDO = "#282a36"
@@ -25,8 +47,12 @@ const TEXTO_SUAVE = "#abafd0"
 
 const HEX6 = /^#[0-9a-fA-F]{6}$/
 
-/** Máximo de confrontos desenhados (rodada de grupos pode ter muitos). */
-const MAX_LINHAS = 12
+/** Teto de confrontos desenhados. Pior caso real = uma rodada de FASE DE GRUPOS, em
+ * que um único valor de `rodada` agrega os jogos de TODOS os grupos (getPartidasDaRodada
+ * filtra só por torneio+rodada): 32 clubes ⇒ até 16 confrontos. 20 cobre isso com folga;
+ * acima do teto cai no rodapé "+N confrontos" (não corta). Existe só para não gerar PNG
+ * absurdamente alto. */
+const MAX_LINHAS = 20
 
 /** Cor estável (HSL) para o monograma — replica TeamCrest (que é client). */
 function corDoNome(nome: string): string {
@@ -161,6 +187,7 @@ export async function renderRodadaOg({
   )
   const restantes = confrontos.length - visiveis.length
   const t = titulo?.trim() || "Campeonato"
+  const height = alturaDaRodada(visiveis.length, restantes > 0)
 
   return new ImageResponse(
     (
@@ -193,8 +220,9 @@ export async function renderRodadaOg({
         </div>
         <div style={{ display: "flex", width: 160, height: 8, backgroundColor: accent, borderRadius: 9999, margin: "28px 0 36px" }} />
 
-        {/* Confrontos */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
+        {/* Confrontos — altura natural (o canvas cresce via alturaDaRodada);
+            sem flex:1 para o rodapé assentar logo abaixo do último, sem sobrepor. */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {visiveis.map((c, i) => (
             <Linha
               key={i}
@@ -219,7 +247,8 @@ export async function renderRodadaOg({
       </div>
     ),
     {
-      ...SIZE,
+      width: WIDTH,
+      height,
       fonts: [
         { name: "Space Grotesk", data: paraArrayBuffer(medium), weight: 500, style: "normal" },
         { name: "Space Grotesk", data: paraArrayBuffer(bold), weight: 700, style: "normal" },
