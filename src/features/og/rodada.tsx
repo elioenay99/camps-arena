@@ -215,8 +215,23 @@ export async function renderRodadaOg({
         <div style={{ display: "flex", fontSize: 44, fontWeight: 500, color: TEXTO_SUAVE, marginTop: 28 }}>
           {t}
         </div>
-        <div style={{ display: "flex", fontSize: 96, fontWeight: 700, color: TEXTO, lineHeight: 1, marginTop: 4 }}>
-          {`${rodada}ª RODADA`}
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 20, marginTop: 4 }}>
+          <div style={{ display: "flex", fontSize: 96, fontWeight: 700, color: TEXTO, lineHeight: 1 }}>
+            {`${rodada}ª RODADA`}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              fontSize: 30,
+              fontWeight: 700,
+              color: accent,
+              letterSpacing: "0.1em",
+              lineHeight: 1,
+              marginBottom: 12,
+            }}
+          >
+            LIBERADA
+          </div>
         </div>
         <div style={{ display: "flex", width: 160, height: 8, backgroundColor: accent, borderRadius: 9999, margin: "28px 0 36px" }} />
 
