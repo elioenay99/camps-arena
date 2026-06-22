@@ -17,7 +17,7 @@ import { MemberInviteCards } from "@/features/team-roles/components/MemberInvite
 import { TeamSection } from "@/features/team-roles/components/TeamSection"
 import { getConvitesMembro } from "@/features/team-roles/data/getConvitesMembro"
 import { getMembros } from "@/features/team-roles/data/getMembros"
-import { podeGerir } from "@/lib/autorizacao"
+import { getSeason } from "@/features/league/data/getSeason"
 import { createClient } from "@/lib/supabase/server"
 
 export const metadata: Metadata = {
@@ -46,33 +46,23 @@ export default async function EquipeDaLigaPage({
     redirect(`/login?redirectTo=/dashboard/ligas/${id}/equipe`)
   }
 
-  // Gate por CAPACIDADE: só quem gere (dono/admin) vê os bastidores da equipe.
-  // Sem capacidade → o MESMO 404 (sem oráculo). A autorização real é action+RLS.
-  if (!(await podeGerir(supabase, { competitionId: id }))) {
+  // O `[id]` da rota é a TEMPORADA (season), NÃO a competição. `getSeason`
+  // resolve season → competição E gateia por capacidade GERIR (dono/admin):
+  // sem acesso/inexistente → null → o MESMO 404 (sem oráculo). É o que a página
+  // de Identidade (cores) já faz. Antes, a equipe assumia `id` = competição e
+  // chamava `podeGerir({ competitionId: seasonId })` (sempre falso) → 404 sempre.
+  const temporada = await getSeason(id, user.id)
+  if (!temporada) {
     notFound()
   }
-
-  // Carrega a competição (nome + dono) e a equipe. `created_by` define ehDono e
-  // permite mostrar o dono coroado no topo da lista (ele não tem linha em
-  // league_members).
-  const { data: competicao, error } = await supabase
-    .from("league_competitions")
-    .select("nome, created_by")
-    .eq("id", id)
-    .maybeSingle()
-  if (error) {
-    throw new Error(`Falha ao carregar a competição: ${error.message}`)
-  }
-  if (!competicao) {
-    notFound()
-  }
+  const competitionId = temporada.competicao.id
 
   const [membros, convites] = await Promise.all([
-    getMembros(supabase, "league", id),
-    getConvitesMembro(supabase, "league", id),
+    getMembros(supabase, "league", competitionId),
+    getConvitesMembro(supabase, "league", competitionId),
   ])
 
-  const donoId = competicao.created_by
+  const donoId = temporada.competicao.criadaPor
   const ehDono = donoId === user.id
 
   // Perfil do dono para o cabeçalho coroado (best-effort: sem perfil, cai para
@@ -87,7 +77,7 @@ export default async function EquipeDaLigaPage({
     dono = { userId: donoId, nome: perfil?.nome ?? null, avatar: perfil?.avatar ?? null }
   }
 
-  const nome = competicao.nome.trim() || "Liga"
+  const nome = temporada.competicao.nome.trim() || "Liga"
 
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-6 px-6 py-10">
@@ -121,15 +111,15 @@ export default async function EquipeDaLigaPage({
         <CardContent className="flex flex-col gap-8">
           <TeamSection
             escopo="league"
-            alvoId={id}
+            alvoId={competitionId}
             membros={membros}
             userId={user.id}
             ehDono={ehDono}
             podeGerir
             dono={dono}
           />
-          <MemberInviteCards escopo="league" alvoId={id} convites={convites} />
-          <AddMemberSearch escopo="league" alvoId={id} ehDono={ehDono} />
+          <MemberInviteCards escopo="league" alvoId={competitionId} convites={convites} />
+          <AddMemberSearch escopo="league" alvoId={competitionId} ehDono={ehDono} />
         </CardContent>
       </Card>
     </main>
