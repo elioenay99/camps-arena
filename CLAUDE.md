@@ -59,3 +59,8 @@ de MCP). Tudo o mais é autônomo.
 
 ## Dev local
 - `pnpm dev` (host) ou `docker compose up` (container, hot reload em http://localhost:3000)
+- **Derrubar o Docker ao terminar**: sempre que concluir uma implementação, derrube a
+  stack local para não comer RAM. Rodar `docker compose down` (container da app, se
+  subiu) e `npx supabase stop` (stack do Supabase LOCAL — os containers
+  `supabase_*_camps-arena`, que `docker compose down` NÃO alcança). É o passo final do
+  fluxo, depois de commitar/pushar.
