@@ -36,7 +36,12 @@ import { gerarCodigoConvite } from "@/lib/invite-code"
 import { randIntCrypto } from "@/lib/rand"
 import { createClient } from "@/lib/supabase/server"
 import { coresOpcionais, type CoresInput } from "@/schema/corSchema"
-import { alvoLiberacaoSchema, type AlvoLiberacao } from "@/schema/liberacaoSchema"
+import {
+  alvoLiberacaoSchema,
+  alvoRecolhimentoSchema,
+  type AlvoLiberacao,
+  type AlvoRecolhimento,
+} from "@/schema/liberacaoSchema"
 import {
   createTournamentSchema,
   iniciarGruposSchema,
@@ -1576,4 +1581,91 @@ export async function liberarRodadas(
   )
 
   return { ok: true, liberadas: liberadas?.length ?? 0 }
+}
+
+export type RecolherRodadasResult =
+  | { ok: true; recolhidas: number }
+  | { ok: false; error: string }
+
+/**
+ * RECOLHE rodadas liberadas (change add-recolher-rodadas) — inverso de
+ * `liberarRodadas`: seta `liberada_em = null` nas partidas EFETIVAMENTE
+ * liberadas (`liberada_em <= now()`) do alvo, voltando-as a ocultas. Idempotente
+ * (não toca o que já está oculto nem agendamentos futuros `> now()`). Mesma
+ * autorização da liberação (`pode_arbitrar_torneio` + RLS
+ * `matches_update_tournament_owner` como backstop) e mesmo gate de não-encerrado.
+ * Recolhe MESMO partidas já jogadas (o placar fica gravado — o trigger só trava
+ * placar/status/W.O.); some só da visão do não-dono até religar. NÃO notifica.
+ */
+export async function recolherRodadas(
+  tournamentId: unknown,
+  alvo: AlvoRecolhimento
+): Promise<RecolherRodadasResult> {
+  const parsedId = z.uuid().safeParse(tournamentId)
+  const parsedAlvo = alvoRecolhimentoSchema.safeParse(alvo)
+  if (!parsedId.success || !parsedAlvo.success) {
+    return { ok: false, error: "Dados inválidos." }
+  }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  // Capacidade ARBITRAR (dono, admin ou árbitro) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeArbitrar(supabase, { tournamentId: parsedId.data }))) {
+    return {
+      ok: false,
+      error: "Torneio não encontrado, encerrado ou você não é o dono dele.",
+    }
+  }
+
+  // Gate de torneio não-encerrado (espelha liberarRodadas).
+  const { data: torneio, error: torneioError } = await supabase
+    .from("tournaments")
+    .select("id")
+    .eq("id", parsedId.data)
+    .neq("status", "encerrado")
+    .maybeSingle()
+  if (torneioError) {
+    return { ok: false, error: "Não foi possível recolher agora. Tente novamente." }
+  }
+  if (!torneio) {
+    return {
+      ok: false,
+      error: "Torneio não encontrado, encerrado ou você não é o dono dele.",
+    }
+  }
+
+  // UPDATE setando liberada_em = null, restrito ao torneio + alvo + EFETIVAMENTE
+  // liberadas (`<= now()`; idempotente — não toca ocultas nem agendadas futuras).
+  let query = supabase
+    .from("matches")
+    .update({ liberada_em: null })
+    .eq("tournament_id", parsedId.data)
+    .lte("liberada_em", new Date().toISOString())
+
+  const a = parsedAlvo.data
+  if (a.tipo === "rodada") {
+    query = query.eq("rodada", a.rodada)
+  } else if (a.tipo === "faseGrupos") {
+    query = query.not("grupo", "is", null)
+  }
+  // "tudo": sem filtro extra (todas as liberadas do torneio).
+
+  // `.select("id")` confirma o efeito e conta. A linha recolhida fica oculta, mas
+  // o RETURNING ainda a devolve pelo ramo `pode_ver_bastidores_torneio` da
+  // `matches_select_visivel` (pode_arbitrar ⊆ pode_ver_bastidores) → conta confiável.
+  const { data: recolhidas, error: updateError } = await query.select("id")
+  if (updateError) {
+    return { ok: false, error: "Não foi possível recolher agora. Tente novamente." }
+  }
+
+  revalidatePath(`/dashboard/torneios/${parsedId.data}`)
+  // Sem notificação: recolher ESCONDE partidas (o inverso de avisar que liberou).
+  return { ok: true, recolhidas: recolhidas?.length ?? 0 }
 }
