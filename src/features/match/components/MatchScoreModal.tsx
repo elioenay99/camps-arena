@@ -85,6 +85,19 @@ export interface MatchScoreModalProps {
    * Sem isso, o clube é apenas exibido (quando presente).
    */
   onSelecionarClube?: (lado: 1 | 2, team: TeamResult) => Promise<void> | void
+  /**
+   * Modo do placar (change add-proposta-resultado-foto): `direto` grava na hora
+   * (avulso ou aprovador); `proposta` ENVIA para aprovação com FOTO obrigatória
+   * (técnico no competitivo). Default `direto`.
+   */
+  modoPlacar?: "direto" | "proposta"
+  /** Envio da proposta (modo `proposta`): placares normalizados + a foto. */
+  onEnviarProposta?: (input: {
+    matchId: string
+    placar_1: number
+    placar_2: number
+    foto: File
+  }) => Promise<void> | void
 }
 
 function primeiroNome(nome: string) {
@@ -271,11 +284,15 @@ export function MatchScoreModal({
   trigger,
   onSave,
   onSelecionarClube,
+  modoPlacar = "direto",
+  onEnviarProposta,
 }: MatchScoreModalProps) {
   const [open, setOpen] = React.useState(false)
   const [placar1, setPlacar1] = React.useState(placarInicial1)
   const [placar2, setPlacar2] = React.useState(placarInicial2)
+  const [foto, setFoto] = React.useState<File | null>(null)
   const [salvando, startSalvar] = React.useTransition()
+  const ehProposta = modoPlacar === "proposta"
 
   // Ressincroniza o estado otimista ao (re)abrir o modal — no handler, sem efeito.
   function handleOpenChange(proximo: boolean) {
@@ -284,15 +301,30 @@ export function MatchScoreModal({
     if (proximo) {
       setPlacar1(placarInicial1)
       setPlacar2(placarInicial2)
+      setFoto(null)
     }
     setOpen(proximo)
   }
 
-  function handleSalvar() {
+  function handleConfirmar() {
     const normalizar = (n: number) => Math.max(0, Math.trunc(n))
+    if (ehProposta && !foto) {
+      toast.error("Anexe uma foto de evidência do placar.")
+      return
+    }
     startSalvar(async () => {
       try {
-        if (onSave) {
+        if (ehProposta) {
+          if (onEnviarProposta && foto) {
+            await onEnviarProposta({
+              matchId,
+              placar_1: normalizar(placar1),
+              placar_2: normalizar(placar2),
+              foto,
+            })
+            toast.success("Placar enviado para aprovação.")
+          }
+        } else if (onSave) {
           await onSave({
             matchId,
             placar_1: normalizar(placar1),
@@ -304,8 +336,11 @@ export function MatchScoreModal({
         }
         setOpen(false)
       } catch (erro) {
-        console.error("Falha ao salvar placar", erro)
-        toast.error("Não foi possível salvar o placar. Tente novamente.")
+        console.error("Falha ao confirmar placar", erro)
+        const fallback = ehProposta
+          ? "Não foi possível enviar o placar. Tente novamente."
+          : "Não foi possível salvar o placar. Tente novamente."
+        toast.error(erro instanceof Error && erro.message ? erro.message : fallback)
       }
     })
   }
@@ -341,7 +376,7 @@ export function MatchScoreModal({
 
         <div className="elevate rounded-2xl border bg-card/60 p-4">
           <p className="mb-4 text-center text-xs font-semibold tracking-wide uppercase text-muted-foreground">
-            Lançar placar
+            {ehProposta ? "Enviar placar para aprovação" : "Lançar placar"}
           </p>
           <div className="grid grid-cols-2 gap-4">
             <ColunaParticipante
@@ -361,21 +396,48 @@ export function MatchScoreModal({
           </div>
         </div>
 
+        {ehProposta ? (
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="foto-evidencia"
+              className="text-xs font-medium text-muted-foreground"
+            >
+              Foto de evidência (obrigatória)
+            </label>
+            <input
+              id="foto-evidencia"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(e) => setFoto(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-full file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-secondary-foreground"
+            />
+            {foto ? (
+              <span className="truncate text-xs text-muted-foreground">{foto.name}</span>
+            ) : null}
+          </div>
+        ) : null}
+
         <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
           {/* Anuncia o estado em voo a leitores de tela: o botão fica
               `disabled` (sai da árvore de a11y), então o feedback precisa
               vir de uma região live independente. */}
           <span className="sr-only" role="status" aria-live="polite">
-            {salvando ? "Salvando placar…" : ""}
+            {salvando ? (ehProposta ? "Enviando placar…" : "Salvando placar…") : ""}
           </span>
           <Button
             type="button"
             size="lg"
-            onClick={handleSalvar}
-            disabled={salvando}
+            onClick={handleConfirmar}
+            disabled={salvando || (ehProposta && !foto)}
             className="w-full rounded-full"
           >
-            {salvando ? "Salvando…" : "Salvar placar"}
+            {salvando
+              ? ehProposta
+                ? "Enviando…"
+                : "Salvando…"
+              : ehProposta
+                ? "Enviar para aprovação"
+                : "Salvar placar"}
           </Button>
           <DialogClose asChild>
             <Button

@@ -103,27 +103,48 @@ export function MarcarWoButton({
   )
 }
 
-/** Solicitar W.O. (TÉCNICO adversário): pede o W.O.; o dono resolve. */
+/**
+ * Solicitar W.O. (TÉCNICO adversário): pede o W.O.; o dono resolve. A foto de
+ * evidência é OPCIONAL — guardada em estado e passada à action, que a sobe (com
+ * rollback). Após solicitar, o estado da foto é limpo.
+ */
 export function SolicitarWoButton({ matchId }: { matchId: string }) {
   const [pendente, startTransition] = useTransition()
+  const [foto, setFoto] = useState<File | null>(null)
 
   return (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      className={ALVO_TOQUE}
-      disabled={pendente}
-      onClick={() =>
-        startTransition(async () => {
-          const r = await solicitarWO(matchId)
-          if (r.ok) toast.success("W.O. solicitado. Aguarde o organizador.")
-          else toast.error(r.error)
-        })
-      }
-    >
-      {pendente ? "Solicitando…" : "Solicitar W.O."}
-    </Button>
+    <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <label className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="max-w-[10rem] text-xs file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs file:text-foreground"
+          disabled={pendente}
+          onChange={(e) => setFoto(e.target.files?.[0] ?? null)}
+        />
+        <span className="sr-only">Anexar foto (opcional)</span>
+      </label>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className={ALVO_TOQUE}
+        disabled={pendente}
+        onClick={() =>
+          startTransition(async () => {
+            const r = await solicitarWO(matchId, foto)
+            if (r.ok) {
+              toast.success("W.O. solicitado. Aguarde o organizador.")
+              setFoto(null)
+            } else {
+              toast.error(r.error)
+            }
+          })
+        }
+      >
+        {pendente ? "Solicitando…" : "Solicitar W.O."}
+      </Button>
+    </span>
   )
 }
 

@@ -264,6 +264,9 @@ export function MatchCard({
             placarInicial2={partida.placar_2}
             // Competitivo: clube vem do torneio (vaga), só exibido. Avulso: pode trocar.
             permitirEscolherClube={!ehCompetitivo}
+            // Competitivo + não-aprovador (técnico) → envia placar p/ aprovação com foto.
+            // Avulso ou aprovador → lança direto.
+            modoPlacar={ehCompetitivo && !partida.podeArbitrar ? "proposta" : "direto"}
             trigger={
               <Button
                 aria-label={`Menu da partida ${tituloPartida}`}

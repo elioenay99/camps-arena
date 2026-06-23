@@ -43,6 +43,7 @@ function partida(over: Partial<PartidaAtiva> = {}): PartidaAtiva {
     time_2: null,
     vaga_1: null,
     vaga_2: null,
+    podeArbitrar: false,
     ...over,
   }
 }

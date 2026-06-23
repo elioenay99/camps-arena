@@ -117,8 +117,22 @@ export async function updateMatchScore(
   // Cast da fronteira: os FK-hints de vaga ainda não constam nos Relationships
   // de database.types (a fundação os adiciona), então o PostgREST não infere o
   // embed. O tipo explícito é a fonte de verdade aqui.
-  if (!ehJogadorDaPartida(match as unknown as MatchProprietario, user.id)) {
-    return { ok: false, error: "Você não participa desta partida." }
+  // Quem grava o placar DIRETO: o participante do avulso OU quem ARBITRA o
+  // torneio (admin/árbitro/dono). O técnico de vaga competitiva NÃO escreve mais
+  // direto (change add-proposta-resultado-foto) — propõe com foto p/ aprovação.
+  const dadosProp = match as unknown as MatchProprietario
+  const ehAvulso = dadosProp.participante_1 === user.id || dadosProp.participante_2 === user.id
+  if (!ehAvulso) {
+    // Avulso grava direto (já liberado acima); fora dele, só quem ARBITRA o
+    // torneio (admin/árbitro/dono). LAZY de propósito: a RPC pode_arbitrar só
+    // dispara quando NÃO é avulso (evita viagem ao banco no caminho comum).
+    const arbitra = await podeArbitrar(supabase, { tournamentId: match.tournament_id })
+    if (!arbitra) {
+      if (ehJogadorDaPartida(dadosProp, user.id)) {
+        return { ok: false, error: "Envie o placar para aprovação com a foto de evidência." }
+      }
+      return { ok: false, error: "Você não participa desta partida." }
+    }
   }
 
   // Encerrada é imutável (mensagem precisa; o trigger lock_match_lifecycle é
@@ -367,8 +381,12 @@ export async function updateMatchTeams(
   // Cast da fronteira: os FK-hints de vaga ainda não constam nos Relationships
   // de database.types (a fundação os adiciona), então o PostgREST não infere o
   // embed. O tipo explícito é a fonte de verdade aqui.
-  if (!ehJogadorDaPartida(match as unknown as MatchProprietario, user.id)) {
-    return { ok: false, error: "Você não participa desta partida." }
+  // Trocar clube só faz sentido no AVULSO (clube cosmético por partida). No
+  // competitivo o clube vem da vaga (torneio) — change add-proposta-resultado-foto
+  // / fix-menu-partida-clube-do-torneio. Por isso só o participante do avulso edita.
+  const dadosClube = match as unknown as MatchProprietario
+  if (dadosClube.participante_1 !== user.id && dadosClube.participante_2 !== user.id) {
+    return { ok: false, error: "O clube desta partida vem do torneio." }
   }
 
   // Clube alimenta a CLASSIFICAÇÃO DE CLUBES — em partida encerrada ele é tão

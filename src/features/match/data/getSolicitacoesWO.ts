@@ -10,6 +10,8 @@ export interface SolicitacaoWO {
   clubeSolicitante: string
   /** Rodada da partida (rótulo); null em avulso (que não recebe W.O.). */
   rodada: number | null
+  /** Há foto de evidência anexada à solicitação. */
+  temFoto: boolean
 }
 
 /**
@@ -27,7 +29,7 @@ export async function getSolicitacoesWO(
   const { data, error } = await supabase
     .from("match_wo_requests")
     .select(
-      `id, match_id,
+      `id, match_id, foto_path,
        solicitante:tournament_slots!match_wo_requests_solicitante_slot_fkey (
          rotulo,
          team:teams!tournament_slots_team_id_fkey ( nome )
@@ -45,6 +47,7 @@ export async function getSolicitacoesWO(
   const linhas = (data ?? []) as unknown as Array<{
     id: string
     match_id: string
+    foto_path: string | null
     solicitante: { rotulo: string | null; team: { nome: string | null } | null } | null
     match: { rodada: number | null } | null
   }>
@@ -55,5 +58,6 @@ export async function getSolicitacoesWO(
     clubeSolicitante:
       l.solicitante?.team?.nome?.trim() || l.solicitante?.rotulo?.trim() || "Competidor",
     rodada: l.match?.rodada ?? null,
+    temFoto: l.foto_path != null,
   }))
 }

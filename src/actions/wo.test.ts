@@ -43,6 +43,8 @@ interface Cenario {
   insertCode?: string
   /** Nega a capacidade ARBITRAR (RPC pode_arbitrar_* devolve false). */
   negarCapacidade?: boolean
+  /** Falha o upload da foto de evidência no storage. */
+  uploadError?: boolean
 }
 
 function montarClient(cfg: Cenario) {
@@ -50,6 +52,12 @@ function montarClient(cfg: Cenario) {
   const requestInsertSpy = vi.fn()
   const requestUpdateSpy = vi.fn()
   const tournamentFiltroSpy = vi.fn()
+  // Tipagem via generic (sem param de runtime não usado) para que mock.calls
+  // exponha os argumentos do upload (path/file) à asserção, sem warning de lint.
+  const uploadSpy = vi.fn<(...args: unknown[]) => Promise<{ error: { message: string } | null }>>(
+    async () => ({ error: cfg.uploadError ? { message: "storage" } : null })
+  )
+  const removeSpy = vi.fn(async () => ({ error: null }))
 
   const matchesFrom = {
     select: vi.fn(() => {
@@ -146,6 +154,9 @@ function montarClient(cfg: Cenario) {
         error: cfg.authError ? { message: "jwt" } : null,
       })),
     },
+    storage: {
+      from: vi.fn(() => ({ upload: uploadSpy, remove: removeSpy })),
+    },
     from: vi.fn((t: string) =>
       t === "matches"
         ? matchesFrom
@@ -157,6 +168,8 @@ function montarClient(cfg: Cenario) {
     requestInsertSpy,
     requestUpdateSpy,
     tournamentFiltroSpy,
+    uploadSpy,
+    removeSpy,
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
   return client
@@ -364,7 +377,7 @@ describe("solicitarWO", () => {
     expect(c.requestInsertSpy).not.toHaveBeenCalled()
   })
 
-  it("sucesso: insere a solicitação com o PRÓPRIO slot como solicitante", async () => {
+  it("sucesso: insere a solicitação com o PRÓPRIO slot como solicitante (sem foto)", async () => {
     const c = montarClient({
       user: { id: "tecB" },
       match: { ...partidaAberta(), v1: { user_id: "tecA" }, v2: { user_id: "tecB" } },
@@ -374,7 +387,31 @@ describe("solicitarWO", () => {
     expect(c.requestInsertSpy).toHaveBeenCalledWith({
       match_id: MATCH,
       solicitante_slot: VAGA_2, // tecB comanda a vaga_2
+      foto_path: null, // sem foto: o slot vai com path nulo
     })
+    expect(c.uploadSpy).not.toHaveBeenCalled()
+  })
+
+  it("foto OPCIONAL: sobe a evidência e insere com o foto_path do upload", async () => {
+    const c = montarClient({
+      user: { id: "tecB" },
+      match: { ...partidaAberta(), v1: { user_id: "tecA" }, v2: { user_id: "tecB" } },
+    })
+    // 4 bytes > 0 (size > 0 dispara o upload); tipo webp → ext "webp".
+    const foto = new File([new Uint8Array([1, 2, 3, 4])], "p.webp", { type: "image/webp" })
+    const r = await solicitarWO(MATCH, foto)
+    expect(r).toEqual({ ok: true })
+    // upload chamado com path <uid>/<matchId>/<rand>.webp (rand não fixado).
+    expect(c.uploadSpy).toHaveBeenCalledTimes(1)
+    expect(c.uploadSpy.mock.calls[0][0]).toMatch(
+      new RegExp(`^tecB/${MATCH}/[^/]+\\.webp$`)
+    )
+    // o insert recebe exatamente o path subido.
+    const insertArg = c.requestInsertSpy.mock.calls[0][0] as { foto_path: string }
+    expect(insertArg.foto_path).toEqual(c.uploadSpy.mock.calls[0][0])
+    expect(insertArg.foto_path).toMatch(
+      new RegExp(`^tecB/${MATCH}/[^/]+\\.webp$`)
+    )
   })
 
   it("colisão de pendente (23505) vira mensagem de já existente", async () => {

@@ -1,5 +1,6 @@
 import {
   CalendarClock,
+  ClipboardCheck,
   Flag,
   History,
   ListOrdered,
@@ -40,7 +41,9 @@ import { LiberarRodadasButtons } from "@/features/match/components/LiberarRodada
 import { confrontosTextoDaRodada } from "@/features/match/confrontosTextoDaRodada";
 import { MatchHistoryList } from "@/features/match/components/MatchHistoryList";
 import { OpenMatchesList } from "@/features/match/components/OpenMatchesList";
+import { PropostasPendentes } from "@/features/match/components/PropostasPendentes";
 import { ResponderWoButtons } from "@/features/match/components/WoButtons";
+import { getPropostasPendentes } from "@/features/match/data/getPropostasPendentes";
 import { getSolicitacoesWO } from "@/features/match/data/getSolicitacoesWO";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
 import {
@@ -252,20 +255,30 @@ export default async function TorneioPage({
 
   // Modelo clube-cêntrico: AVULSO lista participantes + convite genérico;
   // COMPETITIVO lista VAGAS (clubes) + códigos POR VAGA.
-  const [participantes, codigoConvite, vagas, codigosVagas, solicitacoesWO] =
-    await Promise.all([
-      ehGerado ? Promise.resolve([]) : getParticipantesDoTorneio(id),
-      !ehGerado && podeModerarParticipacao
-        ? getConviteDoTorneio(id)
-        : Promise.resolve(null),
-      ehGerado ? getVagasDoTorneio(id) : Promise.resolve([]),
-      ehGerado && podeModerarParticipacao
-        ? getCodigosDasVagas(id)
-        : Promise.resolve(undefined),
-      // Solicitações de W.O. pendentes: a RLS devolve ao DONO (todas do
-      // torneio) e ao solicitante (a própria). Só faz sentido em competitivo.
-      ehGerado ? getSolicitacoesWO(id) : Promise.resolve([]),
-    ]);
+  const [
+    participantes,
+    codigoConvite,
+    vagas,
+    codigosVagas,
+    solicitacoesWO,
+    propostasPendentes,
+  ] = await Promise.all([
+    ehGerado ? Promise.resolve([]) : getParticipantesDoTorneio(id),
+    !ehGerado && podeModerarParticipacao
+      ? getConviteDoTorneio(id)
+      : Promise.resolve(null),
+    ehGerado ? getVagasDoTorneio(id) : Promise.resolve([]),
+    ehGerado && podeModerarParticipacao
+      ? getCodigosDasVagas(id)
+      : Promise.resolve(undefined),
+    // Solicitações de W.O. pendentes: a RLS devolve ao DONO (todas do
+    // torneio) e ao solicitante (a própria). Só faz sentido em competitivo.
+    ehGerado ? getSolicitacoesWO(id) : Promise.resolve([]),
+    // Propostas de placar pendentes (change add-proposta-resultado-foto): o
+    // técnico de vaga propõe placar + foto; o aprovador (ARBITRAR) decide. A
+    // RLS só entrega ao aprovador (ou jogador) — só faz sentido em competitivo.
+    ehGerado ? getPropostasPendentes(supabase, id) : Promise.resolve([]),
+  ]);
 
   // Painéis de início dos formatos gerados: os LADOS são as vagas (slot ids
   // opacos; clube como rótulo) — as actions validam cabeças/atribuições
@@ -536,6 +549,20 @@ export default async function TorneioPage({
         </SecaoTorneio>
       ) : null}
 
+      {/* Propostas de placar pendentes (change add-proposta-resultado-foto):
+          console de quem ARBITRA (aprovar aplica o placar via RPC atômico /
+          rejeitar com motivo). A RLS só entrega ao aprovador (ou jogador da
+          partida); o gate aqui evita exibir o console a quem não arbitra. */}
+      {podeArbitrarPartidas && propostasPendentes.length > 0 ? (
+        <SecaoTorneio
+          id="propostas-titulo"
+          titulo="Resultados pendentes"
+          Icon={ClipboardCheck}
+        >
+          <PropostasPendentes tournamentId={id} propostas={propostasPendentes} />
+        </SecaoTorneio>
+      ) : null}
+
       {/* Solicitações de W.O. pendentes: console de quem ARBITRA (aceitar/recusar).
           A RLS devolve só ao dono as do torneio; o gate aqui evita exibir o
           console a quem não arbitra as partidas. */}
@@ -555,7 +582,21 @@ export default async function TorneioPage({
                     <span className="text-muted-foreground"> solicitou W.O.</span>
                   )}
                 </span>
-                <ResponderWoButtons requestId={s.id} />
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  {/* Evidência opcional do W.O.: rota assinada (bucket privado),
+                      nunca <img> direto. Só quando há foto anexada. */}
+                  {s.temFoto ? (
+                    <a
+                      href={`/dashboard/torneios/${id}/evidencia/wo/${s.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary inline-flex min-h-10 items-center underline-offset-4 hover:underline"
+                    >
+                      Ver foto
+                    </a>
+                  ) : null}
+                  <ResponderWoButtons requestId={s.id} />
+                </div>
               </li>
             ))}
           </ul>

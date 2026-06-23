@@ -59,14 +59,23 @@ describe("getSolicitacoesWO", () => {
         },
         // Embeds ausentes ganham fallback.
         { id: "r2", match_id: "m2", solicitante: null, match: null },
+        // Com foto de evidência anexada → temFoto true.
+        {
+          id: "r3",
+          match_id: "m3",
+          solicitante: { rotulo: "Time C" },
+          match: { rodada: 5 },
+          foto_path: "uid/m3/abc.png",
+        },
       ],
     })
 
     const r = await getSolicitacoesWO(TORNEIO)
 
     expect(r).toEqual([
-      { id: "r1", matchId: "m1", clubeSolicitante: "Grêmio", rodada: 2 },
-      { id: "r2", matchId: "m2", clubeSolicitante: "Competidor", rodada: null },
+      { id: "r1", matchId: "m1", clubeSolicitante: "Grêmio", rodada: 2, temFoto: false },
+      { id: "r2", matchId: "m2", clubeSolicitante: "Competidor", rodada: null, temFoto: false },
+      { id: "r3", matchId: "m3", clubeSolicitante: "Time C", rodada: 5, temFoto: true },
     ])
     expect(client.from).toHaveBeenCalledWith("match_wo_requests")
     // Só pendentes, escopadas ao torneio via embed inner.

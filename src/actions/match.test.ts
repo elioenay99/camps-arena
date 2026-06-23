@@ -21,6 +21,9 @@ const entradaValida = { matchId: UUID, placar_1: 3, placar_2: 1 }
 interface Cenario {
   user?: { id: string } | null
   authError?: { message: string } | null
+  /** Retorno da RPC `pode_arbitrar_torneio` (capacidade de arbitrar). Só é
+   * consultada no caminho NÃO-avulso; default false. */
+  arbitra?: boolean
   readData?: {
     id: string
     participante_1: string | null
@@ -51,6 +54,8 @@ function montarClient(c: Cenario) {
         .fn()
         .mockResolvedValue({ data: { user: c.user ?? null }, error: c.authError ?? null }),
     },
+    // podeArbitrar() delega à RPC pode_arbitrar_torneio (só no caminho não-avulso).
+    rpc: vi.fn(async () => ({ data: c.arbitra ?? false, error: null })),
     from: vi.fn(() => ({
       // Leitura: select(...).eq("id", matchId).maybeSingle()
       select: vi.fn(() => ({
@@ -204,9 +209,12 @@ describe("updateMatchScore", () => {
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
   })
 
-  it("competitivo: o TÉCNICO da vaga_1 salva o placar (propriedade por vaga)", async () => {
+  it("competitivo: o TÉCNICO da vaga_1 NÃO grava direto — é mandado para a proposta", async () => {
+    // Sem capacidade de arbitrar (arbitra:false): o técnico da vaga propõe com
+    // foto em vez de gravar direto (change add-proposta-resultado-foto).
     const client = montarClient({
       user: { id: USER_ID },
+      arbitra: false,
       readData: {
         id: UUID,
         participante_1: null,
@@ -214,22 +222,44 @@ describe("updateMatchScore", () => {
         vaga_1: { user_id: USER_ID },
         vaga_2: { user_id: OUTRO_ID },
       },
-      writeData: [{ id: UUID }],
     })
     const r = await updateMatchScore(entradaValida)
-    expect(r.ok).toBe(true)
-    expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
+    expect(r.ok).toBe(false)
+    if (!r.ok)
+      expect(r.error).toBe("Envie o placar para aprovação com a foto de evidência.")
+    expect(client.updateSpy).not.toHaveBeenCalled()
   })
 
-  it("competitivo: o TÉCNICO da vaga_2 também salva (simetria por vaga)", async () => {
+  it("competitivo: o TÉCNICO da vaga_2 também NÃO grava direto (simetria por vaga)", async () => {
     const client = montarClient({
       user: { id: USER_ID },
+      arbitra: false,
       readData: {
         id: UUID,
         participante_1: null,
         participante_2: null,
         vaga_1: { user_id: OUTRO_ID },
         vaga_2: { user_id: USER_ID },
+      },
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(false)
+    if (!r.ok)
+      expect(r.error).toBe("Envie o placar para aprovação com a foto de evidência.")
+    expect(client.updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("competitivo: o ÁRBITRO (não joga) lança o placar DIRETO", async () => {
+    // arbitra:true → mesmo não sendo técnico de nenhuma vaga, grava direto.
+    const client = montarClient({
+      user: { id: USER_ID },
+      arbitra: true,
+      readData: {
+        id: UUID,
+        participante_1: null,
+        participante_2: null,
+        vaga_1: { user_id: OUTRO_ID },
+        vaga_2: { user_id: null },
       },
       writeData: [{ id: UUID }],
     })

@@ -66,6 +66,12 @@ vi.mock("@/features/match/components/OpenMatchesList", () => ({
 vi.mock("@/features/match/data/getSolicitacoesWO", () => ({
   getSolicitacoesWO: vi.fn(async () => []),
 }))
+vi.mock("@/features/match/data/getPropostasPendentes", () => ({
+  getPropostasPendentes: vi.fn(async () => []),
+}))
+vi.mock("@/features/match/components/PropostasPendentes", () => ({
+  PropostasPendentes: () => null,
+}))
 vi.mock("@/features/match/components/WoButtons", () => ({
   ResponderWoButtons: () => null,
 }))

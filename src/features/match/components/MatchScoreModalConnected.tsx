@@ -3,6 +3,7 @@
 import { toast } from "sonner"
 
 import { updateMatchScore, updateMatchTeams } from "@/actions/match"
+import { proporPlacar } from "@/actions/scoreProposals"
 import { selectTeam } from "@/actions/teams"
 import {
   MatchScoreModal,
@@ -11,7 +12,7 @@ import {
 
 export type MatchScoreModalConnectedProps = Omit<
   MatchScoreModalProps,
-  "onSave" | "onSelecionarClube"
+  "onSave" | "onSelecionarClube" | "onEnviarProposta"
 > & {
   /**
    * Habilita a busca/troca de clube de cada lado. Só faz sentido no AVULSO (o
@@ -33,17 +34,33 @@ export type MatchScoreModalConnectedProps = Omit<
  */
 export function MatchScoreModalConnected({
   permitirEscolherClube = false,
+  modoPlacar = "direto",
   ...props
 }: MatchScoreModalConnectedProps) {
   return (
     <MatchScoreModal
       {...props}
+      modoPlacar={modoPlacar}
       onSave={async (input) => {
         const resultado = await updateMatchScore(input)
         if (!resultado.ok) {
           throw new Error(resultado.error)
         }
       }}
+      // Modo proposta (técnico no competitivo): envia placar + foto para aprovação.
+      onEnviarProposta={
+        modoPlacar === "proposta"
+          ? async ({ matchId, placar_1, placar_2, foto }) => {
+              const fd = new FormData()
+              fd.set("matchId", matchId)
+              fd.set("placar_1", String(placar_1))
+              fd.set("placar_2", String(placar_2))
+              fd.set("foto", foto)
+              const r = await proporPlacar(fd)
+              if (!r.ok) throw new Error(r.error)
+            }
+          : undefined
+      }
       // Sem a busca no competitivo: o clube vem do torneio e é só exibido.
       onSelecionarClube={
         permitirEscolherClube

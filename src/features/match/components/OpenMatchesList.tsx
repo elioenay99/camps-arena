@@ -59,11 +59,14 @@ export function OpenMatchesList({
   }
 
   // O usuário JOGA a partida (é um dos lados) — habilita o "Solicitar W.O."
-  // para quem não é dono.
+  // para quem não é dono. No avulso o jogador é o participante; no competitivo
+  // é o TÉCNICO da vaga.
   const jogaPartida = (p: PartidaAberta) =>
     convocacao != null &&
     (p.participante_1?.id === convocacao.userId ||
-      p.participante_2?.id === convocacao.userId)
+      p.participante_2?.id === convocacao.userId ||
+      p.tecnico_1?.id === convocacao.userId ||
+      p.tecnico_2?.id === convocacao.userId)
 
   function renderItem(p: PartidaAberta) {
     const atalho = atalhoDe(p)

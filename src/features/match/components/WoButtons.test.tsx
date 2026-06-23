@@ -84,12 +84,29 @@ describe("MarcarWoButton", () => {
 })
 
 describe("SolicitarWoButton", () => {
-  it("clique chama solicitarWO e avisa sucesso", async () => {
+  it("clique sem foto chama solicitarWO(matchId, null) e avisa sucesso", async () => {
     mockSolicitar.mockResolvedValue({ ok: true })
     render(<SolicitarWoButton matchId={MATCH} />)
     fireEvent.click(screen.getByRole("button", { name: /solicitar w\.o\./i }))
-    await waitFor(() => expect(mockSolicitar).toHaveBeenCalledWith(MATCH))
+    await waitFor(() => expect(mockSolicitar).toHaveBeenCalledWith(MATCH, null))
     expect(mockToast.success).toHaveBeenCalled()
+  })
+
+  it("seleciona uma foto e a passa à action", async () => {
+    mockSolicitar.mockResolvedValue({ ok: true })
+    const { container } = render(<SolicitarWoButton matchId={MATCH} />)
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const foto = new File(["x"], "evidencia.webp", { type: "image/webp" })
+    fireEvent.change(input, { target: { files: [foto] } })
+    fireEvent.click(screen.getByRole("button", { name: /solicitar w\.o\./i }))
+    await waitFor(() => expect(mockSolicitar).toHaveBeenCalledWith(MATCH, foto))
+  })
+
+  it("input de foto aceita só PNG/JPEG/WEBP", () => {
+    const { container } = render(<SolicitarWoButton matchId={MATCH} />)
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    expect(input).not.toBeNull()
+    expect(input.getAttribute("accept")).toBe("image/png,image/jpeg,image/webp")
   })
 
   it("erro vira toast.error", async () => {

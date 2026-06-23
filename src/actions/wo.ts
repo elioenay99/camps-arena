@@ -6,6 +6,7 @@ import { z } from "zod"
 import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
 import { enviarNotificacoes } from "@/features/notifications/enviar"
 import { podeArbitrar } from "@/lib/autorizacao"
+import { removerEvidencia, subirEvidencia } from "@/lib/evidence"
 import { createClient } from "@/lib/supabase/server"
 import type { WoRequestStatus } from "@/lib/supabase/database.types"
 
@@ -258,7 +259,7 @@ export async function fecharRodada(
  * descobrimos o slot do solicitante e damos mensagens precisas. Uma pendente
  * por partida (índice único parcial → 23505).
  */
-export async function solicitarWO(matchId: unknown): Promise<WoResult> {
+export async function solicitarWO(matchId: unknown, foto?: File | null): Promise<WoResult> {
   const m = z.uuid().safeParse(matchId)
   if (!m.success) {
     return { ok: false, error: "Partida inválida." }
@@ -304,10 +305,19 @@ export async function solicitarWO(matchId: unknown): Promise<WoResult> {
     return { ok: false, error: "Você não joga esta partida." }
   }
 
+  // Foto OPCIONAL de evidência (validada e subida na action; rollback no fail).
+  let fotoPath: string | null = null
+  if (foto instanceof File && foto.size > 0) {
+    const up = await subirEvidencia(supabase, user.id, m.data, foto)
+    if (!up.ok) return { ok: false, error: up.error }
+    fotoPath = up.path
+  }
+
   const { error: insertError } = await supabase
     .from("match_wo_requests")
-    .insert({ match_id: m.data, solicitante_slot: meuSlot })
+    .insert({ match_id: m.data, solicitante_slot: meuSlot, foto_path: fotoPath })
   if (insertError) {
+    if (fotoPath) await removerEvidencia(supabase, fotoPath) // rollback da foto órfã
     if (insertError.code === "23505") {
       return { ok: false, error: "Já existe uma solicitação de W.O. pendente para esta partida." }
     }

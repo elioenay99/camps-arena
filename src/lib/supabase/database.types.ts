@@ -18,6 +18,7 @@ export type TournamentFormat =
   | "fase_liga"
 export type MatchStatus = "agendada" | "em_andamento" | "encerrada"
 export type WoRequestStatus = "pendente" | "aceito" | "recusado"
+export type ScoreProposalStatus = "pendente" | "aprovada" | "rejeitada"
 export type LeagueCompetitionStatus = "ativa" | "arquivada"
 export type LeagueSeasonStatus =
   | "rascunho"
@@ -284,6 +285,7 @@ export interface Database {
           status: WoRequestStatus
           created_at: string
           resolved_at: string | null
+          foto_path: string | null
         }
         Insert: {
           id?: string
@@ -293,6 +295,7 @@ export interface Database {
           status?: WoRequestStatus
           created_at?: string
           resolved_at?: string | null
+          foto_path?: string | null
         }
         Update: {
           id?: string
@@ -302,6 +305,7 @@ export interface Database {
           status?: WoRequestStatus
           created_at?: string
           resolved_at?: string | null
+          foto_path?: string | null
         }
         Relationships: [
           {
@@ -314,6 +318,61 @@ export interface Database {
             foreignKeyName: "match_wo_requests_solicitante_slot_fkey"
             columns: ["solicitante_slot"]
             referencedRelation: "tournament_slots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      match_score_proposals: {
+        Row: {
+          id: string
+          match_id: string
+          submetido_por: string
+          placar_1: number
+          placar_2: number
+          foto_path: string
+          status: ScoreProposalStatus
+          motivo: string | null
+          created_at: string
+          resolvido_em: string | null
+          resolvido_por: string | null
+        }
+        Insert: {
+          id?: string
+          match_id: string
+          submetido_por: string
+          placar_1: number
+          placar_2: number
+          foto_path: string
+          status?: ScoreProposalStatus
+          motivo?: string | null
+          created_at?: string
+          resolvido_em?: string | null
+          resolvido_por?: string | null
+        }
+        Update: {
+          id?: string
+          match_id?: string
+          submetido_por?: string
+          placar_1?: number
+          placar_2?: number
+          foto_path?: string
+          status?: ScoreProposalStatus
+          motivo?: string | null
+          created_at?: string
+          resolvido_em?: string | null
+          resolvido_por?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_score_proposals_match_id_fkey"
+            columns: ["match_id"]
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_score_proposals_submetido_por_fkey"
+            columns: ["submetido_por"]
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -1400,6 +1459,14 @@ export interface Database {
       pode_ver_bastidores_torneio: {
         Args: { p_tid: string }
         Returns: boolean
+      }
+      aprovar_proposta_placar: {
+        Args: { p_proposal_id: string }
+        Returns: string
+      }
+      rejeitar_proposta_placar: {
+        Args: { p_proposal_id: string; p_motivo: string }
+        Returns: string
       }
       pode_gerir_competition: {
         Args: { p_cid: string }

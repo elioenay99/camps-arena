@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 // O modal embute busca de clube (action) e toasts — neutralizados: o alvo é
@@ -11,9 +11,15 @@ vi.mock("@/actions/teams", () => ({
 }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
+import type { ComponentProps } from "react"
+import { toast } from "sonner"
+
 import { MatchScoreModal } from "@/features/match/components/MatchScoreModal"
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
 
 describe("MatchScoreModal — atalho wa.me com mensagem POR COLUNA", () => {
   it("cada coluna convocável abre o chat do PRÓPRIO lado com a SUA mensagem (sem cross-wiring)", () => {
@@ -126,5 +132,103 @@ describe("MatchScoreModal — atalho wa.me com mensagem POR COLUNA", () => {
     // Só o adversário tem botão.
     expect(screen.getByRole("link", { name: /Chamar Rival/ })).toBeInTheDocument()
     expect(screen.queryByRole("link", { name: /Chamar Eu/ })).toBeNull()
+  })
+})
+
+describe("MatchScoreModal — modo proposta (placar com foto p/ aprovação)", () => {
+  // O modal abre por um Dialog: clicar no trigger monta o conteúdo; só então o
+  // input de foto e o botão principal existem na árvore.
+  function abrir(props: Partial<ComponentProps<typeof MatchScoreModal>> = {}) {
+    render(
+      <MatchScoreModal
+        matchId="m1"
+        tituloPartida="Ana x Beto"
+        subtitulo="Copa da Firma • em andamento"
+        descricao="Ana enfrenta Beto"
+        participante1={{ nome: "Ana", convocavel: false }}
+        participante2={{ nome: "Beto", convocavel: false }}
+        {...props}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: /Menu da Partida/ }))
+  }
+
+  function botaoPrincipal(nome: RegExp) {
+    return screen.getByRole("button", { name: nome })
+  }
+
+  it("(a) exibe o input de foto e o botão 'Enviar para aprovação' desabilitado sem foto", () => {
+    abrir({ modoPlacar: "proposta", onEnviarProposta: vi.fn() })
+
+    // Título da seção vira o de aprovação.
+    expect(screen.getByText("Enviar placar para aprovação")).toBeInTheDocument()
+    // Input de foto obrigatório está presente.
+    expect(document.getElementById("foto-evidencia")).toBeInTheDocument()
+    // Botão principal com o rótulo de proposta, desabilitado enquanto não há foto.
+    const enviar = botaoPrincipal(/Enviar para aprovação/)
+    expect(enviar).toBeDisabled()
+  })
+
+  it("(b) selecionar um File habilita o botão e o submit chama onEnviarProposta com a foto", async () => {
+    const onEnviarProposta = vi.fn().mockResolvedValue(undefined)
+    abrir({
+      modoPlacar: "proposta",
+      placarInicial1: 3,
+      placarInicial2: 1,
+      onEnviarProposta,
+    })
+
+    const input = document.getElementById("foto-evidencia") as HTMLInputElement
+    const file = new File(["bytes"], "evidencia.png", { type: "image/png" })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    const enviar = botaoPrincipal(/Enviar para aprovação/)
+    expect(enviar).toBeEnabled()
+
+    fireEvent.click(enviar)
+
+    await waitFor(() => {
+      expect(onEnviarProposta).toHaveBeenCalledWith({
+        matchId: "m1",
+        placar_1: 3,
+        placar_2: 1,
+        foto: file,
+      })
+    })
+    expect(toast.success).toHaveBeenCalledWith("Placar enviado para aprovação.")
+  })
+
+  it("(b') confirmar SEM foto dá toast.error e NÃO chama onEnviarProposta", () => {
+    const onEnviarProposta = vi.fn()
+    abrir({ modoPlacar: "proposta", onEnviarProposta })
+
+    // O botão está disabled (caminho feliz), mas o guard interno também barra:
+    // disparamos o handler direto para cobrir a recusa SEM foto.
+    fireEvent.click(botaoPrincipal(/Enviar para aprovação/))
+
+    expect(onEnviarProposta).not.toHaveBeenCalled()
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it("(c) modo 'direto' (default) chama onSave e não mostra o input de foto", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    abrir({ placarInicial1: 2, placarInicial2: 2, onSave })
+
+    // Seção de lançamento direto, sem input de foto.
+    expect(screen.getByText("Lançar placar")).toBeInTheDocument()
+    expect(document.getElementById("foto-evidencia")).toBeNull()
+    expect(screen.queryByText("Enviar placar para aprovação")).toBeNull()
+
+    fireEvent.click(botaoPrincipal(/Salvar placar/))
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith({
+        matchId: "m1",
+        placar_1: 2,
+        placar_2: 2,
+      })
+    })
+    // onEnviarProposta nunca é envolvido no modo direto.
+    expect(toast.success).toHaveBeenCalledWith("Placar salvo.")
   })
 })

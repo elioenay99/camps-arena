@@ -23,6 +23,23 @@ export const updateMatchScoreSchema = z.object({
 
 export type UpdateMatchScoreInput = z.infer<typeof updateMatchScoreSchema>
 
+/** Proposta de placar do técnico (a foto vem como File no FormData, validada na action). */
+export const proporPlacarSchema = z.object({
+  matchId: z.uuid({ error: "ID de partida inválido." }),
+  placar_1: placar,
+  placar_2: placar,
+})
+
+export type ProporPlacarInput = z.infer<typeof proporPlacarSchema>
+
+/** Rejeição de uma proposta pelo aprovador (motivo opcional, curto). */
+export const rejeitarPropostaSchema = z.object({
+  proposalId: z.uuid({ error: "Proposta inválida." }),
+  motivo: z.string().trim().max(280, "Motivo muito longo.").optional(),
+})
+
+export type RejeitarPropostaInput = z.infer<typeof rejeitarPropostaSchema>
+
 /** Associação de clube a um (ou ambos) lados da partida. */
 export const updateMatchTeamsSchema = z
   .object({

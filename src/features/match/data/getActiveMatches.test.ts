@@ -130,11 +130,13 @@ describe("getActiveMatches", () => {
       id: "a",
       created_at: "2026-06-07T10:00:00Z",
       status: "agendada",
+      tournament: { id: "t-a", titulo: "Avulso", status: "em_andamento" },
     }
     const competitiva = {
       id: "c",
       created_at: "2026-06-07T09:00:00Z",
       status: "em_andamento",
+      tournament: { id: "t-c", titulo: "Liga", status: "em_andamento" },
     }
     const client = montarClient({
       avulsas: [avulsa],
@@ -190,6 +192,7 @@ describe("getActiveMatches", () => {
       id: "c",
       created_at: "2026-06-07T09:00:00Z",
       status: "em_andamento",
+      tournament: { id: "t-c", titulo: "Liga", status: "em_andamento" },
       vaga_1: { id: "s1", rotulo: null, clube: null, tecnico: { id: "u1", nome: "Ana", avatar: null } },
       vaga_2: { id: "s2", rotulo: null, clube: null, tecnico: { id: "u2", nome: "Beto", avatar: null } },
     }
@@ -217,6 +220,7 @@ describe("getActiveMatches", () => {
       id: "a",
       created_at: "2026-06-07T10:00:00Z",
       status: "agendada",
+      tournament: { id: "t-a", titulo: "Avulso", status: "em_andamento" },
       participante_1: { id: "u1", nome: "Ana", avatar: null },
       participante_2: { id: "u2", nome: "Beto", avatar: null },
     }
@@ -231,7 +235,11 @@ describe("getActiveMatches", () => {
   })
 
   it("sem vagas, NÃO faz a viagem de competitivas e devolve só avulsas", async () => {
-    const avulsa = { id: "a", created_at: "2026-06-07T10:00:00Z" }
+    const avulsa = {
+      id: "a",
+      created_at: "2026-06-07T10:00:00Z",
+      tournament: { id: "t-a", titulo: "Avulso", status: "em_andamento" },
+    }
     const client = montarClient({ avulsas: [avulsa], minhasVagas: [] })
     const r = await getActiveMatches()
     expect(r.map((p) => p.id)).toEqual(["a"])

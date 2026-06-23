@@ -2,6 +2,7 @@ import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
 import { carregarCelulares } from "@/lib/contatos"
+import { podeArbitrar } from "@/lib/autorizacao"
 import type { MatchStatus, TournamentStatus } from "@/lib/supabase/database.types"
 
 export interface ParticipanteResumo {
@@ -53,6 +54,10 @@ export interface PartidaAtiva {
   // par renderizar pela presença da vaga.
   vaga_1: VagaResumo | null
   vaga_2: VagaResumo | null
+  /** O usuário ARBITRA este torneio (dono/admin/árbitro)? Decide, no competitivo,
+   * se ele lança o placar DIRETO (true) ou ENVIA PARA APROVAÇÃO com foto (false).
+   * change add-proposta-resultado-foto. */
+  podeArbitrar: boolean
 }
 
 // Colunas comuns das DUAS consultas (avulso e competitivo) — o shape final é
@@ -186,6 +191,27 @@ export async function getActiveMatches(): Promise<PartidaAtiva[]> {
       p.vaga_1.tecnico.celular = celulares.get(p.vaga_1.tecnico.id) ?? null
     if (p.vaga_2?.tecnico)
       p.vaga_2.tecnico.celular = celulares.get(p.vaga_2.tecnico.id) ?? null
+  }
+
+  // Capacidade de ARBITRAR por torneio (1 chamada por torneio distinto): decide
+  // o modo do menu de placar no card competitivo (direto vs proposta com foto).
+  // Só torneios com partida COMPETITIVA (vaga) precisam: o avulso grava direto e
+  // nunca lê podeArbitrar — evita 1 RPC por torneio avulso.
+  const tids = [
+    ...new Set(
+      todas
+        .filter((p) => p.vaga_1 !== null || p.vaga_2 !== null)
+        .map((p) => p.tournament.id)
+    ),
+  ]
+  const arbitraPorTorneio = new Map<string, boolean>()
+  await Promise.all(
+    tids.map(async (tid) =>
+      arbitraPorTorneio.set(tid, await podeArbitrar(supabase, { tournamentId: tid }))
+    )
+  )
+  for (const p of todas) {
+    p.podeArbitrar = arbitraPorTorneio.get(p.tournament.id) ?? false
   }
 
   todas.sort((a, b) => a.created_at.localeCompare(b.created_at))
