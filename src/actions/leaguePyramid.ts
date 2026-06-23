@@ -275,6 +275,16 @@ export async function createCompetition(
   if (compsError || !competidores || competidores.length !== linhasCompetidores.length) {
     console.error("createCompetition: competidores", compsError?.code ?? compsError?.message)
     await compensar()
+    // Backstop de corrida: os índices únicos parciais de `league_competitors`
+    // são por (competition_id, team_id) e (competition_id, lower(trim(rotulo))),
+    // logo abrangem a temporada inteira. O `superRefine` já barra a repetição
+    // cross-divisão; o 23505 só dispara em concorrência — mensagem específica.
+    if (compsError?.code === "23505") {
+      return {
+        error:
+          "Um clube ou nome está repetido entre as divisões da temporada. Remova a duplicata e tente de novo.",
+      }
+    }
     return { error: erroGenerico }
   }
 
@@ -1950,7 +1960,10 @@ export type MontarProximaResult =
  * sentinela `tournament_id` (a montagem completa só o que faltou). Re-rodar após
  * falha parcial reaproveita a N+1 já criada.
  */
-export async function montarProximaTemporada(
+// Interna (LOW fix-lows-latentes D2): o único caller é `confirmarFluxoTemporada`
+// no mesmo módulo. Sem `export` ela some da superfície de Server Actions (fecha o
+// endpoint redundante); RLS + RPC `montar_temporada` DEFINER já barram o abuso.
+async function montarProximaTemporada(
   seasonId: string,
   itens: readonly ItemPlanoFluxo[]
 ): Promise<MontarProximaResult> {

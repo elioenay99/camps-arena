@@ -189,6 +189,17 @@ export function MatchCard({
   p1.convocavel = adversario === l1
   p2.convocavel = adversario === l2
 
+  // O modal só usa `celular`/`mensagemWhatsApp` do lado convocável (o link de
+  // convocação). Poda o número do lado NÃO-convocável para que ele NÃO chegue
+  // ao client (defesa-em-profundidade contra vazamento de celular). O atalho
+  // "Chamar" do CARD usa `celularConvocacao` (campo distinto), intacto.
+  for (const p of [p1, p2]) {
+    if (!p.convocavel) {
+      p.celular = null
+      p.mensagemWhatsApp = undefined
+    }
+  }
+
   return (
     <li
       className="animate-rise"

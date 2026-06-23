@@ -451,6 +451,98 @@ describe("createCompetitionSchema", () => {
       ).toBe(false)
     })
   })
+
+  // Espelha os índices únicos parciais de `league_competitors`
+  // (competition_id, team_id) e (competition_id, lower(trim(rotulo))): a
+  // unicidade vale na TEMPORADA inteira, não só dentro de uma divisão.
+  describe("unicidade cross-divisão", () => {
+    it("rejeita o MESMO clube em duas divisões distintas (por team_id)", () => {
+      const repetido = clube("Repetido") // mesmo teamId nas duas divisões
+      const r = createCompetitionSchema.safeParse({
+        nome: "Clube em duas divisões",
+        divisoes: [
+          { nivel: 1, nome: "A", porNome: false, desempate: "cbf", tamanho: 2, competidores: [repetido, clube("Outro 1")] },
+          { nivel: 2, nome: "B", porNome: false, desempate: "cbf", tamanho: 2, competidores: [repetido, clube("Outro 2")] },
+        ],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(
+          r.error.issues.some((i) => /outra divisão da temporada/.test(i.message))
+        ).toBe(true)
+        // O path aponta o competidor repetido na 2ª divisão.
+        expect(
+          r.error.issues.some(
+            (i) =>
+              /outra divisão/.test(i.message) &&
+              i.path[0] === "divisoes" &&
+              i.path[1] === 1
+          )
+        ).toBe(true)
+      }
+    })
+
+    it("rejeita o MESMO nome em duas divisões (case/trim-insensitive, como o índice)", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Nome em duas divisões",
+        divisoes: [
+          { nivel: 1, nome: "A", porNome: true, desempate: "cbf", tamanho: 2, competidores: [nome("Fênix"), nome("Águia")] },
+          // "  fênix  " normaliza para o mesmo `r:fênix` da divisão 1.
+          { nivel: 2, nome: "B", porNome: true, desempate: "cbf", tamanho: 2, competidores: [nome("  fênix  "), nome("Leão")] },
+        ],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        expect(
+          r.error.issues.some((i) => /outra divisão da temporada/.test(i.message))
+        ).toBe(true)
+      }
+    })
+
+    it("aceita identidades DISTINTAS entre divisões (sem falso-positivo)", () => {
+      const r = createCompetitionSchema.safeParse({
+        nome: "Sem repetição entre divisões",
+        divisoes: [
+          divisao(1, 4), // 4 clubes únicos (teamIds distintos)
+          divisao(2, 4), // outros 4 clubes únicos
+        ],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(true)
+    })
+
+    it("nomes IGUAIS de divisões distintas convivem se NÃO forem a mesma identidade", () => {
+      // Controle: rótulos diferentes em divisões diferentes não disparam.
+      const r = createCompetitionSchema.safeParse({
+        nome: "Nomes distintos por divisão",
+        divisoes: [
+          { nivel: 1, nome: "A", porNome: true, desempate: "cbf", tamanho: 2, competidores: [nome("Alfa"), nome("Beta")] },
+          { nivel: 2, nome: "B", porNome: true, desempate: "cbf", tamanho: 2, competidores: [nome("Gama"), nome("Delta")] },
+        ],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(true)
+    })
+
+    it("repetição na MESMA divisão continua reportada (sem regressão)", () => {
+      const mesmo = clube("Igual")
+      const r = createCompetitionSchema.safeParse({
+        nome: "Repetido na mesma divisão",
+        divisoes: [
+          { nivel: 1, nome: "A", porNome: false, desempate: "cbf", tamanho: 2, competidores: [mesmo, mesmo] },
+          divisao(2, 4),
+        ],
+        fronteiras: [],
+      })
+      expect(r.success).toBe(false)
+      if (!r.success) {
+        // A mensagem por-divisão segue ("repetidos na divisão").
+        expect(r.error.issues.some((i) => /repetidos na divisão/.test(i.message))).toBe(true)
+      }
+    })
+  })
 })
 
 /* -------------------------------------------------------------------------- */

@@ -11,10 +11,16 @@ import {
 const CELULARES = ["11912345678", "5511912345678", "(11) 91234-5678"]
 // Trecho distintivo do número que NÃO pode sobrar em nenhum formato.
 const NUCLEO = "912345678"
+// E-mails reais que podem vazar em logs/payloads.
+const EMAILS = ["fulano@exemplo.com", "ataias.clash+tag@gmail.com", "a@b.co"]
 
 function semVazamento(s: string | undefined) {
   expect(s ?? "").not.toContain(NUCLEO)
   expect(s ?? "").not.toContain("91234-5678")
+}
+
+function semEmail(s: string | undefined) {
+  expect(s ?? "").not.toMatch(/@/)
 }
 
 describe("scrubEvent — redação de PII", () => {
@@ -24,6 +30,29 @@ describe("scrubEvent — redação de PII", () => {
       semVazamento(out.message)
       expect(out.message).toContain("[REDACTED]")
     }
+  })
+
+  it("redige e-mail em event.message (e telefone/wa.me seguem redigidos)", () => {
+    for (const email of EMAILS) {
+      const out = scrubEvent({
+        message: `Falha do contato ${email} ao ligar 11912345678 via wa.me/5511912345678`,
+      } as ErrorEvent)
+      semEmail(out.message)
+      semVazamento(out.message)
+      expect(out.message).not.toContain("wa.me/5511912345678")
+      expect(out.message).toContain("[REDACTED]")
+    }
+  })
+
+  it("redige e-mail em event.extra aninhado (sem afetar valores neutros)", () => {
+    const out = scrubEvent({
+      extra: { form: { nested: ["ok", "avisar fulano@exemplo.com e 5511912345678"] } },
+      contexts: { perfil: { email: "ataias.clash+tag@gmail.com", celular: "11912345678" } },
+    } as unknown as ErrorEvent)
+    const blob = JSON.stringify({ extra: out.extra, contexts: out.contexts })
+    semEmail(blob)
+    semVazamento(blob)
+    expect(blob).toContain("ok")
   })
 
   it("redige o celular em exception.values[].value", () => {
@@ -127,6 +156,19 @@ describe("scrubBreadcrumb", () => {
       data: { href: "https://wa.me/5511912345678", nome: "ok" },
     })
     semVazamento(out.message)
+    semVazamento(JSON.stringify(out.data))
+    expect(out.data?.nome).toBe("ok")
+  })
+
+  it("redige e-mail em message e data do breadcrumb (telefone/wa.me seguem)", () => {
+    const out = scrubBreadcrumb({
+      message: "login de fulano@exemplo.com via wa.me/5511912345678",
+      data: { email: "ataias.clash+tag@gmail.com", celular: "11912345678", nome: "ok" },
+    })
+    semEmail(out.message)
+    semVazamento(out.message)
+    expect(out.message).not.toContain("wa.me/5511912345678")
+    semEmail(JSON.stringify(out.data))
     semVazamento(JSON.stringify(out.data))
     expect(out.data?.nome).toBe("ok")
   })

@@ -2071,6 +2071,9 @@ function PassoCompetidores({
           key={div.nivel}
           divIdx={idx}
           div={div}
+          // Todas as divisões: o guard varre as OUTRAS p/ feedback imediato de
+          // repetição cross-divisão (espelha o índice por-competição do banco).
+          divisoes={divisoes}
           // Vincula o painel à aba ativa (só quando há abas/tablist).
           painelTabId={divisoes.length > 1 ? `tab-comp-${div.nivel}` : undefined}
           onAdicionar={onAdicionar}
@@ -2084,12 +2087,15 @@ function PassoCompetidores({
 function DivisaoCompetidores({
   divIdx,
   div,
+  divisoes,
   painelTabId,
   onAdicionar,
   onRemover,
 }: {
   divIdx: number
   div: DivisaoRascunho
+  /** Todas as divisões — usadas só p/ o guard cross-divisão (feedback imediato). */
+  divisoes: DivisaoRascunho[]
   /** Id da aba que rotula este painel (tabpanel) — ausente quando não há abas. */
   painelTabId?: string
   onAdicionar: (divIdx: number, comp: CompetidorRascunho) => void
@@ -2098,6 +2104,29 @@ function DivisaoCompetidores({
   const [adicionando, startTransition] = React.useTransition()
   const [texto, setTexto] = React.useState("")
   const cheia = div.competidores.length >= div.tamanho
+
+  // Clube/nome JÁ presente em OUTRA divisão? O índice de `league_competitors` é
+  // por competição (não por divisão), então a repetição cross-divisão é barrada
+  // no banco e no Zod — aqui antecipamos o feedback. Clubes comparam por
+  // `externalId` (disponível antes do `selectTeam`); nomes por rótulo (lower).
+  function clubeEmOutraDivisao(externalId: string) {
+    return divisoes.some(
+      (d, i) =>
+        i !== divIdx &&
+        d.competidores.some(
+          (c) => c.tipo === "clube" && c.externalId === externalId
+        )
+    )
+  }
+  function nomeEmOutraDivisao(rotuloLower: string) {
+    return divisoes.some(
+      (d, i) =>
+        i !== divIdx &&
+        d.competidores.some(
+          (c) => c.tipo === "nome" && c.rotulo.toLowerCase() === rotuloLower
+        )
+    )
+  }
 
   function adicionarClube(team: TeamResult) {
     if (cheia) {
@@ -2110,6 +2139,10 @@ function DivisaoCompetidores({
       )
     ) {
       toast.error("Esse clube já está nesta divisão.")
+      return
+    }
+    if (clubeEmOutraDivisao(team.externalId)) {
+      toast.error("Esse clube já está em outra divisão da temporada.")
       return
     }
     startTransition(async () => {
@@ -2145,6 +2178,10 @@ function DivisaoCompetidores({
       )
     ) {
       toast.error("Esse nome já está nesta divisão.")
+      return
+    }
+    if (nomeEmOutraDivisao(rotulo.toLowerCase())) {
+      toast.error("Esse nome já está em outra divisão da temporada.")
       return
     }
     onAdicionar(divIdx, { tipo: "nome", rotulo })

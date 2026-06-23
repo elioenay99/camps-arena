@@ -7,22 +7,26 @@ import type { Breadcrumb, Event } from "@sentry/nextjs"
  * então precisam do seu próprio gancho). É a 3ª camada de defesa (as outras:
  * `sendDefaultPii:false` e `requestDataIntegration include:false`).
  *
- * Redige telefone BR e `wa.me` de TODA string que possa sobrar: message,
- * transaction, exception.value, request.*, tags, extra, contexts, breadcrumbs e
- * spans (de transações).
+ * Redige e-mail, telefone BR e `wa.me` de TODA string que possa sobrar:
+ * message, transaction, exception.value, request.*, tags, extra, contexts,
+ * breadcrumbs e spans (de transações).
  *
  * Formato do domínio (authSchema `celularBR` + `linkWhatsApp`): celular = 11
  * dígitos (`DDD`+`9`+8); link = `wa.me/55`+11 = 13 dígitos. A regex casa os 3
  * formatos reais (`11912345678`, `5511912345678`, `(11) 91234-5678`); o `9` do
  * 3º dígito ancora e evita casar timestamps de 13 dígitos.
  */
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
 const TELEFONE_BR = /(?:\+?55[\s-]?)?\(?[1-9]{2}\)?[\s-]?9\d{4}[\s-]?\d{4}/g
 const WA_ME = /wa\.me\/\d+/g
 const REDACTED = "[REDACTED]"
 const MAX_DEPTH = 8
 
 function scrubString(s: string): string {
-  return s.replace(WA_ME, "wa.me/[REDACTED]").replace(TELEFONE_BR, REDACTED)
+  return s
+    .replace(WA_ME, "wa.me/[REDACTED]")
+    .replace(EMAIL, REDACTED)
+    .replace(TELEFONE_BR, REDACTED)
 }
 
 /**

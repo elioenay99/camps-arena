@@ -124,6 +124,41 @@ describe("MatchCard — atalho de convocação direto no card", () => {
     expect(props.participante2.convocavel).toBe(true)
   })
 
+  it("poda celular do lado NÃO-convocável e preserva o do convocável no payload do modal", () => {
+    modalProps.mockClear()
+    // Lado NÃO-convocável (EU) COM número não-nulo: prova que a poda de fato ZERA
+    // o celular antes do client (e não só passa um null que já vinha do fixture).
+    render(
+      <MatchCard
+        partida={partida({
+          participante_1: { id: EU, nome: "Eu", avatar: null, celular: "11988887777" },
+        })}
+        userId={EU}
+      />
+    )
+    const props = modalProps.mock.calls.at(-1)?.[0] as {
+      participante1: {
+        convocavel?: boolean
+        celular?: string | null
+        mensagemWhatsApp?: string
+      }
+      participante2: {
+        convocavel?: boolean
+        celular?: string | null
+        mensagemWhatsApp?: string
+      }
+    }
+    // participante_1 = EU (não convocável): número podado antes de ir ao client.
+    expect(props.participante1.convocavel).toBe(false)
+    expect(props.participante1.celular).toBeNull()
+    expect(props.participante1.mensagemWhatsApp).toBeUndefined()
+    // participante_2 = Rival (convocável): celular PRESERVADO (regressão do
+    // "Chamar" do modal — o link de convocação ainda funciona).
+    expect(props.participante2.convocavel).toBe(true)
+    expect(props.participante2.celular).toBe("11912345678")
+    expect(props.participante2.mensagemWhatsApp).toBeTruthy()
+  })
+
   it("quem não joga não torna nenhum lado convocável no modal", () => {
     modalProps.mockClear()
     render(

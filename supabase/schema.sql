@@ -140,6 +140,23 @@ create table if not exists public.teams (
   constraint teams_provider_external_unico unique (provider, external_id)
 );
 
+-- Sanidade do cache de clubes (defesa no banco — vale p/ POST direto via anon key,
+-- que ignora o Zod do app). nome dentro de 1..80 chars (após btrim) e external_id
+-- só dígitos ou nulo. ATENÇÃO: se houver registros legados fora desses limites, o
+-- ADD falha. Conferir ANTES de aplicar (só aplicar se ambos = 0):
+--   select count(*) from public.teams
+--   where char_length(btrim(nome)) not between 1 and 80;
+--   select count(*) from public.teams
+--   where external_id is not null and external_id !~ '^[0-9]+$';
+alter table public.teams drop constraint if exists teams_nome_tam;
+alter table public.teams
+  add constraint teams_nome_tam
+  check (char_length(btrim(nome)) between 1 and 80);
+alter table public.teams drop constraint if exists teams_external_id_num;
+alter table public.teams
+  add constraint teams_external_id_num
+  check (external_id is null or external_id ~ '^[0-9]+$');
+
 -- ---------- Tabela: participants (participação CONFIRMADA em torneio) ----------
 -- Linha = participante confirmado; não existe convite "pendente" persistido
 -- (o aceite É a ação de entrar pelo link). PK composta evita duplicata;
@@ -1268,7 +1285,10 @@ create policy teams_select_public on public.teams
 drop policy if exists teams_insert_authenticated on public.teams;
 create policy teams_insert_authenticated on public.teams
   for insert to authenticated
-  with check (true);
+  with check (
+    char_length(btrim(nome)) between 1 and 80
+    and (external_id is null or external_id ~ '^[0-9]+$')
+  );
 
 -- ----- matches: SELECT segue a visibilidade do torneio; INSERT só do dono -----
 -- A partida é visível quando o torneio dela é visível (público, ou privado do

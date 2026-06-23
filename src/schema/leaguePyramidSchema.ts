@@ -521,7 +521,9 @@ export const createCompetitionSchema = z
       })
 
       // Unicidade dentro da divisão (rótulos case-insensitive; clubes por id).
-      // Espelha os índices únicos parciais de `league_competitors`.
+      // É um pré-filtro por divisão; a unicidade que ESPELHA os índices únicos
+      // parciais de `league_competitors` (escopo COMPETIÇÃO, não divisão) é a
+      // checagem cross-divisão logo após o loop.
       if (div.porNome) {
         const rotulos = div.competidores
           .filter(ehCompetidorNome)
@@ -545,6 +547,35 @@ export const createCompetitionSchema = z
           })
         }
       }
+    })
+
+    // (2.5) Unicidade CROSS-DIVISÃO — espelha os índices únicos parciais de
+    // `league_competitors`: `(competition_id, team_id)` e
+    // `(competition_id, lower(btrim(rotulo)))`, ambos por COMPETIÇÃO. Acumula a
+    // identidade de cada competidor de TODAS as divisões (clube → `t:<teamId>`,
+    // nome → `r:<lower(trim(rotulo))>`, casando a normalização do índice) e
+    // sinaliza a 2ª ocorrência da MESMA identidade em divisões distintas. (A
+    // repetição na MESMA divisão já é coberta no loop acima; aqui só pega o que
+    // cruza divisões — sem falso-positivo para identidades distintas.)
+    const identidadeVista = new Map<string, number>() // chave → 1º nível visto
+    divisoes.forEach((div, idx) => {
+      div.competidores.forEach((c, cIdx) => {
+        const chave = ehCompetidorNome(c)
+          ? `r:${c.rotulo.trim().toLowerCase()}`
+          : `t:${c.teamId}`
+        const primeiroNivel = identidadeVista.get(chave)
+        if (primeiroNivel === undefined) {
+          identidadeVista.set(chave, div.nivel)
+        } else if (primeiroNivel !== div.nivel) {
+          ctx.addIssue({
+            code: "custom",
+            message: ehCompetidorNome(c)
+              ? `O nome "${c.rotulo.trim()}" já está em outra divisão da temporada.`
+              : `Este clube já está em outra divisão da temporada.`,
+            path: ["divisoes", idx, "competidores", cIdx],
+          })
+        }
+      })
     })
 
     // (3) Fronteiras: só entre níveis ADJACENTES existentes; no máximo uma por

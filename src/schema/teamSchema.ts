@@ -45,7 +45,9 @@ const escudoUrlSchema = z
 /** Clube normalizado a partir da API (e contrato de seleção/cache). */
 export const teamResultSchema = z.object({
   externalId: z.string().regex(/^\d+$/, "Identificador de clube inválido."),
-  nome: z.string().min(1).max(80, "Nome de clube muito longo."),
+  // .trim() espelha o `char_length(btrim(nome)) between 1 and 80` do CHECK do banco
+  // (nome só-de-espaços recusado nas duas camadas).
+  nome: z.string().trim().min(1).max(80, "Nome de clube muito longo."),
   escudoUrl: escudoUrlSchema,
 })
 

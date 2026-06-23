@@ -8,6 +8,14 @@ import {
 } from "@/features/league/flowEngine"
 import type { LeagueRankingBase } from "@/lib/supabase/database.types"
 
+/** Colunas do histórico de `league_division_entries` que a soma de vida toda consome. */
+interface HistRow {
+  competitor_id: string
+  pontos: number | null
+  jogos: number | null
+  division_season_id: string | null
+}
+
 /** Linha REAL de uma divisão (posição da tabela + campanha do ano). */
 export interface LinhaReal {
   competitorId: string
@@ -64,20 +72,33 @@ export async function carregarPosicoesDeCorte(
   // competição (league_competitors é por competição). Filtramos as entries da
   // temporada ATUAL em JS (GUARDA PRINCIPAL anti-duplo-conta).
   const ids = linhas.map((l) => l.competitorId)
-  const { data: historico, error } = await supabase
-    .from("league_division_entries")
-    .select("competitor_id, pontos, jogos, division_season_id")
-    .in("competitor_id", ids)
-    .not("posicao_final", "is", null)
-  if (error) {
-    console.error("carregarPosicoesDeCorte: histórico", error.code ?? error.message)
-    return null
+  // Paginação determinística: o cap de linhas do servidor (PostgREST) cortaria a
+  // soma de VIDA TODA sem aviso. `.order("id")` (PK) torna o range estável; somamos
+  // todas as páginas até uma vir incompleta. NUNCA usar `.limit()` aqui (corromperia Σ).
+  const PAGINA = 1000
+  const historico: HistRow[] = []
+  let offset = 0
+  for (;;) {
+    const { data, error } = await supabase
+      .from("league_division_entries")
+      .select("competitor_id, pontos, jogos, division_season_id")
+      .in("competitor_id", ids)
+      .not("posicao_final", "is", null)
+      .order("id", { ascending: true })
+      .range(offset, offset + PAGINA - 1)
+    if (error) {
+      console.error("carregarPosicoesDeCorte: histórico", error.code ?? error.message)
+      return null
+    }
+    historico.push(...((data as HistRow[] | null) ?? []))
+    if (!data || data.length < PAGINA) break
+    offset += PAGINA
   }
 
   const excluir = new Set(excluirDivisionSeasonIds)
   const histPontos = new Map<string, number>()
   const histJogos = new Map<string, number>()
-  for (const e of historico ?? []) {
+  for (const e of historico) {
     if (e.division_season_id && excluir.has(e.division_season_id)) continue
     histPontos.set(e.competitor_id, (histPontos.get(e.competitor_id) ?? 0) + (e.pontos ?? 0))
     histJogos.set(e.competitor_id, (histJogos.get(e.competitor_id) ?? 0) + (e.jogos ?? 0))
