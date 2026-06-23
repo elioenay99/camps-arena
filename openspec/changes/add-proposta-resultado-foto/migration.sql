@@ -248,8 +248,8 @@ create policy matches_update_participant on public.matches
 -- 7) Grants (RLS controla as linhas; sem grant o PostgREST nega) -------------
 grant select, insert, delete on public.match_score_proposals to authenticated;
 -- sem UPDATE para a sessão: aprovar/rejeitar é via RPC. DELETE só a própria pendente (policy).
-revoke execute on function public.aprovar_proposta_placar(uuid) from public;
-revoke execute on function public.rejeitar_proposta_placar(uuid, text) from public;
+revoke execute on function public.aprovar_proposta_placar(uuid) from public, anon;
+revoke execute on function public.rejeitar_proposta_placar(uuid, text) from public, anon;
 grant execute on function public.aprovar_proposta_placar(uuid) to authenticated;
 grant execute on function public.rejeitar_proposta_placar(uuid, text) to authenticated;
 

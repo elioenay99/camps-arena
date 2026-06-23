@@ -4898,8 +4898,8 @@ create policy matches_update_participant on public.matches
 
 -- Grants
 grant select, insert, delete on public.match_score_proposals to authenticated;
-revoke execute on function public.aprovar_proposta_placar(uuid) from public;
-revoke execute on function public.rejeitar_proposta_placar(uuid, text) from public;
+revoke execute on function public.aprovar_proposta_placar(uuid) from public, anon;
+revoke execute on function public.rejeitar_proposta_placar(uuid, text) from public, anon;
 grant execute on function public.aprovar_proposta_placar(uuid) to authenticated;
 grant execute on function public.rejeitar_proposta_placar(uuid, text) to authenticated;
 
