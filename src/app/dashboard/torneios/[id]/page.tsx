@@ -19,9 +19,10 @@ import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
 import { podeArbitrar, podeGerir, podeModerar } from "@/lib/autorizacao";
+import { carregarCelulares } from "@/lib/contatos";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
-import { mensagemRodada } from "@/lib/whatsapp";
+import { mensagemListaTimes, mensagemRodada } from "@/lib/whatsapp";
 import { Button } from "@/components/ui/button";
 import { champThemeProps } from "@/features/championship/championshipTheme";
 import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge";
@@ -57,6 +58,7 @@ import { InviteSection } from "@/features/tournament/components/InviteSection";
 import { ParticipantsSection } from "@/features/tournament/components/ParticipantsSection";
 import { TournamentLifecycleButtons } from "@/features/tournament/components/TournamentLifecycleButtons";
 import { VagasSection } from "@/features/tournament/components/VagasSection";
+import { listaTimesTexto } from "@/features/tournament/listaTimesTexto";
 import { getConviteDoTorneio } from "@/features/tournament/data/getConviteDoTorneio";
 import { getParticipantesDoTorneio } from "@/features/tournament/data/getParticipantesDoTorneio";
 import {
@@ -284,6 +286,30 @@ export default async function TorneioPage({
   // opacos; clube como rótulo) — as actions validam cabeças/atribuições
   // contra esses mesmos ids.
   const lados = vagas.map((vaga) => ({ id: vaga.id, nome: vaga.clube }));
+
+  // Compartilhar a LISTA DE TIMES no WhatsApp (change add-compartilhar-lista-times): só p/
+  // quem MODERA, em competitivo com vagas. O texto é montado AQUI (RSC) e passado pronto à
+  // VagasSection. O celular dos técnicos vem da RPC gated `carregarCelulares` — PII só
+  // embutida no `wa.me`, nunca crua no client; some p/ quem não é co-participante (o dono é
+  // co-participante de todo técnico via created_by). O await da RPC só roda quando o botão
+  // será exibido (não puxa PII à toa em torneio sem vagas / p/ quem não modera).
+  const compartilharTimes =
+    ehGerado && moderar && vagas.length > 0
+      ? {
+          titulo,
+          texto: mensagemListaTimes({
+            titulo,
+            times: listaTimesTexto(
+              vagas,
+              await carregarCelulares(
+                supabase,
+                vagas.flatMap((vaga) => (vaga.tecnico ? [vaga.tecnico.id] : []))
+              )
+            ),
+            tournamentId: id,
+          }),
+        }
+      : undefined;
 
   // Identidade visual (change add-cores-campeonato): cor EFETIVA com fallback de
   // divisão (torneio que É uma divisão de pirâmide herda a cor da liga). 1 query
@@ -634,6 +660,7 @@ export default async function TorneioPage({
           tournamentId={id}
           torneioEncerrado={torneio.status === "encerrado"}
           codigos={codigosVagas}
+          compartilhar={compartilharTimes}
         />
       ) : (
         <>

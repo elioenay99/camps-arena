@@ -85,3 +85,45 @@ export function mensagemRodada({
   const corpo = linhas ? `${linhas}\n\n` : ""
   return `${t} — ${rodada}a rodada Liberada\n\n${corpo}Acompanhe: ${url}`
 }
+
+/** Um time na lista de times para o texto de compartilhamento. */
+export interface TimeListaTexto {
+  /** Nome do clube (ou competidor por-nome). */
+  clube: string
+  /** Nome do técnico (comandante da vaga); null = vaga aberta/por-nome (⇒ ❌). */
+  comandante?: string | null
+  /** Celular do técnico; vira link wa.me embutido quando válido. */
+  celular?: string | null
+}
+
+/**
+ * Texto da LISTA DE TIMES de um torneio competitivo para o WhatsApp (change
+ * add-compartilhar-lista-times) — "app prepara, você envia", SEM imagem. Cabeçalho
+ * "<título> — Times" + UMA LINHA por time (clube + técnico; com o link `wa.me` do técnico
+ * quando há celular; técnico sem celular sai só com o nome; time SEM técnico ⇒ ❌) SEPARADAS
+ * por uma quebra simples (lista plana e compacta, ≠ confrontos da rodada) + a URL absoluta
+ * da página. Mesma regra de ❌ da rodada (só quando não há técnico). Sem emoji decorativo (o
+ * ❌ é unicode estável e desejado). Montado no SERVIDOR — o celular entra só embutido no
+ * `wa.me`, nunca cru no client.
+ */
+export function mensagemListaTimes({
+  titulo,
+  times,
+  tournamentId,
+}: {
+  titulo?: string | null
+  times: TimeListaTexto[]
+  tournamentId: string
+}): string {
+  const t = titulo?.trim() || "Campeonato"
+  const url = `${env.NEXT_PUBLIC_SITE_URL}/dashboard/torneios/${tournamentId}`
+  const linha = (time: TimeListaTexto): string => {
+    const nome = time.comandante?.trim()
+    if (!nome) return `${time.clube} — ❌`
+    const wa = linkWhatsApp(time.celular)
+    return wa ? `${time.clube} — ${nome}: ${wa}` : `${time.clube} — ${nome}`
+  }
+  const linhas = times.map(linha).join("\n")
+  const corpo = linhas ? `${linhas}\n\n` : ""
+  return `${t} — Times\n\n${corpo}Veja: ${url}`
+}

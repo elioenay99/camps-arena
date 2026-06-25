@@ -1,6 +1,7 @@
 import { env } from "@/lib/env"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { UserAvatar } from "@/features/profile/components/UserAvatar"
+import { CompartilharListaTimesButton } from "@/features/tournament/components/CompartilharListaTimesButton"
 import type { VagaDoTorneio } from "@/features/tournament/data/getVagasDoTorneio"
 import {
   AssumirVagaButton,
@@ -24,6 +25,10 @@ import {
  * fetcher e só passa quando há capacidade de moderar): os links de convite nunca
  * são renderizados para quem não modera — defesa em profundidade com a RLS de
  * slot_invites. Torneio encerrado esconde as ações de troca (a RLS rejeita).
+ *
+ * `compartilhar` (texto da lista de times para o WhatsApp) chega só para quem modera, em
+ * competitivo com vagas (a page monta e gateia): o botão de compartilhar a lista aparece no
+ * cabeçalho ao lado do título. Ausente ⇒ sem botão.
  */
 export function VagasSection({
   vagas,
@@ -32,6 +37,7 @@ export function VagasSection({
   tournamentId,
   torneioEncerrado,
   codigos,
+  compartilhar,
 }: {
   vagas: VagaDoTorneio[]
   userId: string
@@ -41,12 +47,22 @@ export function VagasSection({
   torneioEncerrado: boolean
   /** slot_id → code (só presente para quem modera). */
   codigos?: Map<string, string>
+  /** Texto da lista de times para o WhatsApp (só presente para quem modera). */
+  compartilhar?: { titulo: string; texto: string }
 }) {
   return (
     <section aria-labelledby="vagas-titulo" className="flex flex-col gap-4">
-      <h2 id="vagas-titulo" className="font-display text-lg font-bold tracking-tight">
-        Vagas
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="vagas-titulo" className="font-display text-lg font-bold tracking-tight">
+          Vagas
+        </h2>
+        {compartilhar ? (
+          <CompartilharListaTimesButton
+            titulo={compartilhar.titulo}
+            texto={compartilhar.texto}
+          />
+        ) : null}
+      </div>
 
       {vagas.length === 0 ? (
         <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-8 text-center text-sm">

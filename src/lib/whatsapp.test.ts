@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { linkWhatsApp, mensagemConvocacao, mensagemRodada } from "@/lib/whatsapp"
+import {
+  linkWhatsApp,
+  mensagemConvocacao,
+  mensagemListaTimes,
+  mensagemRodada,
+} from "@/lib/whatsapp"
 
 describe("linkWhatsApp", () => {
   it("celular BR de 11 dígitos ganha o DDI 55", () => {
@@ -137,6 +142,75 @@ describe("mensagemRodada", () => {
       tournamentId,
     })
     // sem emojis de bola/troféu etc.; o ❌ (U+274C) é o único símbolo permitido.
+    expect(msg).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}]/u)
+  })
+})
+
+describe("mensagemListaTimes", () => {
+  const tournamentId = "11111111-1111-4111-8111-111111111111"
+  const url = `http://localhost:3000/dashboard/torneios/${tournamentId}`
+
+  it("cabeçalho 'Times' + uma linha por time + rodapé com a URL", () => {
+    const msg = mensagemListaTimes({
+      titulo: "Copa da Firma",
+      times: [
+        { clube: "Grêmio", comandante: "Ana", celular: "11912345678" },
+        { clube: "Inter", comandante: "Beto", celular: null },
+        { clube: "Vasco", comandante: null, celular: null },
+      ],
+      tournamentId,
+    })
+    expect(msg).toBe(
+      `Copa da Firma — Times\n\n` +
+        `Grêmio — Ana: https://wa.me/5511912345678\n` +
+        `Inter — Beto\n` +
+        `Vasco — ❌\n\n` +
+        `Veja: ${url}`
+    )
+  })
+
+  it("técnico com celular ganha o link; técnico sem celular sai só com o nome", () => {
+    const msg = mensagemListaTimes({
+      titulo: "Liga",
+      times: [
+        { clube: "Alfa", comandante: "Caio", celular: "11987654321" },
+        { clube: "Bravo", comandante: "Davi", celular: null },
+      ],
+      tournamentId,
+    })
+    expect(msg).toContain("Alfa — Caio: https://wa.me/5511987654321")
+    expect(msg).toContain("Bravo — Davi")
+    // o nome do Bravo não vira link (sem celular) — só uma ocorrência de wa.me.
+    expect(msg.match(/wa\.me/g)?.length).toBe(1)
+  })
+
+  it("só time SEM técnico vira ❌; técnico presente (mesmo 'Sem nome') nunca vira ❌", () => {
+    const msg = mensagemListaTimes({
+      titulo: "Liga",
+      times: [
+        { clube: "Órfão", comandante: null, celular: null },
+        // técnico presente sem nome cadastrado já chega com o fallback "Sem nome".
+        { clube: "Ocupado", comandante: "Sem nome", celular: null },
+      ],
+      tournamentId,
+    })
+    expect(msg).toContain("Órfão — ❌")
+    expect(msg).toContain("Ocupado — Sem nome")
+    // exatamente um ❌ (só o órfão) — o slot ocupado não recebe ❌.
+    expect(msg.match(/❌/g)?.length).toBe(1)
+  })
+
+  it("título ausente usa fallback; sem times só cabeçalho + URL", () => {
+    const msg = mensagemListaTimes({ titulo: "  ", times: [], tournamentId })
+    expect(msg).toBe(`Campeonato — Times\n\nVeja: ${url}`)
+  })
+
+  it("não contém emoji decorativo (só o ❌ funcional)", () => {
+    const msg = mensagemListaTimes({
+      titulo: "X",
+      times: [{ clube: "A", comandante: null, celular: null }],
+      tournamentId,
+    })
     expect(msg).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}]/u)
   })
 })
