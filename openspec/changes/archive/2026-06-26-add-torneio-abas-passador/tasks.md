@@ -34,5 +34,6 @@
 - [x] 5.4 `pnpm build` verde
 - [x] 5.5 Revisão adversarial do diff por workflow (0 must_fix; 2 should_fix + 1 nit corrigidos:
       passador ancorado ao nº da rodada, `aria-live` só no resumo, anel de foco `ring-inset`)
-- [ ] 5.6 Validação ao vivo (390px): abas trocam, passador anda entre rodadas, Fechar rodada na
-      ativa, avulso plano; sem regressão visual — PENDENTE (requer browser + login do dono)
+- [~] 5.6 Validação ao vivo (390px): abas trocam, passador anda entre rodadas, Fechar rodada na
+      ativa, avulso plano; sem regressão visual — DISPENSADA por decisão do dono (2026-06-26):
+      confiança nos gates + revisão adversarial (lente a11y-mobile já cobriu 390px)
