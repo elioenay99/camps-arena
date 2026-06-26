@@ -7,6 +7,7 @@ import { signup, type AuthState } from "@/actions/auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PhoneField } from "@/features/auth/components/PhoneField"
 
 const initialState: AuthState = {}
 
@@ -77,14 +78,11 @@ export function SignupForm({ redirectTo }: { redirectTo?: string }) {
 
       <div className="grid gap-2">
         <Label htmlFor="celular">Celular</Label>
-        <Input
+        <PhoneField
           id="celular"
           name="celular"
-          type="tel"
-          autoComplete="tel-national"
-          placeholder="(11) 91234-5678"
-          aria-invalid={Boolean(state.fieldErrors?.celular)}
-          aria-describedby={
+          ariaInvalid={Boolean(state.fieldErrors?.celular)}
+          ariaDescribedBy={
             state.fieldErrors?.celular ? "celular-erro" : undefined
           }
           required

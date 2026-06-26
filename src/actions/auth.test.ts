@@ -139,8 +139,8 @@ describe("signup", () => {
       email: "maria@exemplo.com",
       password: "supersegura",
       options: {
-        // celularBR normaliza para dígitos: o trigger grava o perfil com isso.
-        data: { nome: "Maria Silva", celular: "11912345678" },
+        // o schema normaliza para E.164: o trigger grava o perfil com isso.
+        data: { nome: "Maria Silva", celular: "+5511912345678" },
         emailRedirectTo: "http://localhost:3000/auth/confirm?next=%2Fdashboard",
       },
     })

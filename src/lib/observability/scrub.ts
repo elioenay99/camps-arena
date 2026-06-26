@@ -7,16 +7,21 @@ import type { Breadcrumb, Event } from "@sentry/nextjs"
  * então precisam do seu próprio gancho). É a 3ª camada de defesa (as outras:
  * `sendDefaultPii:false` e `requestDataIntegration include:false`).
  *
- * Redige e-mail, telefone BR e `wa.me` de TODA string que possa sobrar:
- * message, transaction, exception.value, request.*, tags, extra, contexts,
- * breadcrumbs e spans (de transações).
+ * Redige e-mail, telefone (BR legado + E.164 internacional) e `wa.me` de TODA
+ * string que possa sobrar: message, transaction, exception.value, request.*,
+ * tags, extra, contexts, breadcrumbs e spans (de transações).
  *
- * Formato do domínio (authSchema `celularBR` + `linkWhatsApp`): celular = 11
- * dígitos (`DDD`+`9`+8); link = `wa.me/55`+11 = 13 dígitos. A regex casa os 3
- * formatos reais (`11912345678`, `5511912345678`, `(11) 91234-5678`); o `9` do
- * 3º dígito ancora e evita casar timestamps de 13 dígitos.
+ * Formatos do domínio (authSchema `celular` + `linkWhatsApp`):
+ *  - E.164 (formato de storage atual): `+` seguido de 8–15 dígitos (`+55…`,
+ *    `+351…`, `+1…`) — `TELEFONE_E164`.
+ *  - Legado brasileiro sem DDI (linhas antigas e máscara): 11 dígitos
+ *    (`DDD`+`9`+8) ou 13 com o 55 — `TELEFONE_BR` casa `11912345678`,
+ *    `5511912345678`, `(11) 91234-5678`; o `9` do 3º dígito ancora e evita
+ *    casar timestamps de 13 dígitos.
+ *  - Link: `wa.me/<digitos>` de qualquer país — `WA_ME`.
  */
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
+const TELEFONE_E164 = /\+\d{8,15}/g
 const TELEFONE_BR = /(?:\+?55[\s-]?)?\(?[1-9]{2}\)?[\s-]?9\d{4}[\s-]?\d{4}/g
 const WA_ME = /wa\.me\/\d+/g
 const REDACTED = "[REDACTED]"
@@ -26,6 +31,7 @@ function scrubString(s: string): string {
   return s
     .replace(WA_ME, "wa.me/[REDACTED]")
     .replace(EMAIL, REDACTED)
+    .replace(TELEFONE_E164, REDACTED)
     .replace(TELEFONE_BR, REDACTED)
 }
 

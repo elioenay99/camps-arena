@@ -1,19 +1,28 @@
 import { z } from "zod"
+import { parsePhoneNumberFromString } from "libphonenumber-js"
 
 /**
- * Celular brasileiro. Aceita com ou sem máscara:
- *   (11) 91234-5678 · 11 91234-5678 · 11912345678
- * Regra: DDD (2 dígitos) + 9 + 8 dígitos = 11 dígitos no total.
+ * Celular internacional, sempre normalizado para E.164 (`+5511912345678`,
+ * `+351931482194`). Aceita entrada em E.164 (com `+` — país inferido pelo DDI)
+ * OU nacional brasileira sem DDI (o `PhoneField` em país BR e as linhas legadas
+ * de 11 dígitos gravadas pelo schema antigo — assume o Brasil). Inválido para o
+ * país → erro de campo, sem gravação. O storage e o `wa.me` passam a ser
+ * DDI-aware (ver `linkWhatsApp` em `src/lib/whatsapp.ts`).
  */
-const SOMENTE_DIGITOS = /\D/g
+function paraE164(bruto: string): string | null {
+  const v = bruto.trim()
+  if (!v) return null
+  const pn = parsePhoneNumberFromString(v, v.startsWith("+") ? undefined : "BR")
+  return pn?.isValid() ? pn.number : null
+}
 
-export const celularBR = z
+export const celular = z
   .string()
   .trim()
-  .transform((valor) => valor.replace(SOMENTE_DIGITOS, ""))
-  .refine((digitos) => /^[1-9]{2}9\d{8}$/.test(digitos), {
-    error: "Celular inválido. Use o formato (11) 91234-5678.",
+  .refine((v) => paraE164(v) !== null, {
+    error: "Celular inválido. Confira o país e o número.",
   })
+  .transform((v) => paraE164(v)!)
 
 export const loginSchema = z.object({
   email: z.email({ error: "E-mail inválido." }),
@@ -24,7 +33,7 @@ export const signupSchema = z.object({
   nome: z.string().trim().min(2, "Informe seu nome."),
   email: z.email({ error: "E-mail inválido." }),
   password: z.string().min(6, "A senha deve ter ao menos 6 caracteres."),
-  celular: celularBR,
+  celular,
 })
 
 export const forgotPasswordSchema = z.object({
@@ -64,7 +73,7 @@ export const changePasswordSchema = z
 /** Edição do próprio perfil (nome + celular). Avatar é tratado à parte (arquivo). */
 export const profileSchema = z.object({
   nome: z.string().trim().min(2, "Informe seu nome."),
-  celular: celularBR,
+  celular,
 })
 
 export type LoginInput = z.infer<typeof loginSchema>

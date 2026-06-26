@@ -8,6 +8,7 @@ import type { AuthState } from "@/actions/auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PhoneField } from "@/features/auth/components/PhoneField"
 
 const initialState: AuthState = {}
 
@@ -53,15 +54,12 @@ export function ProfileForm({
 
       <div className="grid gap-2">
         <Label htmlFor="celular">Celular</Label>
-        <Input
+        <PhoneField
           id="celular"
           name="celular"
-          type="tel"
-          defaultValue={celular ?? ""}
-          autoComplete="tel-national"
-          placeholder="(11) 91234-5678"
-          aria-invalid={Boolean(state.fieldErrors?.celular)}
-          aria-describedby={
+          defaultValue={celular}
+          ariaInvalid={Boolean(state.fieldErrors?.celular)}
+          ariaDescribedBy={
             state.fieldErrors?.celular ? "celular-erro" : undefined
           }
           required

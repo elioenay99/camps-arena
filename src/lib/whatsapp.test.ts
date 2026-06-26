@@ -20,11 +20,26 @@ describe("linkWhatsApp", () => {
     expect(linkWhatsApp("5511912345678")).toBe("https://wa.me/5511912345678")
   })
 
+  it("E.164 internacional usa o DDI embutido (Portugal, EUA, BR)", () => {
+    expect(linkWhatsApp("+351931482194")).toBe("https://wa.me/351931482194")
+    expect(linkWhatsApp("+14155552671")).toBe("https://wa.me/14155552671")
+    expect(linkWhatsApp("+5511912345678")).toBe("https://wa.me/5511912345678")
+  })
+
+  it("E.164 também anexa a mensagem em ?text=", () => {
+    expect(linkWhatsApp("+351931482194", "Olá!")).toBe(
+      `https://wa.me/351931482194?text=${encodeURIComponent("Olá!")}`
+    )
+  })
+
   it("formato inválido, vazio ou nulo → null (sem atalho)", () => {
     expect(linkWhatsApp("1234")).toBeNull() // fixo/curto
     expect(linkWhatsApp("5511912345678901")).toBeNull() // longo demais
     // 13 dígitos SEM prefixo 55 não é DDI Brasil — rejeitado.
     expect(linkWhatsApp("9911912345678")).toBeNull()
+    // E.164 fora da faixa de 8–15 dígitos → null.
+    expect(linkWhatsApp("+12")).toBeNull() // curto demais
+    expect(linkWhatsApp("+1234567890123456")).toBeNull() // 16 dígitos
     expect(linkWhatsApp("")).toBeNull()
     expect(linkWhatsApp(null)).toBeNull()
     expect(linkWhatsApp(undefined)).toBeNull()

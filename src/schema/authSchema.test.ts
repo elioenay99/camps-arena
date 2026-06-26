@@ -58,7 +58,7 @@ describe("changePasswordSchema", () => {
 })
 
 describe("profileSchema", () => {
-  it("aceita nome (≥2) e celular brasileiro (normaliza para dígitos)", () => {
+  it("aceita nome (≥2) e celular BR (nacional → normaliza para E.164 +55)", () => {
     const r = profileSchema.safeParse({
       nome: "  Ana Souza ",
       celular: "(11) 91234-5678",
@@ -66,8 +66,33 @@ describe("profileSchema", () => {
     expect(r.success).toBe(true)
     if (r.success) {
       expect(r.data.nome).toBe("Ana Souza")
-      expect(r.data.celular).toBe("11912345678")
+      expect(r.data.celular).toBe("+5511912345678")
     }
+  })
+
+  it("aceita E.164 internacional e preserva o DDI (Portugal, EUA)", () => {
+    const pt = profileSchema.safeParse({ nome: "João", celular: "+351931482194" })
+    expect(pt.success).toBe(true)
+    if (pt.success) expect(pt.data.celular).toBe("+351931482194")
+
+    // Aceita com máscara/espacos do país também (normaliza para E.164 canônico).
+    const us = profileSchema.safeParse({ nome: "Sam", celular: "+1 415 555 2671" })
+    expect(us.success).toBe(true)
+    if (us.success) expect(us.data.celular).toBe("+14155552671")
+  })
+
+  it("legado BR já em E.164 permanece idêntico (idempotente)", () => {
+    const r = profileSchema.safeParse({ nome: "Ana", celular: "+5511912345678" })
+    expect(r.success).toBe(true)
+    if (r.success) expect(r.data.celular).toBe("+5511912345678")
+  })
+
+  it("aceita fixo BR de 10 dígitos — decisão de escopo (sem distinção móvel×fixo)", () => {
+    // A metadata 'min' do libphonenumber valida o plano de numeração, não móvel×fixo;
+    // o campo alimenta um wa.me, e a checagem estrita está fora de escopo do design.
+    const r = profileSchema.safeParse({ nome: "Ana", celular: "1133334444" })
+    expect(r.success).toBe(true)
+    if (r.success) expect(r.data.celular).toBe("+551133334444")
   })
 
   it("rejeita nome curto (< 2) no campo nome", () => {
@@ -78,8 +103,16 @@ describe("profileSchema", () => {
     }
   })
 
-  it("rejeita celular fora do formato no campo celular", () => {
+  it("rejeita celular inválido (curto demais) no campo celular", () => {
     const r = profileSchema.safeParse({ nome: "Ana", celular: "123" })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues[0]?.path[0]).toBe("celular")
+    }
+  })
+
+  it("rejeita E.164 com DDI inexistente", () => {
+    const r = profileSchema.safeParse({ nome: "Ana", celular: "+9999999999" })
     expect(r.success).toBe(false)
     if (!r.success) {
       expect(r.error.issues[0]?.path[0]).toBe("celular")

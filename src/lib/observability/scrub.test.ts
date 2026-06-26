@@ -55,6 +55,24 @@ describe("scrubEvent — redação de PII", () => {
     expect(blob).toContain("ok")
   })
 
+  it("redige celular internacional em E.164 (Portugal, EUA, França)", () => {
+    const E164 = ["+351931482194", "+14155552671", "+33612345678"]
+    for (const num of E164) {
+      const out = scrubEvent({ message: `Falha ao contatar ${num} no perfil` } as ErrorEvent)
+      expect(out.message).not.toContain(num)
+      expect(out.message).not.toContain(num.slice(1)) // nem os dígitos sem o +
+      expect(out.message).toContain("[REDACTED]")
+    }
+    // Aninhado em extra/contexts também é redigido.
+    const out = scrubEvent({
+      extra: { tel: "+351931482194" },
+      contexts: { perfil: { celular: "+14155552671" } },
+    } as unknown as ErrorEvent)
+    const blob = JSON.stringify({ extra: out.extra, contexts: out.contexts })
+    expect(blob).not.toContain("351931482194")
+    expect(blob).not.toContain("14155552671")
+  })
+
   it("redige o celular em exception.values[].value", () => {
     const out = scrubEvent({
       exception: { values: [{ type: "Error", value: "celular 11912345678 inválido" }] },

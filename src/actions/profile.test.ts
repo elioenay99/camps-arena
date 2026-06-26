@@ -124,7 +124,7 @@ describe("atualizarPerfil", () => {
     expect(r).toEqual({ success: "Perfil atualizado." })
     expect(c.updatePayloadSpy).toHaveBeenCalledWith({
       nome: "Ana Souza",
-      celular: "11912345678",
+      celular: "+5511912345678",
     })
     expect(c.updateFiltroSpy).toHaveBeenCalledWith("id", USER)
   })

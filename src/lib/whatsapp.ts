@@ -1,24 +1,33 @@
 import { env } from "@/lib/env"
 
 /**
- * Link wa.me a partir de um celular BR — fonte ÚNICA do atalho de contato
- * (modal, card do dashboard e lista da página do torneio). Aceita só celular
- * válido: 11 dígitos sem DDI (recebe o 55), ou 13 já com o DDI 55. Fixo ou
- * formato inválido → null (sem atalho). O DDI é inferido pelo COMPRIMENTO,
- * não pelo prefixo (um DDD 55 não é DDI).
+ * Link wa.me a partir de um celular — fonte ÚNICA do atalho de contato (modal,
+ * card do dashboard e listas da página do torneio). Reconhece dois mundos:
+ *  - E.164 (com `+`): o DDI já está embutido → `wa.me/<DDI><numero>` (8–15
+ *    dígitos). Cobre qualquer país (`+351…`, `+1…`). O valor gravado pelo schema
+ *    já é E.164 válido (autoridade de validade); aqui só se confia nele.
+ *  - Legado brasileiro (sem `+`): 11 dígitos recebem o DDI 55; 13 dígitos
+ *    iniciando em 55 entram diretos (o DDI é inferido pelo COMPRIMENTO, não pelo
+ *    prefixo — um DDD 55 não é DDI).
+ * Qualquer outro formato → null (sem atalho).
  */
 export function linkWhatsApp(
   celular?: string | null,
   texto?: string
 ): string | null {
   if (!celular) return null
-  const digitos = celular.replace(/\D/g, "")
-  let base: string | null = null
-  if (digitos.length === 11) base = `https://wa.me/55${digitos}`
-  if (digitos.length === 13 && digitos.startsWith("55")) {
-    base = `https://wa.me/${digitos}`
+  const bruto = celular.trim()
+  const digitos = bruto.replace(/\D/g, "")
+  let alvo: string | null = null
+  if (bruto.startsWith("+")) {
+    if (digitos.length >= 8 && digitos.length <= 15) alvo = digitos
+  } else if (digitos.length === 11) {
+    alvo = `55${digitos}`
+  } else if (digitos.length === 13 && digitos.startsWith("55")) {
+    alvo = digitos
   }
-  if (!base) return null
+  if (!alvo) return null
+  const base = `https://wa.me/${alvo}`
   return texto ? `${base}?text=${encodeURIComponent(texto)}` : base
 }
 
