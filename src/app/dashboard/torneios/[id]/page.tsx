@@ -57,6 +57,10 @@ import { IniciarTorneioPanel } from "@/features/tournament/components/IniciarTor
 import { InviteSection } from "@/features/tournament/components/InviteSection";
 import { ParticipantsSection } from "@/features/tournament/components/ParticipantsSection";
 import { TournamentLifecycleButtons } from "@/features/tournament/components/TournamentLifecycleButtons";
+import {
+  TournamentTabs,
+  type AbaTorneio,
+} from "@/features/tournament/components/TournamentTabs";
 import { VagasSection } from "@/features/tournament/components/VagasSection";
 import { listaTimesTexto } from "@/features/tournament/listaTimesTexto";
 import { getConviteDoTorneio } from "@/features/tournament/data/getConviteDoTorneio";
@@ -321,6 +325,321 @@ export default async function TorneioPage({
   );
   const themeProps = champThemeProps(primaria, secundaria);
 
+  // ----------------------------------------------------------------------------
+  // Composição das ABAS (change add-torneio-abas-passador). Os dados e TODOS os
+  // gates já estão resolvidos acima — aqui só montamos os NÓS por aba. As abas
+  // são DINÂMICAS (só entra a que tem conteúdo). O cabeçalho, os painéis de
+  // início e a Administração ficam FORA das abas. O `TournamentTabs` e o
+  // `RoundPager` apenas apresentam: nenhum dado cru / nenhuma PII cruza para o
+  // client (o `wa.me` é montado no servidor, com o celular embutido no link).
+  // ----------------------------------------------------------------------------
+
+  // ABA "Classificação" (padrão, sempre presente): chave / grupos / pontos /
+  // clubes — ou o aviso de cadência manual ao não-dono.
+  const classificacaoContent = (
+    <>
+      {aguardandoLiberacao ? <AvisoAguardandoLiberacao /> : null}
+
+      {!aguardandoLiberacao && ehMataMata ? (
+        <SecaoTorneio
+          id="chave-titulo"
+          titulo="Chave"
+          Icon={Network}
+          acao={mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : undefined}
+        >
+          {chave.length === 0 ? (
+            <EstadoVazioSecao Icon={Network}>
+              A chave aparece quando o torneio for iniciado.
+            </EstadoVazioSecao>
+          ) : (
+            <BracketView partidas={chave} terceiroLugar={torneio.terceiro_lugar} />
+          )}
+        </SecaoTorneio>
+      ) : null}
+
+      {!aguardandoLiberacao && ehGrupos ? (
+        <>
+          <SecaoTorneio
+            id="grupos-titulo"
+            titulo={ehFaseLiga ? "Classificação" : "Fase de grupos"}
+            Icon={Users}
+          >
+            {grupos.length === 0 ? (
+              <EstadoVazioSecao Icon={Users}>
+                Os grupos aparecem quando o torneio for iniciado.
+              </EstadoVazioSecao>
+            ) : (
+              grupos.map((g) => (
+                <div key={g.grupo} className="flex flex-col gap-2">
+                  {!ehFaseLiga ? (
+                    <h3 className="text-sm font-medium">{rotuloGrupo(g.grupo)}</h3>
+                  ) : null}
+                  {g.linhas.length === 0 ? (
+                    <EstadoVazioSecao Icon={ListOrdered}>
+                      A classificação aparece depois da primeira partida
+                      encerrada.
+                    </EstadoVazioSecao>
+                  ) : (
+                    <StandingsTable linhas={g.linhas} />
+                  )}
+                </div>
+              ))
+            )}
+          </SecaoTorneio>
+
+          {grupos.length > 0 ? (
+            <SecaoTorneio
+              id="chave-grupos-titulo"
+              titulo="Mata-mata"
+              Icon={Swords}
+              acao={mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : undefined}
+            >
+              {chave.length === 0 ? (
+                mostrarGerarMataMata ? (
+                  <GerarMataMataButton
+                    tournamentId={id}
+                    pendentes={jogosDeGrupoPendentes}
+                  />
+                ) : (
+                  <EstadoVazioSecao Icon={Swords}>
+                    O mata-mata aparece quando a fase de grupos terminar.
+                  </EstadoVazioSecao>
+                )
+              ) : (
+                <BracketView
+                  partidas={chave}
+                  terceiroLugar={torneio.terceiro_lugar}
+                />
+              )}
+            </SecaoTorneio>
+          ) : null}
+        </>
+      ) : null}
+
+      {!aguardandoLiberacao && !ehMataMata && !ehGrupos ? (
+        <SecaoTorneio id="classificacao-titulo" titulo="Classificação" Icon={ListOrdered}>
+          {linhas.length === 0 ? (
+            <EstadoVazioSecao Icon={ListOrdered}>
+              A classificação aparece depois da primeira partida encerrada.
+            </EstadoVazioSecao>
+          ) : (
+            <StandingsTable linhas={linhas} />
+          )}
+        </SecaoTorneio>
+      ) : null}
+
+      {/* Clube é opcional por partida — seção só com clube pontuado (e fora
+          do mata-mata: classificação por pontos não se aplica à chave). */}
+      {!ehMataMata && clubes.length > 0 ? (
+        <SecaoTorneio id="clubes-titulo" titulo="Clubes" Icon={Shield}>
+          <StandingsTable linhas={clubes} rotuloLado="Clube" />
+        </SecaoTorneio>
+      ) : null}
+    </>
+  );
+
+  // ABA "Partidas": consoles de ação (pendentes/W.O.) no topo + listas paginadas
+  // por rodada (passador). O badge conta os itens que pedem ação de quem arbitra,
+  // para serem descobertos mesmo com a aba Classificação por padrão (deep-link
+  // de push cai na URL nua).
+  const pendentesArbitragem = podeArbitrarPartidas
+    ? propostasPendentes.length + solicitacoesWO.length
+    : 0;
+  const temConteudoPartidas =
+    partidasAbertas.length > 0 ||
+    partidasEncerradas.length > 0 ||
+    pendentesArbitragem > 0;
+  const partidasContent = (
+    <>
+      {podeArbitrarPartidas && propostasPendentes.length > 0 ? (
+        <SecaoTorneio
+          id="propostas-titulo"
+          titulo="Resultados pendentes"
+          Icon={ClipboardCheck}
+        >
+          <PropostasPendentes tournamentId={id} propostas={propostasPendentes} />
+        </SecaoTorneio>
+      ) : null}
+
+      {podeArbitrarPartidas && solicitacoesWO.length > 0 ? (
+        <SecaoTorneio id="wo-titulo" titulo="Solicitações de W.O." Icon={Flag}>
+          <ul className="flex list-none flex-col gap-2 p-0">
+            {solicitacoesWO.map((s) => (
+              <li
+                key={s.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm"
+              >
+                <span className="min-w-0">
+                  <span className="font-medium">{s.clubeSolicitante}</span>
+                  {s.rodada !== null ? (
+                    <span className="text-muted-foreground">{` solicitou W.O. (rodada ${s.rodada})`}</span>
+                  ) : (
+                    <span className="text-muted-foreground"> solicitou W.O.</span>
+                  )}
+                </span>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  {/* Evidência opcional do W.O.: rota assinada (bucket privado),
+                      nunca <img> direto. Só quando há foto anexada. */}
+                  {s.temFoto ? (
+                    <a
+                      href={`/dashboard/torneios/${id}/evidencia/wo/${s.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary inline-flex min-h-10 items-center underline-offset-4 hover:underline"
+                    >
+                      Ver foto
+                    </a>
+                  ) : null}
+                  <ResponderWoButtons requestId={s.id} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </SecaoTorneio>
+      ) : null}
+
+      {/* Em aberto: contexto para todos; botão Encerrar/placar só para quem
+          ARBITRA (dono, admin ou árbitro). Paginado por rodada (passador). */}
+      {partidasAbertas.length > 0 ? (
+        <SecaoTorneio id="abertas-titulo" titulo="Partidas em aberto" Icon={Swords}>
+          <OpenMatchesList
+            partidas={partidasAbertas}
+            mostrarEncerrar={podeArbitrarPartidas}
+            convocacao={{ userId: user.id, titulo, tournamentId: id }}
+            rodadaAtiva={rodadaAtiva}
+            tournamentId={id}
+          />
+        </SecaoTorneio>
+      ) : null}
+
+      {partidasEncerradas.length > 0 ? (
+        <SecaoTorneio id="historico-titulo" titulo="Partidas encerradas" Icon={History}>
+          <MatchHistoryList
+            partidas={partidasEncerradas}
+            mostrarReabrir={podeArbitrarPartidas}
+          />
+        </SecaoTorneio>
+      ) : null}
+    </>
+  );
+
+  // ABA "Rodadas": cadência (liberar/recolher) + compartilhar a rodada. Só quando
+  // há cadência a exercer (capacidade ARBITRAR, formato gerado com mapa de
+  // rodadas). NOTA: `rodadasLiberacao` (ocultas) vem completo só ao DONO pela RLS.
+  const temRodadas = arbitrar && ehGerado && rodadasLiberacao.length > 0;
+  const rodadasContent = temRodadas ? (
+    <SecaoTorneio
+      id="liberacao-titulo"
+      titulo="Liberação de rodadas"
+      Icon={CalendarClock}
+    >
+      <LiberarRodadasButtons
+        tournamentId={id}
+        rodadasLiberacao={rodadasLiberacao}
+        proximaRodadaOculta={proximaRodadaOculta}
+        ehGrupos={ehGrupos}
+      />
+      {rodadasLiberacao.some((r) => r.liberada) ? (
+        <div className="mt-4 flex flex-col gap-2 border-t pt-4">
+          <p className="text-muted-foreground text-xs">
+            Compartilhe a rodada no WhatsApp (imagem + lista). No celular, abre o
+            compartilhamento; no computador, copia o texto e baixa a imagem.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {rodadasLiberacao
+              .filter((r) => r.liberada)
+              .map((r) => (
+                <CompartilharRodadaButton
+                  key={r.rodada}
+                  tournamentId={id}
+                  rodada={r.rodada}
+                  titulo={titulo}
+                  texto={mensagemRodada({
+                    titulo,
+                    rodada: r.rodada,
+                    confrontos: confrontosTextoDaRodada(
+                      r.rodada,
+                      partidasAbertas,
+                      partidasEncerradas
+                    ),
+                    tournamentId: id,
+                  })}
+                />
+              ))}
+          </div>
+        </div>
+      ) : null}
+    </SecaoTorneio>
+  ) : null;
+
+  // ABA "Vagas" (competitivo) / "Participantes" (avulso) + convite genérico.
+  const vagasContent = ehGerado ? (
+    <VagasSection
+      vagas={vagas}
+      userId={user.id}
+      podeModerar={moderar}
+      tournamentId={id}
+      torneioEncerrado={torneio.status === "encerrado"}
+      codigos={codigosVagas}
+      compartilhar={compartilharTimes}
+    />
+  ) : (
+    <>
+      <ParticipantsSection
+        tournamentId={id}
+        participantes={participantes}
+        userId={user.id}
+        ehDono={ehDono}
+        podeModerar={moderar}
+        torneioEncerrado={torneio.status === "encerrado"}
+      />
+
+      {/* Convite genérico (EXCLUSIVO do avulso) = capacidade MODERAR em torneio
+          aberto (encerrado não aceita entrada — exibir o link seria beco sem saída). */}
+      {podeModerarParticipacao ? (
+        <InviteSection tournamentId={id} code={codigoConvite} />
+      ) : null}
+    </>
+  );
+
+  const abas: AbaTorneio[] = [
+    {
+      value: "classificacao",
+      label: "Classificação",
+      icon: <ListOrdered aria-hidden="true" />,
+      content: classificacaoContent,
+    },
+    ...(temConteudoPartidas
+      ? [
+          {
+            value: "partidas",
+            label: "Partidas",
+            icon: <Swords aria-hidden="true" />,
+            content: partidasContent,
+            // Mantém o passador montado: trocar de aba não reseta a rodada navegada.
+            forceMount: true,
+            badge: pendentesArbitragem || undefined,
+          } satisfies AbaTorneio,
+        ]
+      : []),
+    ...(temRodadas
+      ? [
+          {
+            value: "rodadas",
+            label: "Rodadas",
+            icon: <CalendarClock aria-hidden="true" />,
+            content: rodadasContent,
+          } satisfies AbaTorneio,
+        ]
+      : []),
+    {
+      value: "vagas",
+      label: ehGerado ? "Vagas" : "Participantes",
+      icon: <Users aria-hidden="true" />,
+      content: vagasContent,
+    },
+  ];
+
   return (
     <main
       className={cn(
@@ -410,289 +729,14 @@ export default async function TorneioPage({
         />
       ) : null}
 
-      {/* Aviso de cadência manual (NÃO-DONO, torneio ATIVO, nada liberado):
-          substitui os empty-states de "não iniciado" — que aqui mentiriam. O
-          torneio rascunho NÃO cai aqui (aguardandoLiberacao exige status
-          ativo): os empty-states atuais seguem corretos no rascunho. */}
-      {aguardandoLiberacao ? (
-        <AvisoAguardandoLiberacao />
-      ) : null}
-
-      {/* Mata-mata puro: a CHAVE substitui a classificação por pontos (e a
-          de clubes) — pontos corridos não significam nada em eliminatória. */}
-      {!aguardandoLiberacao && ehMataMata ? (
-        <SecaoTorneio
-          id="chave-titulo"
-          titulo="Chave"
-          Icon={Network}
-          acao={mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : undefined}
-        >
-          {chave.length === 0 ? (
-            <EstadoVazioSecao Icon={Network}>
-              A chave aparece quando o torneio for iniciado.
-            </EstadoVazioSecao>
-          ) : (
-            <BracketView partidas={chave} terceiroLugar={torneio.terceiro_lugar} />
-          )}
-        </SecaoTorneio>
-      ) : null}
-
-      {/* Formatos de grupos: classificação POR GRUPO (única na fase de
-          liga) + a chave quando gerada. */}
-      {!aguardandoLiberacao && ehGrupos ? (
-        <>
-          <SecaoTorneio
-            id="grupos-titulo"
-            titulo={ehFaseLiga ? "Classificação" : "Fase de grupos"}
-            Icon={Users}
-          >
-            {grupos.length === 0 ? (
-              <EstadoVazioSecao Icon={Users}>
-                Os grupos aparecem quando o torneio for iniciado.
-              </EstadoVazioSecao>
-            ) : (
-              grupos.map((g) => (
-                <div key={g.grupo} className="flex flex-col gap-2">
-                  {!ehFaseLiga ? (
-                    <h3 className="text-sm font-medium">{rotuloGrupo(g.grupo)}</h3>
-                  ) : null}
-                  {g.linhas.length === 0 ? (
-                    <EstadoVazioSecao Icon={ListOrdered}>
-                      A classificação aparece depois da primeira partida
-                      encerrada.
-                    </EstadoVazioSecao>
-                  ) : (
-                    <StandingsTable linhas={g.linhas} />
-                  )}
-                </div>
-              ))
-            )}
-          </SecaoTorneio>
-
-          {grupos.length > 0 ? (
-            <SecaoTorneio
-              id="chave-grupos-titulo"
-              titulo="Mata-mata"
-              Icon={Swords}
-              acao={mostrarAvancar ? <AvancarFaseButton tournamentId={id} /> : undefined}
-            >
-              {chave.length === 0 ? (
-                mostrarGerarMataMata ? (
-                  <GerarMataMataButton
-                    tournamentId={id}
-                    pendentes={jogosDeGrupoPendentes}
-                  />
-                ) : (
-                  <EstadoVazioSecao Icon={Swords}>
-                    O mata-mata aparece quando a fase de grupos terminar.
-                  </EstadoVazioSecao>
-                )
-              ) : (
-                <BracketView
-                  partidas={chave}
-                  terceiroLugar={torneio.terceiro_lugar}
-                />
-              )}
-            </SecaoTorneio>
-          ) : null}
-        </>
-      ) : null}
-
-      {!aguardandoLiberacao && !ehMataMata && !ehGrupos ? (
-        <SecaoTorneio id="classificacao-titulo" titulo="Classificação" Icon={ListOrdered}>
-          {linhas.length === 0 ? (
-            <EstadoVazioSecao Icon={ListOrdered}>
-              A classificação aparece depois da primeira partida encerrada.
-            </EstadoVazioSecao>
-          ) : (
-            <StandingsTable linhas={linhas} />
-          )}
-        </SecaoTorneio>
-      ) : null}
-
-      {/* Liberação de rodadas (capacidade ARBITRAR; change add-liberacao-rodadas):
-          só quando há cadência a exercer (formato gerado com mapa de rodadas). O
-          console é UX — a action + RLS + posse são a defesa. NOTA: `rodadasLiberacao`
-          (rodadas ainda ocultas) vem completo só ao DONO pela RLS; um árbitro
-          sem posse de RLS veria apenas as já liberadas (limitação de RLS, fora
-          do escopo desta camada). */}
-      {arbitrar && ehGerado && rodadasLiberacao.length > 0 ? (
-        <SecaoTorneio
-          id="liberacao-titulo"
-          titulo="Liberação de rodadas"
-          Icon={CalendarClock}
-        >
-          <LiberarRodadasButtons
-            tournamentId={id}
-            rodadasLiberacao={rodadasLiberacao}
-            proximaRodadaOculta={proximaRodadaOculta}
-            ehGrupos={ehGrupos}
-          />
-          {rodadasLiberacao.some((r) => r.liberada) ? (
-            <div className="mt-4 flex flex-col gap-2 border-t pt-4">
-              <p className="text-muted-foreground text-xs">
-                Compartilhe a rodada no WhatsApp (imagem + lista). No celular, abre o
-                compartilhamento; no computador, copia o texto e baixa a imagem.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {rodadasLiberacao
-                  .filter((r) => r.liberada)
-                  .map((r) => (
-                    <CompartilharRodadaButton
-                      key={r.rodada}
-                      tournamentId={id}
-                      rodada={r.rodada}
-                      titulo={titulo}
-                      texto={mensagemRodada({
-                        titulo,
-                        rodada: r.rodada,
-                        confrontos: confrontosTextoDaRodada(
-                          r.rodada,
-                          partidasAbertas,
-                          partidasEncerradas
-                        ),
-                        tournamentId: id,
-                      })}
-                    />
-                  ))}
-              </div>
-            </div>
-          ) : null}
-        </SecaoTorneio>
-      ) : null}
-
-      {/* Em aberto: contexto para todos; botão Encerrar/placar só para quem
-          ARBITRA (dono, admin ou árbitro). */}
-      {partidasAbertas.length > 0 ? (
-        <SecaoTorneio id="abertas-titulo" titulo="Partidas em aberto" Icon={Swords}>
-          <OpenMatchesList
-            partidas={partidasAbertas}
-            mostrarEncerrar={podeArbitrarPartidas}
-            convocacao={{ userId: user.id, titulo, tournamentId: id }}
-            rodadaAtiva={rodadaAtiva}
-            tournamentId={id}
-          />
-        </SecaoTorneio>
-      ) : null}
-
-      {/* Propostas de placar pendentes (change add-proposta-resultado-foto):
-          console de quem ARBITRA (aprovar aplica o placar via RPC atômico /
-          rejeitar com motivo). A RLS só entrega ao aprovador (ou jogador da
-          partida); o gate aqui evita exibir o console a quem não arbitra. */}
-      {podeArbitrarPartidas && propostasPendentes.length > 0 ? (
-        <SecaoTorneio
-          id="propostas-titulo"
-          titulo="Resultados pendentes"
-          Icon={ClipboardCheck}
-        >
-          <PropostasPendentes tournamentId={id} propostas={propostasPendentes} />
-        </SecaoTorneio>
-      ) : null}
-
-      {/* Solicitações de W.O. pendentes: console de quem ARBITRA (aceitar/recusar).
-          A RLS devolve só ao dono as do torneio; o gate aqui evita exibir o
-          console a quem não arbitra as partidas. */}
-      {podeArbitrarPartidas && solicitacoesWO.length > 0 ? (
-        <SecaoTorneio id="wo-titulo" titulo="Solicitações de W.O." Icon={Flag}>
-          <ul className="flex list-none flex-col gap-2 p-0">
-            {solicitacoesWO.map((s) => (
-              <li
-                key={s.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm"
-              >
-                <span className="min-w-0">
-                  <span className="font-medium">{s.clubeSolicitante}</span>
-                  {s.rodada !== null ? (
-                    <span className="text-muted-foreground">{` solicitou W.O. (rodada ${s.rodada})`}</span>
-                  ) : (
-                    <span className="text-muted-foreground"> solicitou W.O.</span>
-                  )}
-                </span>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  {/* Evidência opcional do W.O.: rota assinada (bucket privado),
-                      nunca <img> direto. Só quando há foto anexada. */}
-                  {s.temFoto ? (
-                    <a
-                      href={`/dashboard/torneios/${id}/evidencia/wo/${s.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary inline-flex min-h-10 items-center underline-offset-4 hover:underline"
-                    >
-                      Ver foto
-                    </a>
-                  ) : null}
-                  <ResponderWoButtons requestId={s.id} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </SecaoTorneio>
-      ) : null}
-
-      {/* Seção omitida quando vazia: o estado vazio da classificação já
-          comunica "nenhuma encerrada" — duas mensagens seriam ruído. */}
-      {partidasEncerradas.length > 0 ? (
-        <SecaoTorneio id="historico-titulo" titulo="Partidas encerradas" Icon={History}>
-          <MatchHistoryList
-            partidas={partidasEncerradas}
-            mostrarReabrir={podeArbitrarPartidas}
-          />
-        </SecaoTorneio>
-      ) : null}
-
-      {/* Clube é opcional por partida — seção só com clube pontuado (e fora
-          do mata-mata: classificação por pontos não se aplica à chave). */}
-      {!ehMataMata && clubes.length > 0 ? (
-        <SecaoTorneio id="clubes-titulo" titulo="Clubes" Icon={Shield}>
-          <StandingsTable linhas={clubes} rotuloLado="Clube" />
-        </SecaoTorneio>
-      ) : null}
-
-      {/* Lados do torneio: VAGAS (clubes) no competitivo — convite POR VAGA,
-          técnico substituível (o congelamento de lista do mata-mata MORREU:
-          a disputa é entre clubes; trocar técnico não toca a chave) —;
-          participantes no avulso (fluxo original intocado). */}
-      {ehGerado ? (
-        <VagasSection
-          vagas={vagas}
-          userId={user.id}
-          podeModerar={moderar}
-          tournamentId={id}
-          torneioEncerrado={torneio.status === "encerrado"}
-          codigos={codigosVagas}
-          compartilhar={compartilharTimes}
-        />
-      ) : (
-        <>
-          <ParticipantsSection
-            tournamentId={id}
-            participantes={participantes}
-            userId={user.id}
-            ehDono={ehDono}
-            podeModerar={moderar}
-            torneioEncerrado={torneio.status === "encerrado"}
-          />
-
-          {/* Convite genérico (EXCLUSIVO do avulso) = capacidade MODERAR em
-              torneio aberto (encerrado não aceita entrada — exibir o link seria
-              um beco sem saída). */}
-          {podeModerarParticipacao ? (
-            <InviteSection tournamentId={id} code={codigoConvite} />
-          ) : null}
-        </>
-      )}
-
       {/* Administração do torneio = capacidade GERIR (dono ou admin da equipe):
-          gestão da equipe + lifecycle. Encerrar é GERIR; Reabrir é exclusivo do
-          DONO (`podeReabrir={ehDono}`) — um admin gere mas não reabre. Em torneio
-          encerrado, Reabrir é o único controle de lifecycle visível (a gestão de
-          participantes permanece liberada em encerrado, exceto mata-mata com
-          chave). Fim da página: ação de consequência ampla, longe dos controles
-          do dia a dia. */}
+          gestão da equipe + lifecycle (encerrar é GERIR; reabrir é exclusivo do
+          DONO). Fica no TOPO, junto do cabeçalho (fora das abas) — decisão do
+          dono: encerrar/reabrir no cabeçalho. */}
       {gerir ? (
         <section
           aria-labelledby="lifecycle-titulo"
-          className="mt-2 flex flex-col gap-3 border-t pt-6"
+          className="flex flex-col gap-3"
         >
           <h2
             id="lifecycle-titulo"
@@ -727,6 +771,8 @@ export default async function TorneioPage({
           </div>
         </section>
       ) : null}
+
+      <TournamentTabs abas={abas} padrao="classificacao" />
     </main>
   );
 }
@@ -821,4 +867,3 @@ function AvisoAguardandoLiberacao() {
     </section>
   );
 }
-

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest"
 import { cleanup, render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Guard de INTEGRAÇÃO da página do torneio (lição do change: ClubesStep e
@@ -190,6 +191,14 @@ async function renderPage() {
   return render(jsx)
 }
 
+/** As seções agora vivem em ABAS (change add-torneio-abas-passador): o conteúdo
+ * de uma aba inativa NÃO está no DOM. Ativa a aba pelo seu rótulo antes de checar
+ * o conteúdo. userEvent (não fireEvent) — a ativação do Radix Tabs depende de
+ * foco/pointer reais, que o fireEvent.click não dispara no jsdom. */
+async function ativarAba(nome: string | RegExp) {
+  await userEvent.click(screen.getByRole("tab", { name: nome }))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockVagas.mockResolvedValue([])
@@ -207,6 +216,7 @@ describe("TorneioPage — lados por formato (integração das seções)", () => 
       { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null, porNome: false },
     ])
     await renderPage()
+    await ativarAba("Vagas")
     expect(screen.getByRole("heading", { name: "Vagas" })).toBeInTheDocument()
     expect(screen.getByText("Grêmio")).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "Participantes" })).toBeNull()
@@ -224,6 +234,7 @@ describe("TorneioPage — lados por formato (integração das seções)", () => 
       { id: "s1", clube: "Grêmio", escudoUrl: null, tecnico: null, porNome: false },
     ])
     await renderPage()
+    await ativarAba("Vagas")
     expect(screen.getByRole("heading", { name: "Vagas" })).toBeInTheDocument()
     expect(mockCodigos).not.toHaveBeenCalled()
   })
@@ -262,6 +273,7 @@ describe("TorneioPage — lados por formato (integração das seções)", () => 
     montarCenario({ torneio: { formato: "avulso", status: "ativo" } })
     mockParticipantes.mockResolvedValue([{ id: DONO, nome: "Ana", avatar: null }])
     await renderPage()
+    await ativarAba("Participantes")
     expect(
       screen.getByRole("heading", { name: "Participantes" })
     ).toBeInTheDocument()
@@ -310,6 +322,7 @@ describe("TorneioPage — liberação de rodadas (change add-liberacao-rodadas)"
       proximaRodadaOculta: 1,
     } as unknown as Awaited<ReturnType<typeof getTournamentClassificacao>>)
     await renderPage()
+    await ativarAba("Rodadas")
     expect(
       screen.getByRole("heading", { name: "Liberação de rodadas" })
     ).toBeInTheDocument()
@@ -357,5 +370,65 @@ describe("TorneioPage — link 'Equipe' por tipo de torneio (must_fix divisão)"
     })
     await renderPage()
     expect(screen.queryByRole("link", { name: /equipe/i })).toBeNull()
+  })
+})
+
+describe("TorneioPage — composição dinâmica das abas (change add-torneio-abas-passador)", () => {
+  function classificacaoCom(over: Record<string, unknown>) {
+    mockClassificacao.mockResolvedValue({
+      torneio: torneioBase({ formato: "liga", status: "ativo" }),
+      linhas: [],
+      partidasEncerradas: [],
+      clubes: [],
+      partidasAbertas: [],
+      chave: [],
+      grupos: [],
+      rodadaAtiva: null,
+      rodadasLiberacao: [],
+      proximaRodadaOculta: null,
+      ...over,
+    } as unknown as Awaited<ReturnType<typeof getTournamentClassificacao>>)
+  }
+
+  it("liga ativo (dono) com partidas e cadência: 4 abas na ordem certa", async () => {
+    montarCenario({ torneio: { formato: "liga", status: "ativo" } })
+    classificacaoCom({
+      partidasAbertas: [{ id: "m1", rodada: 1, grupo: null }],
+      rodadaAtiva: 1,
+      rodadasLiberacao: [{ rodada: 1, total: 2, liberada: false }],
+      proximaRodadaOculta: 1,
+    })
+    await renderPage()
+    const nomes = screen.getAllByRole("tab").map((t) => t.textContent?.trim())
+    expect(nomes).toEqual(["Classificação", "Partidas", "Rodadas", "Vagas"])
+    // Classificação é o padrão (aba ativa inicial).
+    expect(screen.getByRole("tab", { name: "Classificação" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    )
+  })
+
+  it("espectador (não-dono) sem cadência: sem aba Rodadas", async () => {
+    montarCenario({
+      user: { id: "visitante" },
+      torneio: { formato: "liga", status: "ativo" },
+    })
+    classificacaoCom({
+      partidasAbertas: [{ id: "m1", rodada: 1, grupo: null }],
+      rodadaAtiva: 1,
+    })
+    await renderPage()
+    expect(screen.queryByRole("tab", { name: "Rodadas" })).toBeNull()
+    expect(screen.getByRole("tab", { name: "Classificação" })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: "Partidas" })).toBeInTheDocument()
+  })
+
+  it("avulso: aba Participantes (não Vagas) e sem Rodadas", async () => {
+    montarCenario({ torneio: { formato: "avulso", status: "ativo" } })
+    mockParticipantes.mockResolvedValue([{ id: DONO, nome: "Ana", avatar: null }])
+    await renderPage()
+    expect(screen.getByRole("tab", { name: "Participantes" })).toBeInTheDocument()
+    expect(screen.queryByRole("tab", { name: "Vagas" })).toBeNull()
+    expect(screen.queryByRole("tab", { name: "Rodadas" })).toBeNull()
   })
 })

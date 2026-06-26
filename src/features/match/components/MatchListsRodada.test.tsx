@@ -44,7 +44,8 @@ function abertaComp(over: Partial<PartidaAberta> = {}): PartidaAberta {
 }
 
 describe("rótulo de rodada nas listas de partidas", () => {
-  it("OpenMatchesList mostra a rodada quando presente e omite quando nula", () => {
+  it("OpenMatchesList mostra o rótulo da rodada no item (R{n}) e o texto acessível", () => {
+    // Competitivo (com rodada) passa pelo passador, abrindo na rodada exibida.
     render(
       <OpenMatchesList
         partidas={[
@@ -61,26 +62,10 @@ describe("rótulo de rodada nas listas de partidas", () => {
             participante_1: null,
             participante_2: null,
           },
-          {
-            id: "m2",
-            nome_1: "Caio",
-            nome_2: "Dani",
-            placar_1: 1,
-            placar_2: 1,
-            status: "em_andamento",
-            rodada: null,
-            perna: null,
-            grupo: null,
-            participante_1: null,
-            participante_2: null,
-          },
         ]}
       />
     )
     expect(screen.getByText("R2")).toBeInTheDocument()
-    // Partida avulsa (rodada null) renderiza sem rótulo — como sempre.
-    expect(screen.queryByText(/^R\d+$/u)?.textContent).toBe("R2")
-    // E o texto acessível identifica a rodada.
     expect(screen.getByText(/Rodada 2: Placar atual/)).toBeInTheDocument()
   })
 
@@ -159,10 +144,10 @@ describe("rótulo de rodada nas listas de partidas", () => {
   })
 })
 
-describe("OpenMatchesList — agrupamento por rodada + fechar rodada", () => {
+describe("OpenMatchesList — passador por rodada + fechar rodada", () => {
   const TORNEIO = "11111111-1111-4111-8111-111111111111"
 
-  it("competitivo agrupa em blocos por rodada (cabeçalho 'Rodada N')", () => {
+  it("competitivo entrega ao passador: uma rodada por vez (sem blocos empilhados)", () => {
     render(
       <OpenMatchesList
         partidas={[
@@ -172,8 +157,15 @@ describe("OpenMatchesList — agrupamento por rodada + fechar rodada", () => {
         rodadaAtiva={1}
       />
     )
-    expect(screen.getByRole("heading", { name: "Rodada 1" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "Rodada 2" })).toBeInTheDocument()
+    // Passador abre na rodada ATIVA (1): mostra Grêmio×Inter; a rodada 2 fica
+    // oculta até navegar. Há um seletor de rodada e NÃO há mais cabeçalhos
+    // "Rodada N" empilhados.
+    expect(
+      screen.getByRole("combobox", { name: "Ir para a rodada" })
+    ).toBeInTheDocument()
+    expect(screen.getByText("Grêmio")).toBeInTheDocument()
+    expect(screen.queryByText("Bahia")).toBeNull()
+    expect(screen.queryByRole("heading", { name: /Rodada \d/ })).toBeNull()
   })
 
   it("o botão 'Fechar rodada' aparece SÓ na rodada ativa e SÓ para o dono", () => {
@@ -227,6 +219,10 @@ describe("OpenMatchesList — agrupamento por rodada + fechar rodada", () => {
     )
     expect(screen.queryByRole("heading", { name: /Rodada/ })).toBeNull()
     expect(screen.queryByRole("button", { name: /fechar rodada/i })).toBeNull()
+    // Partida avulsa (rodada null) renderiza sem rótulo de rodada.
+    expect(screen.queryByText(/^R\d/u)).toBeNull()
+    // Sem passador: o seletor de rodada não aparece.
+    expect(screen.queryByRole("combobox", { name: "Ir para a rodada" })).toBeNull()
   })
 })
 

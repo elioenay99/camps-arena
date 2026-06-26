@@ -3,10 +3,10 @@ import { MessageCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MatchStatusButton } from "@/features/match/components/MatchStatusButton"
 import {
-  FecharRodadaButton,
   MarcarWoButton,
   SolicitarWoButton,
 } from "@/features/match/components/WoButtons"
+import { RoundPager } from "@/features/match/components/RoundPager"
 import type { PartidaAberta } from "@/features/standings/data/getTournamentClassificacao"
 import type { MatchStatus } from "@/lib/supabase/database.types"
 import { linkWhatsApp, mensagemConvocacao } from "@/lib/whatsapp"
@@ -152,7 +152,10 @@ export function OpenMatchesList({
     )
   }
 
-  // Competitivo: agrupa por rodada (a lista já vem ordenada por rodada→…).
+  // Competitivo: agrupa por rodada (a lista já vem ordenada por rodada→…) e
+  // entrega UMA rodada por vez ao passador, que abre na rodada ATIVA e carrega o
+  // "Fechar rodada". Os itens (com o wa.me/PII) são renderizados AQUI, no
+  // servidor — o passador (client) só alterna qual rodada aparece.
   const porRodada = new Map<number, PartidaAberta[]>()
   for (const p of partidas) {
     const r = p.rodada ?? 0
@@ -161,30 +164,22 @@ export function OpenMatchesList({
     porRodada.set(r, lista)
   }
   const rodadas = [...porRodada.keys()].sort((a, b) => a - b)
+  const rounds = rodadas.map((rodada) => ({
+    rodada,
+    content: (
+      <ul className="flex list-none flex-col gap-2 p-0">
+        {(porRodada.get(rodada) ?? []).map(renderItem)}
+      </ul>
+    ),
+  }))
 
   return (
-    <div className="flex flex-col gap-5">
-      {rodadas.map((rodada) => (
-        <section key={rodada} className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* Acento decorativo (aria-hidden, sem nó de texto): o nome
-                acessível do heading permanece estritamente "Rodada N". */}
-            <h3 className="font-display flex items-center gap-2 text-sm font-semibold tracking-tight">
-              <span
-                aria-hidden="true"
-                className="bg-primary/70 h-3.5 w-1 rounded-full"
-              />
-              {`Rodada ${rodada}`}
-            </h3>
-            {mostrarEncerrar && tournamentId && rodada === rodadaAtiva ? (
-              <FecharRodadaButton tournamentId={tournamentId} rodada={rodada} />
-            ) : null}
-          </div>
-          <ul className="flex list-none flex-col gap-2 p-0">
-            {(porRodada.get(rodada) ?? []).map(renderItem)}
-          </ul>
-        </section>
-      ))}
-    </div>
+    <RoundPager
+      rounds={rounds}
+      rodadaInicial={rodadaAtiva}
+      rodadaAtiva={rodadaAtiva}
+      tournamentId={tournamentId}
+      podeFechar={mostrarEncerrar}
+    />
   )
 }
