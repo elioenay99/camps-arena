@@ -22,6 +22,39 @@ export type AuthState = {
   fieldErrors?: Record<string, string[] | undefined>
 }
 
+/**
+ * Traduz a falha do `signUp` do Supabase em mensagem acionável (pt-BR) em vez do
+ * genérico para tudo. NÃO revela se o e-mail já tem conta (anti-enumeração): esse
+ * caso cai no genérico. O limite de envio de e-mail (free/SMTP compartilhado) é o
+ * mais comum em ondas de cadastro e NÃO é erro do usuário — ganha mensagem própria.
+ */
+function mensagemErroCadastro(error: {
+  code?: string | null
+  status?: number
+}): AuthState {
+  if (error.code === "over_email_send_rate_limit" || error.status === 429) {
+    return {
+      error:
+        "Estamos com muitos cadastros agora. Aguarde alguns minutos e tente novamente.",
+    }
+  }
+  if (error.code === "weak_password") {
+    return {
+      error: "Verifique os campos destacados.",
+      fieldErrors: {
+        password: ["Senha muito fraca. Escolha uma senha mais difícil de adivinhar."],
+      },
+    }
+  }
+  if (error.code === "email_address_invalid") {
+    return {
+      error: "Verifique os campos destacados.",
+      fieldErrors: { email: ["E-mail inválido."] },
+    }
+  }
+  return { error: "Não foi possível criar a conta agora. Tente novamente." }
+}
+
 export async function login(
   _prevState: AuthState,
   formData: FormData
@@ -106,7 +139,7 @@ export async function signup(
     })
     if (error) {
       console.error("signUp falhou", error.code ?? error.message)
-      return { error: "Não foi possível criar a conta agora. Tente novamente." }
+      return mensagemErroCadastro(error)
     }
     comSessao = Boolean(data.session)
   } catch {

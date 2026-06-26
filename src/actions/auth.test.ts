@@ -29,7 +29,9 @@ function formData(campos: Record<string, string>) {
 
 interface AuthCenario {
   user?: { id: string; email?: string } | null
-  signUp?: { session: object | null } | { error: true }
+  signUp?:
+    | { session: object | null }
+    | { error: true; code?: string; status?: number }
   signInError?: boolean
   resetError?: boolean
   updateError?: boolean
@@ -38,7 +40,14 @@ interface AuthCenario {
 function montarAuthClient(c: AuthCenario = {}) {
   const signUpSpy = vi.fn(async () =>
     c.signUp && "error" in c.signUp
-      ? { data: { user: null, session: null }, error: { message: "boom", code: "x" } }
+      ? {
+          data: { user: null, session: null },
+          error: {
+            message: "boom",
+            code: c.signUp.code ?? "x",
+            status: c.signUp.status,
+          },
+        }
       : {
           data: {
             user: { id: "u1" },
@@ -129,6 +138,40 @@ describe("signup", () => {
     const r = await signup({}, formData({ ...CADASTRO_OK, celular: "1234" }))
     expect(r.fieldErrors?.celular).toBeTruthy()
     expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("rate-limit de e-mail vira mensagem própria (não culpa o usuário, sem fieldErrors)", async () => {
+    montarAuthClient({
+      signUp: { error: true, code: "over_email_send_rate_limit", status: 429 },
+    })
+    const r = await signup({}, formData(CADASTRO_OK))
+    expect(r.error).toMatch(/muitos cadastros/i)
+    expect(r.fieldErrors).toBeUndefined()
+  })
+
+  it("status 429 sem code também cai no rate-limit", async () => {
+    montarAuthClient({ signUp: { error: true, status: 429 } })
+    const r = await signup({}, formData(CADASTRO_OK))
+    expect(r.error).toMatch(/muitos cadastros/i)
+  })
+
+  it("senha fraca vira erro no campo senha", async () => {
+    montarAuthClient({ signUp: { error: true, code: "weak_password" } })
+    const r = await signup({}, formData(CADASTRO_OK))
+    expect(r.fieldErrors?.password?.[0]).toMatch(/fraca/i)
+  })
+
+  it("e-mail recusado pelo Supabase vira erro no campo e-mail", async () => {
+    montarAuthClient({ signUp: { error: true, code: "email_address_invalid" } })
+    const r = await signup({}, formData(CADASTRO_OK))
+    expect(r.fieldErrors?.email?.[0]).toMatch(/inválido/i)
+  })
+
+  it("erro desconhecido (ex.: e-mail já existe) cai no genérico — anti-enumeração", async () => {
+    montarAuthClient({ signUp: { error: true, code: "user_already_exists" } })
+    const r = await signup({}, formData(CADASTRO_OK))
+    expect(r.error).toMatch(/não foi possível criar a conta/i)
+    expect(r.fieldErrors).toBeUndefined()
   })
 
   it("envia metadata nome/celular (normalizado) e emailRedirectTo para /auth/confirm", async () => {
