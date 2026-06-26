@@ -41,6 +41,8 @@
 - [x] 7.3 `pnpm test` verde (suíte completa)
 - [x] 7.4 `pnpm build` verde
 - [x] 7.5 Revisão adversarial do diff por workflow (0 must_fix antes do commit)
-- [ ] 7.6 Validação ao vivo: cadastro com número PT (+351) passa; `wa.me` resolve; cadastro BR
-      segue idêntico (país padrão). PENDENTE — bloqueada pelo incidente de rate-limit de e-mail
-      do Supabase (free); fazer assim que o cadastro estiver destravado (confirmação off / Resend)
+- [~] 7.6 Validação ao vivo: cadastro com número PT (+351) passa; `wa.me` resolve; cadastro BR
+      segue idêntico (país padrão). ADIADA — bloqueada pela ação do dono (rate-limit de e-mail do
+      Supabase free: desligar confirmação / configurar Resend). Código pronto e revisado, já em
+      produção (`e5ea62e`). Validar assim que o cadastro estiver destravado. Ver
+      [[arena-cadastro-incidente]].

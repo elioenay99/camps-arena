@@ -33,7 +33,14 @@ O sistema SHALL implementar login usando os métodos nativos do Supabase Auth at
 - **THEN** a sessão é criada e o usuário é redirecionado à área autenticada
 
 ### Requirement: Cadastro de conta
-O sistema SHALL permitir cadastro self-service via Server Action: nome, e-mail, celular brasileiro e senha, validados com Zod antes de qualquer chamada ao Supabase. O cadastro SHALL enviar `nome` e `celular` como metadata do Auth, de onde o trigger de banco cria o perfil público — sem INSERT direto em `users` pela aplicação. As mensagens NÃO SHALL revelar se o e-mail já possui conta (anti-enumeração).
+O sistema SHALL permitir cadastro self-service via Server Action: nome, e-mail, **celular
+(brasileiro ou internacional)** e senha, validados com Zod antes de qualquer chamada ao
+Supabase. O celular SHALL ser validado por país com `libphonenumber-js` e **normalizado para
+E.164** (`+<DDI><numero>`) antes de qualquer gravação; uma entrada nacional sem DDI SHALL
+assumir o Brasil (retrocompatível com os números BR de 11 dígitos). O cadastro SHALL enviar
+`nome` e `celular` (E.164) como metadata do Auth, de onde o trigger de banco cria o perfil
+público — sem INSERT direto em `users` pela aplicação. As mensagens NÃO SHALL revelar se o
+e-mail já possui conta (anti-enumeração).
 
 #### Scenario: Cadastro com confirmação de e-mail pendente
 - **WHEN** um visitante submete cadastro válido e o projeto exige confirmação de e-mail
@@ -43,8 +50,16 @@ O sistema SHALL permitir cadastro self-service via Server Action: nome, e-mail, 
 - **WHEN** um visitante submete cadastro válido e o Supabase retorna sessão imediata
 - **THEN** o usuário é redirecionado à área autenticada
 
+#### Scenario: Celular internacional é aceito e normalizado
+- **WHEN** um visitante seleciona o país (ex.: Portugal) e informa um celular válido daquele país
+- **THEN** o cadastro é aceito e o celular é gravado em E.164 (ex.: `+351931482194`)
+
+#### Scenario: Celular brasileiro segue válido
+- **WHEN** um visitante mantém o país padrão (Brasil) e informa um celular BR válido
+- **THEN** o cadastro é aceito e o celular é gravado em E.164 (`+55<DDD><numero>`)
+
 #### Scenario: Entrada inválida não toca o Supabase
-- **WHEN** o cadastro é submetido com campos inválidos (e-mail malformado, celular fora do padrão BR, senha curta)
+- **WHEN** o cadastro é submetido com campos inválidos (e-mail malformado, celular inválido para o país selecionado, senha curta)
 - **THEN** a action retorna os erros por campo e nenhuma chamada ao Supabase é feita
 
 #### Scenario: E-mail já cadastrado não é revelado
@@ -109,18 +124,19 @@ senha atual SHALL retornar erro no campo da senha atual, sem gravar a nova.
 ### Requirement: Edição do próprio perfil
 
 O usuário AUTENTICADO SHALL editar o próprio nome e celular em
-`/dashboard/conta`. A action `atualizarPerfil` SHALL validar (nome ≥ 2, celular
-no formato brasileiro) e gravar apenas sobre a linha de `public.users` do
-próprio usuário (`id = auth.uid()`); nunca a de outro.
+`/dashboard/conta`. A action `atualizarPerfil` SHALL validar (nome ≥ 2, celular **válido para
+o país e normalizado para E.164**) e gravar apenas sobre a linha de `public.users` do
+próprio usuário (`id = auth.uid()`); nunca a de outro. Um perfil legado com celular nacional
+BR (sem DDI) SHALL abrir com o país Brasil pré-selecionado.
 
 #### Scenario: Atualiza nome e celular
 
 - **WHEN** o usuário salva nome e celular válidos
-- **THEN** `public.users` do próprio usuário é atualizado e o app confirma
+- **THEN** `public.users` do próprio usuário é atualizado (celular em E.164) e o app confirma
 
 #### Scenario: Celular inválido é rejeitado
 
-- **WHEN** o celular não está no formato brasileiro
+- **WHEN** o celular não é válido para o país selecionado
 - **THEN** a validação rejeita sem gravar
 
 ### Requirement: Foto de perfil do usuário
@@ -140,4 +156,37 @@ a coluna. Uploads SHALL respeitar a RLS de storage (cada um só na própria past
 
 - **WHEN** o arquivo não é imagem ou excede o limite
 - **THEN** o upload é recusado e `users.avatar` não muda
+
+### Requirement: Mensagens de erro acionáveis no cadastro
+
+Quando o `signUp` do Supabase falha, a action de cadastro SHALL traduzir o erro em mensagem
+acionável (pt-BR) conforme a causa, em vez de uma única mensagem genérica, **sem revelar se o
+e-mail já possui conta** (mantém a anti-enumeração do requisito "Cadastro de conta"):
+
+- Limite de envio de e-mail (`over_email_send_rate_limit` ou HTTP 429) SHALL produzir uma
+  mensagem dedicada que NÃO atribui culpa ao usuário e orienta tentar de novo em alguns minutos.
+- Senha recusada pela política (`weak_password`) SHALL produzir erro no campo **senha**.
+- E-mail recusado (`email_address_invalid`) SHALL produzir erro no campo **e-mail**.
+- Qualquer outra falha (incluindo e-mail já cadastrado) SHALL cair na mensagem genérica.
+
+#### Scenario: Limite de e-mail não culpa o usuário
+
+- **WHEN** o `signUp` falha com `over_email_send_rate_limit` (ou status 429)
+- **THEN** a action responde com mensagem de "muitos cadastros agora, tente em alguns minutos",
+  sem erro por campo
+
+#### Scenario: Senha fraca é apontada no campo
+
+- **WHEN** o `signUp` falha com `weak_password`
+- **THEN** a action responde com erro associado ao campo senha
+
+#### Scenario: E-mail inválido é apontado no campo
+
+- **WHEN** o `signUp` falha com `email_address_invalid`
+- **THEN** a action responde com erro associado ao campo e-mail
+
+#### Scenario: Falha desconhecida mantém o genérico e a anti-enumeração
+
+- **WHEN** o `signUp` falha por outra causa (ex.: e-mail já cadastrado)
+- **THEN** a action responde com a mensagem genérica, sem revelar a existência da conta
 
