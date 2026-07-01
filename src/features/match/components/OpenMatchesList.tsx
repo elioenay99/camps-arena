@@ -1,13 +1,18 @@
 import { MessageCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { MatchScoreModalConnected } from "@/features/match/components/MatchScoreModalConnected"
+import type { ParticipantePartida } from "@/features/match/components/MatchScoreModal"
 import { MatchStatusButton } from "@/features/match/components/MatchStatusButton"
 import {
   MarcarWoButton,
   SolicitarWoButton,
 } from "@/features/match/components/WoButtons"
 import { RoundPager } from "@/features/match/components/RoundPager"
-import type { PartidaAberta } from "@/features/standings/data/getTournamentClassificacao"
+import type {
+  PartidaAberta,
+  TecnicoDoLado,
+} from "@/features/standings/data/getTournamentClassificacao"
 import type { MatchStatus } from "@/lib/supabase/database.types"
 import { linkWhatsApp, mensagemConvocacao } from "@/lib/whatsapp"
 
@@ -15,6 +20,33 @@ const LABEL_STATUS: Record<MatchStatus, string> = {
   agendada: "agendada",
   em_andamento: "em andamento",
   encerrada: "encerrada",
+}
+
+/**
+ * Monta um lado da partida para o "Menu da Partida" (modo direto do
+ * organizador) a partir de `PartidaAberta`. Deliberadamente SEM
+ * `celular`/`mensagemWhatsApp`/`convocavel`: o editor do organizador não
+ * convoca (o "Chamar" fica na linha) — assim nenhum telefone cruza a fronteira
+ * RSC→client por este modal. O clube (escudo) só é montado quando existe
+ * (competitivo); no avulso/por-nome cai no fallback de iniciais.
+ */
+function ladoModal(
+  nome: string,
+  escudo: string | null | undefined,
+  tecnico: TecnicoDoLado | null | undefined,
+  orfao: boolean | undefined
+): ParticipantePartida {
+  const detalhe = tecnico?.nome?.trim()
+    ? `téc. ${tecnico.nome.trim()}`
+    : orfao
+      ? "vaga aberta"
+      : undefined
+  return {
+    nome,
+    detalhe,
+    avatarUrl: escudo ?? null,
+    clube: escudo ? { nome, escudoUrl: escudo } : null,
+  }
 }
 
 /**
@@ -134,6 +166,42 @@ export function OpenMatchesList({
               nome2={p.nome_2}
               vagaId1={p.vagaId_1 as string}
               vagaId2={p.vagaId_2 as string}
+            />
+          ) : null}
+          {/* Editor de placar do ORGANIZADOR (modo direto → updateMatchScore).
+              Mesmo gate de "Encerrar" (mostrarEncerrar = podeArbitrarPartidas);
+              autorização real é servidor/RLS. placarInicial é OBRIGATÓRIO aqui:
+              omiti-lo (default 0) abriria um 2×1 mostrando 0×0 e sobrescreveria
+              ao salvar. Sem busca de clube e sem lado convocável (sem PII). */}
+          {mostrarEncerrar ? (
+            <MatchScoreModalConnected
+              matchId={p.id}
+              tituloPartida={`${p.nome_1} x ${p.nome_2}`}
+              subtitulo={
+                p.rodada !== null
+                  ? `${p.grupo !== null ? `G${p.grupo} ` : ""}R${p.rodada}${
+                      p.perna !== null ? (p.perna === 1 ? " ida" : " volta") : ""
+                    } • ${LABEL_STATUS[p.status]}`
+                  : LABEL_STATUS[p.status]
+              }
+              descricao={`${p.nome_1} enfrenta ${p.nome_2}`}
+              participante1={ladoModal(p.nome_1, p.escudo_1, p.tecnico_1, p.orfao_1)}
+              participante2={ladoModal(p.nome_2, p.escudo_2, p.tecnico_2, p.orfao_2)}
+              placarInicial1={p.placar_1}
+              placarInicial2={p.placar_2}
+              permitirEscolherClube={false}
+              modoPlacar="direto"
+              trigger={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="min-h-10 px-4"
+                  aria-label={`Editar placar de ${p.nome_1} contra ${p.nome_2}`}
+                >
+                  Editar placar
+                </Button>
+              }
             />
           ) : null}
           {mostrarEncerrar ? (

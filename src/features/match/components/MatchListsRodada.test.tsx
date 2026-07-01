@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest"
 import { cleanup, render, screen } from "@testing-library/react"
+import type { ReactNode } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 // As listas embutem o botão de lifecycle (client) — neutralizado no render.
@@ -15,6 +16,17 @@ vi.mock("@/actions/wo", () => ({
   solicitarWO: vi.fn(),
   responderWO: vi.fn(),
   fecharRodada: vi.fn(),
+}))
+// O editor de placar do organizador embute o modal conectado (client, que
+// importa Server Actions) — mockado: renderiza só o `trigger` e CAPTURA os
+// props, para checar `placarInicial` e a AUSÊNCIA de PII sem carregar
+// transitivamente actions/scoreProposals/teams (padrão de MatchCard.test.tsx).
+const { modalProps } = vi.hoisted(() => ({ modalProps: vi.fn() }))
+vi.mock("@/features/match/components/MatchScoreModalConnected", () => ({
+  MatchScoreModalConnected: (props: { trigger?: ReactNode }) => {
+    modalProps(props)
+    return props.trigger ?? null
+  },
 }))
 
 import { MatchHistoryList } from "@/features/match/components/MatchHistoryList"
@@ -415,5 +427,123 @@ describe("contenção de PII — fronteira RSC (guard de regressão)", () => {
         /^\s*["']use client["']/m
       )
     }
+  })
+})
+
+describe("OpenMatchesList — editor de placar do organizador (modo direto)", () => {
+  it("organizador (mostrarEncerrar) vê 'Editar placar' na competitiva, em modo direto e com o placar ATUAL", () => {
+    modalProps.mockClear()
+    render(
+      <OpenMatchesList
+        partidas={[abertaComp({ placar_1: 2, placar_2: 1, status: "em_andamento" })]}
+        mostrarEncerrar
+        rodadaAtiva={1}
+      />
+    )
+    // O gatilho aparece com rótulo acessível por partida.
+    expect(
+      screen.getByRole("button", {
+        name: /editar placar de grêmio contra inter/i,
+      })
+    ).toBeInTheDocument()
+    // Um único modal montado (uma partida na rodada ativa).
+    expect(modalProps).toHaveBeenCalledTimes(1)
+    const props = modalProps.mock.calls.at(-1)?.[0] as {
+      matchId: string
+      modoPlacar: string
+      permitirEscolherClube: boolean
+      placarInicial1: number
+      placarInicial2: number
+    }
+    expect(props.matchId).toBe("m1")
+    expect(props.modoPlacar).toBe("direto")
+    expect(props.permitirEscolherClube).toBe(false)
+    // CRÍTICO: placarInicial = placar ATUAL (não o default 0) — omiti-lo
+    // sobrescreveria 2×1 por 0×0 ao salvar.
+    expect(props.placarInicial1).toBe(2)
+    expect(props.placarInicial2).toBe(1)
+  })
+
+  it("expõe 'Editar placar' também na partida AVULSA em aberto (com o placar atual)", () => {
+    modalProps.mockClear()
+    render(
+      <OpenMatchesList
+        partidas={[
+          {
+            id: "m1",
+            nome_1: "Ana",
+            nome_2: "Beto",
+            placar_1: 3,
+            placar_2: 0,
+            status: "agendada",
+            rodada: null,
+            perna: null,
+            grupo: null,
+            participante_1: null,
+            participante_2: null,
+          },
+        ]}
+        mostrarEncerrar
+      />
+    )
+    expect(
+      screen.getByRole("button", {
+        name: /editar placar de ana contra beto/i,
+      })
+    ).toBeInTheDocument()
+    const props = modalProps.mock.calls.at(-1)?.[0] as {
+      placarInicial1: number
+      placarInicial2: number
+    }
+    expect(props.placarInicial1).toBe(3)
+    expect(props.placarInicial2).toBe(0)
+  })
+
+  it("jogador/visitante (sem mostrarEncerrar) NÃO vê 'Editar placar' e o modal nem é montado", () => {
+    modalProps.mockClear()
+    render(<OpenMatchesList partidas={[abertaComp()]} rodadaAtiva={1} />)
+    expect(
+      screen.queryByRole("button", { name: /editar placar/i })
+    ).toBeNull()
+    expect(modalProps).not.toHaveBeenCalled()
+  })
+
+  it("anti-PII: não passa celular/mensagem/convocável ao modal nem expõe wa.me/tel: no gatilho", () => {
+    modalProps.mockClear()
+    const { container } = render(
+      <OpenMatchesList
+        partidas={[
+          abertaComp({
+            placar_1: 1,
+            placar_2: 1,
+            // Fonte COM telefone: não deve cruzar para o modal do organizador.
+            participante_1: { id: "a", celular: "11912345678" },
+            participante_2: { id: "b", celular: "11998887777" },
+            tecnico_1: { id: "a", nome: "Ana" },
+            tecnico_2: { id: "b", nome: "Beto" },
+          }),
+        ]}
+        mostrarEncerrar
+        rodadaAtiva={1}
+      />
+    )
+    const props = modalProps.mock.calls.at(-1)?.[0] as {
+      participante1: Record<string, unknown>
+      participante2: Record<string, unknown>
+    }
+    for (const lado of [props.participante1, props.participante2]) {
+      expect(lado.celular).toBeUndefined()
+      expect(lado.mensagemWhatsApp).toBeUndefined()
+      expect(lado.convocavel).toBeUndefined()
+      expect(lado.nomeConvocacao).toBeUndefined()
+    }
+    // O técnico (nome) FLUI para o detalhe, mas nenhum telefone vaza.
+    expect(props.participante1.detalhe).toBe("téc. Ana")
+    // Sem convocacao, a linha também não tem "Chamar" — dupla garantia.
+    const html = container.innerHTML
+    expect(html).not.toContain("wa.me")
+    expect(html).not.toContain("tel:")
+    expect(html).not.toContain("11912345678")
+    expect(html).not.toContain("11998887777")
   })
 })
