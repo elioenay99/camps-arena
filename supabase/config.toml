@@ -248,6 +248,16 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# Templates de e-mail com a marca Goliseu (fonte da verdade versionada; o PROD é
+# configurado pelo painel). O link aponta para /auth/confirm (fluxo SSR token_hash).
+[auth.email.template.recovery]
+subject = "Redefina sua senha do Goliseu"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.confirmation]
+subject = "Confirme seu e-mail no Goliseu"
+content_path = "./supabase/templates/confirmation.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true

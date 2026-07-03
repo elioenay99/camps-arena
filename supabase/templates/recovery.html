@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light only">
+</head>
+<body style="margin:0;padding:0;background:#fffdf2;">
+  <!-- preheader (texto de prévia, oculto no corpo) -->
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Redefina a senha da sua conta no Goliseu. O link vale por 1 hora.</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fffdf2;">
+    <tr><td align="center" style="padding:8px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #ececf0;border-radius:16px;overflow:hidden;">
+        <!-- Cabeçalho -->
+        <tr><td align="center" style="background:#282a36;padding:30px 32px 24px;">
+          <svg width="46" height="46" viewBox="0 0 64 64" fill="none" style="display:block;margin:0 auto 12px;" aria-hidden="true">
+            <path d="M32 2 58 14v22c0 13-11 22-26 26C17 58 6 49 6 36V14L32 2Z" stroke="#bd93f9" stroke-width="3" stroke-linejoin="round"/>
+            <path d="M40.5 22.5A12 12 0 1 0 42.6 36.6" stroke="#bd93f9" stroke-width="5.5" stroke-linecap="round"/>
+            <path d="M42.6 36.6H33" stroke="#bd93f9" stroke-width="5.5" stroke-linecap="round"/>
+          </svg>
+          <div style="color:#ffffff;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:800;letter-spacing:.16em;">GOLISEU</div>
+          <div style="width:44px;height:3px;background:#f5b800;border-radius:2px;margin:14px auto 0;"></div>
+        </td></tr>
+        <!-- Corpo -->
+        <tr><td style="padding:36px 32px 8px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c1b22;">
+          <h1 style="margin:0 0 12px;font-size:22px;line-height:1.25;font-weight:800;color:#1c1b22;">Redefinir sua senha</h1>
+          <p style="margin:0 0 22px;font-size:16px;line-height:1.6;color:#3a3946;">Recebemos um pedido para redefinir a senha da sua conta no Goliseu. Toque no botão abaixo para criar uma nova &mdash; o link vale por 1 hora.</p>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+            <tr><td align="center" bgcolor="#f5b800" style="border-radius:11px;">
+              <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/atualizar-senha" style="display:inline-block;padding:15px 30px;font-size:16px;font-weight:800;color:#2a2000;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;text-decoration:none;">Criar nova senha</a>
+            </td></tr>
+          </table>
+          <p style="margin:0 0 4px;font-size:13px;line-height:1.6;color:#8a8794;">Se o botão não funcionar, copie e cole este endereço no navegador:</p>
+          <p style="margin:0 0 24px;font-size:12px;line-height:1.5;color:#6b6a72;word-break:break-all;font-family:ui-monospace,Menlo,monospace;">{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/atualizar-senha</p>
+        </td></tr>
+        <!-- Aviso de segurança -->
+        <tr><td style="padding:0 32px 30px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f6f3ff;border:1px solid #ece4ff;border-radius:12px;">
+            <tr><td style="padding:14px 16px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.55;color:#5b4b86;">
+              Não pediu essa troca? É só ignorar este e-mail &mdash; sua senha continua a mesma.
+            </td></tr>
+          </table>
+        </td></tr>
+        <!-- Rodapé -->
+        <tr><td align="center" style="padding:20px 32px 26px;background:#faf8f0;border-top:1px solid #f0ecdd;">
+          <div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#9a9687;">
+            <span style="color:#6f4e00;font-weight:700;letter-spacing:.1em;">GOLISEU</span> &middot; campeonatos de eFootball<br>
+            Este é um e-mail automático &mdash; não responda.
+          </div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
