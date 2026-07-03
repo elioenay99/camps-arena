@@ -43,10 +43,12 @@ export default async function CoresDaLigaPage({
   }
 
   // Editar a identidade é capacidade GERIR (dono ou admin da equipe). getSeason
-  // já gateia internamente por `podeGerir({ competitionId })` — sem capacidade
-  // (ou inexistente) → null → 404 (sem oráculo). A action revalida a posse.
+  // NÃO gateia mais por capacidade (serve leitura a qualquer logado —
+  // add-liga-visao-leitura): `null` só quando inexistente/invisível (RLS). O gate
+  // de GESTÃO é AQUI: `!podeGerir → 404` (mesma resposta, sem oráculo). A action
+  // revalida a posse.
   const temporada = await getSeason(id, user.id)
-  if (!temporada) {
+  if (!temporada || !temporada.podeGerir) {
     notFound()
   }
 

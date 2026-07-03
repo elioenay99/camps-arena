@@ -24,6 +24,13 @@ export interface GrandeFinalPanelProps {
    * mesmo padrão do PlayoffsPanel recebendo o bracket por prop.
    */
   bracket: ReactNode
+  /**
+   * Capacidade GERIR (add-liga-visao-leitura). Quando `false` (leitor), o único
+   * controle de gestão — o botão "Montar grande final" (estado `montar`) — é
+   * ocultado; o bracket/resultado (leitura) permanece. Default `true` (a página
+   * sempre passa o valor real).
+   */
+  podeGerir?: boolean
 }
 
 /**
@@ -43,6 +50,7 @@ export function GrandeFinalPanel({
   seasonId,
   grandeFinal,
   bracket,
+  podeGerir = true,
 }: GrandeFinalPanelProps) {
   const router = useRouter()
   const [montando, iniciarMontagem] = useTransition()
@@ -73,6 +81,9 @@ export function GrandeFinalPanel({
 
     /* ----------------------------- Montar -------------------------------- */
     case "montar":
+      // Único controle de gestão do painel: o leitor não o vê (a final ainda não
+      // foi montada, logo não há bracket a exibir) — nada a renderizar.
+      if (!podeGerir) return null
       return (
         <Card className="elevate flex flex-col items-center gap-4 px-4 py-6 text-center">
           <span

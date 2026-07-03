@@ -10,7 +10,6 @@ import {
   type PartidaDaChave,
 } from "@/features/standings/data/getTournamentClassificacao"
 import { createClient } from "@/lib/supabase/server"
-import { podeVerBastidores } from "@/lib/autorizacao"
 import { getSeasonBoundaries } from "@/features/league/data/getSeasonBoundaries"
 import type { TournamentStatus } from "@/lib/supabase/database.types"
 
@@ -63,10 +62,10 @@ function paraPartidaJogada(partidas: PartidaDaChave[]): PartidaJogada[] {
 
 /**
  * Carrega o estado de PLAYOFF de uma temporada (fronteiras não-`direto` + as
- * chaves montadas) para a página da temporada. Autorização por CAPACIDADE
- * (`podeVerBastidores` = dono ou qualquer membro/papel da liga) + RLS como
- * backstop: temporada inexistente ou sem capacidade → estado vazio
- * (`temPlayoffs: false`).
+ * chaves montadas) para a página da temporada. VISIBILIDADE pela RLS (leitura
+ * serve qualquer logado; add-liga-visao-leitura): temporada inexistente/invisível
+ * → estado vazio (`temPlayoffs: false`). A chave é montada sobre as partidas que
+ * a RLS entrega (só rodadas liberadas ao não-dono).
  *
  * O parâmetro `_userId` é mantido por compatibilidade com os call-sites; a
  * autorização NÃO o usa mais — deriva a capacidade da `competition_id` da season.
@@ -91,12 +90,13 @@ export async function getPlayoffs(
     fronteiras: [],
   }
 
-  // Carrega a season + competition_id (para a checagem de capacidade). Sem filtro
-  // por `created_by`: a autorização é `podeVerBastidores` abaixo. As fronteiras
-  // vêm da FONTE ÚNICA memoizada (abaixo), não mais embutidas.
+  // Carrega a season só para confirmar VISIBILIDADE (RLS): season invisível/
+  // inexistente → a query volta vazia → estado vazio. Sem gate de capacidade no
+  // app-layer (add-liga-visao-leitura): a leitura serve qualquer logado; a RLS é
+  // a fronteira. As fronteiras vêm da FONTE ÚNICA memoizada (abaixo).
   const { data: season, error: seasonError } = await supabase
     .from("league_seasons")
-    .select(`id, competition_id`)
+    .select(`id`)
     .eq("id", seasonId)
     .maybeSingle()
 
@@ -104,10 +104,6 @@ export async function getPlayoffs(
     throw new Error(`Falha ao carregar os playoffs: ${seasonError.message}`)
   }
   if (!season) {
-    return vazio
-  }
-  // Autorização por CAPACIDADE: ver bastidores (dono ou qualquer membro/papel).
-  if (!(await podeVerBastidores(supabase, { competitionId: season.competition_id }))) {
     return vazio
   }
 

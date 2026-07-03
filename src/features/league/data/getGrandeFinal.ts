@@ -6,7 +6,6 @@ import {
   type PartidaDaChave,
 } from "@/features/standings/data/getTournamentClassificacao"
 import { createClient } from "@/lib/supabase/server"
-import { podeVerBastidores } from "@/lib/autorizacao"
 import type { TournamentStatus } from "@/lib/supabase/database.types"
 
 type Supabase = Awaited<ReturnType<typeof createClient>>
@@ -141,11 +140,11 @@ interface DivisaoRow {
 }
 
 /**
- * Carrega o estado da grande final de UMA divisão split. Autorização por
- * CAPACIDADE (`podeVerBastidores` = dono ou qualquer membro/papel da liga) + RLS.
- * Retorna `null` se a divisão não existe, a leitura é negada (sem capacidade), ou
- * NÃO é split (sem Clausura). Reúso total do motor via `resolverCampeaoDivisaoSplit`
- * (FONTE ÚNICA do campeão, compartilhada com o título).
+ * Carrega o estado da grande final de UMA divisão split. VISIBILIDADE pela RLS
+ * (leitura serve qualquer logado; add-liga-visao-leitura). Retorna `null` se a
+ * divisão não existe, é invisível ao usuário (RLS), ou NÃO é split (sem Clausura).
+ * Reúso total do motor via `resolverCampeaoDivisaoSplit` (FONTE ÚNICA do campeão,
+ * compartilhada com o título).
  *
  * O parâmetro `_userId` é mantido por compatibilidade com os call-sites; a
  * autorização NÃO o usa mais — deriva a capacidade da `competition_id` da season.
@@ -169,14 +168,13 @@ export async function getGrandeFinal(
   }
   const div = divisao as DivisaoRow | null
   if (!div || !div.tournament_id || !div.tournament_id_clausura) {
-    return null // inexistente, leitura negada, ou divisão não-split
+    return null // inexistente/invisível (RLS), ou divisão não-split
   }
 
-  // Autorização por CAPACIDADE: ver bastidores (dono ou qualquer membro/papel).
-  const competitionId = div.league_seasons?.league_competitions?.id
-  if (!competitionId || !(await podeVerBastidores(supabase, { competitionId }))) {
-    return null
-  }
+  // Sem gate de capacidade no app-layer (add-liga-visao-leitura): a leitura serve
+  // qualquer logado; a VISIBILIDADE é da RLS (a query acima já volta `null` quando
+  // a divisão é invisível). O bracket é montado sobre as partidas que a RLS de
+  // `matches` entrega (só rodadas liberadas ao não-dono).
 
   const base: GrandeFinalDivisao = {
     divisionSeasonId,

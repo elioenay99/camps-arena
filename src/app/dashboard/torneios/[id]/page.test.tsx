@@ -150,19 +150,33 @@ function montarCenario(c: {
   /** Retorno da RPC `liga_do_torneio`: uuid da liga-mãe (divisão) ou null
    * (avulso/raiz). Default null = NÃO é divisão (comportamento existente). */
   ligaDoTorneio?: string | null
+  /** season_id devolvido pela query de `league_division_seasons` (link "Ver
+   * liga"). Default null = não resolve → sem link. */
+  divisionSeasonId?: string | null
 }) {
   // Cadeia mínima para a query de barragem 'pares' (esconde "Avançar fase");
   // retorna { data: null } → não-barragem, preserva o comportamento existente.
   const chain: Record<string, unknown> = {
     select: () => chain,
     eq: () => chain,
+    or: () => chain,
     limit: () => chain,
     maybeSingle: async () => ({ data: null }),
+  }
+  // Cadeia dedicada da resolução do season_id da divisão (add-liga-visao-leitura).
+  const divChain: Record<string, unknown> = {
+    select: () => divChain,
+    or: () => divChain,
+    maybeSingle: async () => ({
+      data: c.divisionSeasonId ? { season_id: c.divisionSeasonId } : null,
+    }),
   }
   const user = c.user ?? { id: DONO }
   mockCreateClient.mockResolvedValue({
     auth: { getUser: vi.fn(async () => ({ data: { user } })) },
-    from: vi.fn(() => chain),
+    from: vi.fn((table: string) =>
+      table === "league_division_seasons" ? divChain : chain
+    ),
     // `liga_do_torneio` define `ehDivisao`: não-nulo esconde o link "Equipe".
     rpc: vi.fn(async () => ({ data: c.ligaDoTorneio ?? null, error: null })),
   } as unknown as never)
@@ -370,6 +384,42 @@ describe("TorneioPage — link 'Equipe' por tipo de torneio (must_fix divisão)"
     })
     await renderPage()
     expect(screen.queryByRole("link", { name: /equipe/i })).toBeNull()
+  })
+})
+
+describe("TorneioPage — link 'Ver liga' da divisão (add-liga-visao-leitura)", () => {
+  const LIGA_MAE = "22222222-2222-4222-8222-222222222222"
+  const SEASON = "44444444-4444-4444-8444-444444444444"
+
+  it("divisão com season resolvida: link 'Ver liga' aponta para a temporada", async () => {
+    montarCenario({
+      torneio: { formato: "liga", status: "ativo" },
+      ligaDoTorneio: LIGA_MAE,
+      divisionSeasonId: SEASON,
+    })
+    await renderPage()
+    const verLiga = screen.getByRole("link", { name: /ver liga/i })
+    expect(verLiga).toHaveAttribute("href", `/dashboard/ligas/${SEASON}`)
+  })
+
+  it("LEITOR (não-gestor) de uma divisão também vê o 'Ver liga'", async () => {
+    montarCenario({
+      user: { id: "leitor-1" },
+      torneio: { formato: "liga", status: "ativo" },
+      ligaDoTorneio: LIGA_MAE,
+      divisionSeasonId: SEASON,
+    })
+    await renderPage()
+    expect(screen.getByRole("link", { name: /ver liga/i })).toHaveAttribute(
+      "href",
+      `/dashboard/ligas/${SEASON}`
+    )
+  })
+
+  it("torneio AVULSO (não-divisão): sem link 'Ver liga'", async () => {
+    montarCenario({ torneio: { formato: "liga", status: "ativo" } })
+    await renderPage()
+    expect(screen.queryByRole("link", { name: /ver liga/i })).toBeNull()
   })
 })
 

@@ -75,6 +75,14 @@ export interface TemporadaCompleta {
   /** Identidade por id de competidor (resolvida no servidor) — alimenta o
    * FluxoTemporadaPanel e a página. */
   competidores: Record<string, CompetidorIdentidade>
+  /**
+   * Capacidade GERIR (dono ou admin de liga) do usuário atual sobre esta
+   * pirâmide. A PÁGINA usa isto para renderizar os controles de gestão
+   * condicionalmente (a visão de leitura serve qualquer logado; ver
+   * add-liga-visao-leitura). NÃO é mais um gate de carregamento — a visibilidade
+   * é da RLS. As páginas de gestão (/cores, /equipe) fazem `!podeGerir → 404`.
+   */
+  podeGerir: boolean
 }
 
 interface DivisaoEmbed {
@@ -116,11 +124,12 @@ function nomeDoCompetidor(c: CompetidorEmbed): string {
 
 /**
  * Carrega a temporada de uma pirâmide (config + divisões + fronteiras +
- * identidade dos competidores) para a PÁGINA DE GESTÃO da temporada.
- * Autorização por CAPACIDADE (`podeGerir` = dono ou admin de liga — a herança de
- * admin passa a funcionar) + RLS como backstop: sem capacidade (ou season
- * inexistente) → `null` (a página converte em notFound; resposta única, sem
- * oráculo de existência).
+ * identidade dos competidores) para a página da temporada — que agora serve
+ * LEITURA a qualquer logado (add-liga-visao-leitura). A VISIBILIDADE é da RLS
+ * (liga `ativa` é pública; `arquivada` só a equipe): season inexistente/invisível
+ * → `null` (a página converte em notFound; resposta única, sem oráculo). NÃO há
+ * mais gate de capacidade no carregamento — em vez disso o retorno carrega a flag
+ * `podeGerir` (dono ou admin de liga) para a página gatear os controles de gestão.
  *
  * O parâmetro `_userId` é mantido por compatibilidade com os call-sites (a página
  * ainda passa `user.id`); a autorização NÃO o usa mais — deriva a capacidade da
@@ -163,14 +172,13 @@ export const getSeason = cache(async function getSeason(
     return null
   }
 
-  // Autorização por CAPACIDADE: gerir (dono ou admin de liga). A página de gestão
-  // exige `podeGerir` (controles de iniciar/montar/fluxo). Sem capacidade → null
-  // (= notFound na página; mesma resposta de inexistente, sem oráculo).
+  // Capacidade GERIR (dono ou admin de liga) — NÃO é mais gate de carregamento
+  // (a visibilidade é da RLS): vira uma FLAG no retorno. A página renderiza os
+  // controles de gestão só quando `podeGerir` é true; a leitura serve qualquer
+  // logado. As páginas /cores e /equipe fazem `!podeGerir → notFound`.
   const competitionId = (season as unknown as { competition: { id: string } })
     .competition.id
-  if (!(await podeGerir(supabase, { competitionId }))) {
-    return null
-  }
+  const capGerir = await podeGerir(supabase, { competitionId })
 
   const linha = season as unknown as {
     id: string
@@ -257,5 +265,6 @@ export const getSeason = cache(async function getSeason(
     divisoes,
     fronteiras,
     competidores,
+    podeGerir: capGerir,
   }
 })

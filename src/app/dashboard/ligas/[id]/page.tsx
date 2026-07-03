@@ -83,17 +83,22 @@ export default async function TemporadaPage({
     redirect(`/login?redirectTo=/dashboard/ligas/${id}`)
   }
 
-  // Temporada inexistente OU de liga alheia (filtro de posse): mesma resposta
-  // 404 — sem oráculo de existência.
+  // Temporada inexistente OU invisível ao usuário (RLS): mesma resposta 404 — sem
+  // oráculo de existência. A VISIBILIDADE é da RLS (liga `ativa` é pública para
+  // logados; `arquivada` só a equipe); a página serve LEITURA a qualquer logado.
   const temporada = await getSeason(id, user.id)
   if (!temporada) {
     notFound()
   }
 
+  // Capacidade GERIR (dono OU admin de liga): separa a LEITURA (todos os logados)
+  // dos controles de GESTÃO (add-liga-visao-leitura). Não é mais pré-condição da
+  // página — vem como flag do getSeason e gateia cada controle abaixo.
+  const podeGerir = temporada.podeGerir
+
   // `ehDono` = o usuário criou a pirâmide (`league_competitions.created_by`).
-  // A página é gateada por `podeGerir` (dono OU admin de liga); este flag separa
-  // as ações DONO-only — a virada de temporada (confirmarFluxoTemporada retorna
-  // NAO_DONO a admin não-dono). Espelha `podeReabrir={ehDono}` desta feature.
+  // Separa as ações DONO-only — a virada de temporada (confirmarFluxoTemporada
+  // retorna NAO_DONO a admin não-dono). Espelha `podeReabrir={ehDono}`.
   const ehDono =
     temporada.competicao.criadaPor !== null &&
     temporada.competicao.criadaPor === user.id
@@ -190,34 +195,35 @@ export default async function TemporadaPage({
             </div>
           </div>
         </div>
-        {/* Quem chega aqui tem capacidade GERIR: getSeason já gateia por
-            `podeGerir({ competitionId })` (dono OU admin da equipe). Logo os
-            controles de gestão (Equipe, Identidade) ficam disponíveis a todos
-            que carregam a página. */}
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <Button
-            asChild
-            size="sm"
-            variant="ghost"
-            className="text-muted-foreground rounded-full"
-          >
-            <Link href={`/dashboard/ligas/${id}/equipe`}>
-              <Users aria-hidden="true" />
-              Equipe
-            </Link>
-          </Button>
-          <Button
-            asChild
-            size="sm"
-            variant="ghost"
-            className="text-muted-foreground rounded-full"
-          >
-            <Link href={`/dashboard/ligas/${id}/cores`}>
-              <Palette aria-hidden="true" />
-              Identidade
-            </Link>
-          </Button>
-        </div>
+        {/* Controles de gestão (Equipe, Identidade) só para quem tem capacidade
+            GERIR. O leitor não os vê — e as próprias páginas /equipe e /cores
+            fazem `!podeGerir → notFound` (defesa em profundidade). */}
+        {podeGerir ? (
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <Button
+              asChild
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground rounded-full"
+            >
+              <Link href={`/dashboard/ligas/${id}/equipe`}>
+                <Users aria-hidden="true" />
+                Equipe
+              </Link>
+            </Button>
+            <Button
+              asChild
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground rounded-full"
+            >
+              <Link href={`/dashboard/ligas/${id}/cores`}>
+                <Palette aria-hidden="true" />
+                Identidade
+              </Link>
+            </Button>
+          </div>
+        ) : null}
       </header>
 
       {/* Não montada: a temporada existe mas as divisões ainda não viraram
@@ -230,14 +236,33 @@ export default async function TemporadaPage({
           >
             <Layers className="size-6" />
           </span>
-          <div className="flex max-w-sm flex-col gap-1.5">
-            <h2 className="font-display text-lg font-bold">Monte a temporada</h2>
-            <p className="text-muted-foreground text-sm">
-              Cada divisão vira um torneio de liga com as vagas dos competidores.
-              Depois, inicie cada divisão para gerar a tabela.
-            </p>
-          </div>
-          <MontarTemporadaButton seasonId={temporada.seasonId} />
+          {/* Gestor: chamada para montar + botão. Leitor (edge — a temporada em
+              rascunho tende a ser escondida pela RLS antes daqui): estado
+              informativo read-only, sem botão. */}
+          {podeGerir ? (
+            <>
+              <div className="flex max-w-sm flex-col gap-1.5">
+                <h2 className="font-display text-lg font-bold">
+                  Monte a temporada
+                </h2>
+                <p className="text-muted-foreground text-sm">
+                  Cada divisão vira um torneio de liga com as vagas dos
+                  competidores. Depois, inicie cada divisão para gerar a tabela.
+                </p>
+              </div>
+              <MontarTemporadaButton seasonId={temporada.seasonId} />
+            </>
+          ) : (
+            <div className="flex max-w-sm flex-col gap-1.5">
+              <h2 className="font-display text-lg font-bold">
+                Temporada ainda não montada
+              </h2>
+              <p className="text-muted-foreground text-sm">
+                As divisões desta temporada ainda não foram montadas. A
+                classificação aparecerá quando a temporada começar.
+              </p>
+            </div>
+          )}
         </Card>
       ) : (
         <section aria-label="Divisões" className="flex flex-col gap-5">
@@ -253,6 +278,7 @@ export default async function TemporadaPage({
                 cor_secundaria: temporada.competicao.corSecundaria,
               }}
               ordem={i}
+              podeGerir={podeGerir}
             />
           ))}
         </section>
@@ -262,7 +288,11 @@ export default async function TemporadaPage({
           quando todas as divisões encerraram e há fronteira de playoff ainda
           não resolvida. A page (server) renderiza o BracketView; o painel
           (client) cuida só dos botões (montar / avançar fase). */}
-      {playoffPendente && playoffs ? (
+      {/* Seção só aparece quando há algo a mostrar: para o LEITOR, apenas se
+          alguma chave já foi montada (o card "Montar playoffs" é gestão-only e o
+          PlayoffsPanel retorna null sem chaves). Para o gestor, sempre que
+          pendente. */}
+      {playoffPendente && playoffs && (podeGerir || playoffs.algumaMontada) ? (
         <section
           aria-labelledby="playoffs-titulo"
           className="flex flex-col gap-4 border-t pt-6"
@@ -276,6 +306,7 @@ export default async function TemporadaPage({
           <PlayoffsPanel
             seasonId={temporada.seasonId}
             nivelNomes={nivelNomes}
+            podeGerir={podeGerir}
             fronteiras={playoffs.fronteiras.map(
               (f): PlayoffFronteiraView => ({
                 nivelSuperior: f.nivelSuperior,
@@ -299,8 +330,10 @@ export default async function TemporadaPage({
       ) : null}
 
       {/* Fim de temporada: todas as divisões encerradas (ou retomada de um
-          fluxo interrompido) → sobe e cai. */}
-      {mostrarFluxo ? (
+          fluxo interrompido) → sobe e cai. Console de GESTÃO (calcular/confirmar
+          o sobe-cai) — oculto para o leitor; o sobe/cai visual já aparece nas
+          zonas das tabelas de cada divisão. */}
+      {mostrarFluxo && podeGerir ? (
         <section
           aria-labelledby="fluxo-titulo"
           className="flex flex-col gap-4 border-t pt-6"
@@ -353,6 +386,7 @@ function DivisaoCard({
   seasonId,
   corCompeticao,
   ordem,
+  podeGerir,
 }: {
   divisao: DivisaoTemporada
   standings: DivisaoStandings | null
@@ -363,6 +397,9 @@ function DivisaoCard({
   /** Cor DEFAULT da competição (fallback de herança da divisão sem cor própria). */
   corCompeticao: { cor_primaria: string | null; cor_secundaria: string | null }
   ordem: number
+  /** Capacidade GERIR: oculta os controles de gestão (iniciar/turno/montar final)
+   * ao leitor, preservando a leitura (classificação, bracket). */
+  podeGerir: boolean
 }) {
   // Sem torneio (não montada) — não deveria ocorrer fora do rascunho, mas é
   // defesa. Montada mas não iniciada (rascunho do torneio): botão de iniciar.
@@ -465,13 +502,15 @@ function DivisaoCard({
             hrefCompetidorBase="/dashboard/ligas/competidor"
             ocultarCampeao={ehSplit}
           />
-          {/* Grande final: só no split, com o estado já resolvido no servidor. */}
+          {/* Grande final: só no split, com o estado já resolvido no servidor.
+              `podeGerir` esconde o botão "Montar" ao leitor (bracket preservado). */}
           {ehSplit && grandeFinal ? (
             <GrandeFinalPanel
               divisionSeasonId={divisao.id}
               seasonId={seasonId}
               grandeFinal={grandeFinal}
               bracket={<BracketView partidas={grandeFinal.partidas} />}
+              podeGerir={podeGerir}
             />
           ) : null}
         </>
@@ -480,10 +519,14 @@ function DivisaoCard({
           <CardContent className="flex flex-col items-center gap-4 py-8 text-center">
             <p className="text-muted-foreground max-w-xs text-sm">
               {naoIniciada
-                ? "Divisão montada. Inicie para gerar a tabela e abrir as partidas."
+                ? podeGerir
+                  ? "Divisão montada. Inicie para gerar a tabela e abrir as partidas."
+                  : "A classificação aparecerá quando a divisão começar."
                 : "Divisão ainda não montada."}
             </p>
-            {naoIniciada ? (
+            {/* Controles de gestão (turno + iniciar) só para quem gere — ocultos
+                ao leitor, que vê apenas o estado informativo acima. */}
+            {naoIniciada && podeGerir ? (
               <div className="flex flex-col items-center gap-3">
                 {/* Turno só é editável em LIGA e antes de iniciar (a tabela é
                     gerada com o turno escolhido). Em grupos não se aplica. */}

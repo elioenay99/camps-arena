@@ -3,6 +3,7 @@ import {
   ClipboardCheck,
   Flag,
   History,
+  Layers,
   ListOrdered,
   Lock,
   Network,
@@ -152,6 +153,21 @@ export default async function TorneioPage({
     p_tid: id,
   });
   const ehDivisao = ligaDoTorneio !== null;
+
+  // Navegação divisão → liga (add-liga-visao-leitura): resolve a TEMPORADA
+  // (season) a que esta divisão pertence — a rota da liga é `[season_id]`, não a
+  // competição. Cobre Apertura E Clausura (a mesma divisão aponta os dois
+  // torneios). A RLS libera esta linha quando a liga é visível; ausente → sem
+  // link. Só quando é divisão (torneio avulso não tem liga-mãe).
+  let ligaSeasonId: string | null = null;
+  if (ehDivisao) {
+    const { data: divRow } = await supabase
+      .from("league_division_seasons")
+      .select("season_id")
+      .or(`tournament_id.eq.${id},tournament_id_clausura.eq.${id}`)
+      .maybeSingle();
+    ligaSeasonId = divRow?.season_id ?? null;
+  }
 
   // `ehDono` permanece SÓ para usos NÃO-autorizativos: (a) data-visibility ligada
   // à RLS (que ainda chaveia por created_by — só o DONO recebe as rodadas ainda
@@ -671,29 +687,47 @@ export default async function TorneioPage({
             </div>
           </div>
         </div>
-        {/* Ações de gestão no cabeçalho (capacidade GERIR): identidade (cores)
-            sempre disponível a quem gere; "Nova partida" (estrutural) só no
-            avulso não-encerrado (formato gerado nasce da chave). */}
-        {gerir ? (
+        {/* Cabeçalho: "Ver liga" (navegação para a pirâmide-mãe) disponível a
+            QUALQUER visitante de uma divisão — é como o jogador chega à liga
+            (add-liga-visao-leitura). Ações de GESTÃO (Cores, Nova partida) só a
+            quem gere. */}
+        {ligaSeasonId || gerir ? (
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Button
-              asChild
-              size="sm"
-              variant="ghost"
-              className="text-muted-foreground rounded-full"
-            >
-              <Link href={`/dashboard/torneios/${id}/cores`}>
-                <Palette aria-hidden="true" />
-                Cores
-              </Link>
-            </Button>
-            {!ehGerado && torneio.status !== "encerrado" ? (
-              <Button asChild size="sm" className="rounded-full">
-                <Link href={`/dashboard/torneios/${id}/partidas/nova`}>
-                  <Plus aria-hidden="true" />
-                  Nova partida
+            {ligaSeasonId ? (
+              <Button
+                asChild
+                size="sm"
+                variant="ghost"
+                className="text-muted-foreground rounded-full"
+              >
+                <Link href={`/dashboard/ligas/${ligaSeasonId}`}>
+                  <Layers aria-hidden="true" />
+                  Ver liga
                 </Link>
               </Button>
+            ) : null}
+            {gerir ? (
+              <>
+                <Button
+                  asChild
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground rounded-full"
+                >
+                  <Link href={`/dashboard/torneios/${id}/cores`}>
+                    <Palette aria-hidden="true" />
+                    Cores
+                  </Link>
+                </Button>
+                {!ehGerado && torneio.status !== "encerrado" ? (
+                  <Button asChild size="sm" className="rounded-full">
+                    <Link href={`/dashboard/torneios/${id}/partidas/nova`}>
+                      <Plus aria-hidden="true" />
+                      Nova partida
+                    </Link>
+                  </Button>
+                ) : null}
+              </>
             ) : null}
           </div>
         ) : null}

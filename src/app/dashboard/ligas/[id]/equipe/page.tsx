@@ -47,12 +47,13 @@ export default async function EquipeDaLigaPage({
   }
 
   // O `[id]` da rota é a TEMPORADA (season), NÃO a competição. `getSeason`
-  // resolve season → competição E gateia por capacidade GERIR (dono/admin):
-  // sem acesso/inexistente → null → o MESMO 404 (sem oráculo). É o que a página
-  // de Identidade (cores) já faz. Antes, a equipe assumia `id` = competição e
-  // chamava `podeGerir({ competitionId: seasonId })` (sempre falso) → 404 sempre.
+  // resolve season → competição. Ele NÃO gateia mais por capacidade (serve
+  // leitura a qualquer logado — add-liga-visao-leitura): `null` só quando
+  // inexistente/invisível (RLS). Esta página carrega `member_invites` e a gestão
+  // de equipe, então o gate de GESTÃO é OBRIGATÓRIO aqui: `!podeGerir → 404`
+  // (mesma resposta, sem oráculo). Esquecer isto vazaria convites ao não-gestor.
   const temporada = await getSeason(id, user.id)
-  if (!temporada) {
+  if (!temporada || !temporada.podeGerir) {
     notFound()
   }
   const competitionId = temporada.competicao.id

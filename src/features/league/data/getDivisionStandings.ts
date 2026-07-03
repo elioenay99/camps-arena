@@ -1,7 +1,6 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
-import { podeVerBastidores } from "@/lib/autorizacao"
 import type { LinhaComNome } from "@/features/standings/data/getTournamentClassificacao"
 import {
   carregarPosicoesDeCorte,
@@ -186,8 +185,8 @@ export function derivarZonas(
  * `participanteId` para o `competitor_id` (estável entre temporadas), mantendo o
  * nome/escudo já resolvido. As zonas (acesso/rebaixamento) saem das fronteiras.
  *
- * Retorna `null` se a divisão não existe, a leitura é negada (sem capacidade) ou
- * ainda não foi montada (sem torneio) — a página decide o que mostrar.
+ * Retorna `null` se a divisão não existe, é invisível ao usuário (RLS) ou ainda
+ * não foi montada (sem torneio) — a página decide o que mostrar.
  *
  * O parâmetro `_userId` é mantido por compatibilidade com os call-sites; a
  * autorização NÃO o usa mais — deriva a capacidade da `competition_id` da season.
@@ -223,17 +222,11 @@ export async function getDivisionStandings(
     return null
   }
 
-  // Autorização por CAPACIDADE: ver bastidores (dono ou qualquer membro/papel da
-  // liga). A página de gestão já passou por `podeGerir` (getSeason); aqui a leitura
-  // basta `podeVerBastidores`. Sem capacidade → null.
-  const competitionId = (
-    divisao.league_seasons as unknown as {
-      league_competitions: { id: string } | null
-    } | null
-  )?.league_competitions?.id
-  if (!competitionId || !(await podeVerBastidores(supabase, { competitionId }))) {
-    return null
-  }
+  // Sem gate de capacidade no app-layer (add-liga-visao-leitura): a visão de
+  // leitura serve qualquer logado e a VISIBILIDADE é da RLS — a query acima já
+  // devolve `null` (divisão invisível) quando a liga não é visível ao usuário. A
+  // classificação é computada sobre as partidas que a RLS de `matches` entrega
+  // (só rodadas liberadas ao não-dono), idêntico à página de torneio da divisão.
 
   // Metadados de playoff das fronteiras desta temporada (modo/estilo/vagas). A
   // página só repassa o sobe/cai DIRETO; aqui fundimos com a config de playoff

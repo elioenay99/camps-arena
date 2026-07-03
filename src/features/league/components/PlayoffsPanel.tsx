@@ -51,6 +51,13 @@ export interface PlayoffsPanelProps {
   fronteiras: PlayoffFronteiraView[]
   /** Nome legível de cada nível (1 → "Série A") — rótulo das fronteiras. */
   nivelNomes?: Record<number, string | undefined>
+  /**
+   * Capacidade GERIR (add-liga-visao-leitura). Quando `false` (leitor), os botões
+   * de gestão — "Montar playoffs" e "Avançar fase" — são ocultados; o bracket e o
+   * link "Abrir chave" (navegação para o torneio público) permanecem. Default
+   * `true` (a página sempre passa o valor real).
+   */
+  podeGerir?: boolean
 }
 
 /* -------------------------------------------------------------------------- */
@@ -111,6 +118,7 @@ export function PlayoffsPanel({
   seasonId,
   fronteiras,
   nivelNomes,
+  podeGerir = true,
 }: PlayoffsPanelProps) {
   const router = useRouter()
   const [montando, iniciarMontagem] = useTransition()
@@ -131,6 +139,9 @@ export function PlayoffsPanel({
 
   /* --------------------- Estado: nenhuma chave montada -------------------- */
   if (!algumaMontada) {
+    // Nada montado = nada a LER; o card "Montar playoffs" é puro controle de
+    // gestão. O leitor não vê nada (a seção da página também some — ver page.tsx).
+    if (!podeGerir) return null
     return (
       <Card className="elevate animate-rise flex flex-col items-center gap-5 px-6 py-12 text-center">
         <span
@@ -189,6 +200,7 @@ export function PlayoffsPanel({
             fronteira={f}
             nivelNomes={nivelNomes}
             ordem={i}
+            podeGerir={podeGerir}
           />
         ))}
       </div>
@@ -204,10 +216,12 @@ function FronteiraChave({
   fronteira,
   nivelNomes,
   ordem,
+  podeGerir,
 }: {
   fronteira: PlayoffFronteiraView
   nivelNomes?: PlayoffsPanelProps["nivelNomes"]
   ordem: number
+  podeGerir: boolean
 }) {
   const router = useRouter()
   const { modo, playoffTournamentId, torneioStatus, decidida } = fronteira
@@ -269,7 +283,7 @@ function FronteiraChave({
         ) : (
           <span />
         )}
-        {playoffTournamentId && !escondeAvancar(fronteira) ? (
+        {podeGerir && playoffTournamentId && !escondeAvancar(fronteira) ? (
           // `avancarFase` revalida só as rotas de torneio; o refresh atualiza a
           // página da liga (BracketView, chip "Decidida", portão do fluxo).
           <AvancarFaseButton
