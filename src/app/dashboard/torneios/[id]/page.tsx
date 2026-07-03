@@ -39,6 +39,8 @@ import {
   totalFases,
 } from "@/features/knockout/gerarChaveMataMata";
 import { CompartilharRodadaButton } from "@/features/match/components/CompartilharRodadaButton";
+import { CompartilharCompetitionButton } from "@/features/discovery/components/CompartilharCompetitionButton";
+import { ListarVitrineToggle } from "@/features/discovery/components/ListarVitrineToggle";
 import { LiberarRodadasButtons } from "@/features/match/components/LiberarRodadasButtons";
 import { confrontosTextoDaRodada } from "@/features/match/confrontosTextoDaRodada";
 import { MatchHistoryList } from "@/features/match/components/MatchHistoryList";
@@ -719,6 +721,10 @@ export default async function TorneioPage({
                     Cores
                   </Link>
                 </Button>
+                <CompartilharCompetitionButton
+                  path={`/dashboard/torneios/${id}`}
+                  titulo={titulo}
+                />
                 {!ehGerado && torneio.status !== "encerrado" ? (
                   <Button asChild size="sm" className="rounded-full">
                     <Link href={`/dashboard/torneios/${id}/partidas/nova`}>
@@ -803,6 +809,15 @@ export default async function TorneioPage({
               podeReabrir={ehDono}
             />
           </div>
+          {/* Vitrine pública (add-vitrine-publica-e-compartilhar): só torneio de
+              TOPO se lista (divisão se publica pela liga-mãe). */}
+          {!ehDivisao ? (
+            <ListarVitrineToggle
+              tipo="torneio"
+              tournamentId={id}
+              listada={torneio.listada}
+            />
+          ) : null}
         </section>
       ) : null}
 

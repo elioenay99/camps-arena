@@ -30,6 +30,9 @@ export interface TorneioClassificacao {
   classificados_por_grupo: number | null
   /** Dono do torneio (anulável: semeados/legados) — habilita o console do dono. */
   created_by: string | null
+  /** Listado na vitrine pública (change add-vitrine-publica-e-compartilhar):
+   * estado inicial do toggle de gestão (só torneio de topo). */
+  listada: boolean
   pontos_vitoria: number
   pontos_empate: number
   pontos_derrota: number
@@ -333,7 +336,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const { data: torneio, error: torneioError } = await supabase
     .from("tournaments")
     .select(
-      "id, titulo, status, formato, ida_e_volta, terceiro_lugar, classificados_por_grupo, created_by, pontos_vitoria, pontos_empate, pontos_derrota, desempate_criterio, cor_primaria, cor_secundaria"
+      "id, titulo, status, formato, ida_e_volta, terceiro_lugar, classificados_por_grupo, created_by, listada, pontos_vitoria, pontos_empate, pontos_derrota, desempate_criterio, cor_primaria, cor_secundaria"
     )
     .eq("id", tournamentId)
     .maybeSingle()

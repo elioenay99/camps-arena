@@ -76,6 +76,7 @@ export interface Database {
           classificados_por_grupo: number | null
           created_by: string | null
           is_public: boolean
+          listada: boolean
           pontos_vitoria: number
           pontos_empate: number
           pontos_derrota: number
@@ -95,6 +96,7 @@ export interface Database {
           classificados_por_grupo?: number | null
           created_by?: string | null
           is_public?: boolean
+          listada?: boolean
           pontos_vitoria?: number
           pontos_empate?: number
           pontos_derrota?: number
@@ -114,6 +116,7 @@ export interface Database {
           classificados_por_grupo?: number | null
           created_by?: string | null
           is_public?: boolean
+          listada?: boolean
           pontos_vitoria?: number
           pontos_empate?: number
           pontos_derrota?: number
@@ -557,6 +560,7 @@ export interface Database {
           status: LeagueCompetitionStatus
           desempate_padrao: string
           is_public: boolean
+          listada: boolean
           cor_primaria: string | null
           cor_secundaria: string | null
           created_at: string
@@ -568,6 +572,7 @@ export interface Database {
           status?: LeagueCompetitionStatus
           desempate_padrao?: string
           is_public?: boolean
+          listada?: boolean
           cor_primaria?: string | null
           cor_secundaria?: string | null
           created_at?: string
@@ -579,6 +584,7 @@ export interface Database {
           status?: LeagueCompetitionStatus
           desempate_padrao?: string
           is_public?: boolean
+          listada?: boolean
           cor_primaria?: string | null
           cor_secundaria?: string | null
           created_at?: string

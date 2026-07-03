@@ -20,6 +20,9 @@ const LINKS: NavLink[] = [
   { href: "/dashboard/ligas", rotulo: "Ligas" },
   // "Copas" cobre o índice, nova, página da copa e da edição por prefixo.
   { href: "/dashboard/copas", rotulo: "Copas" },
+  // "Explorar" = vitrine pública das competições listadas (add-vitrine-publica-e-
+  // compartilhar). Ativo por prefixo.
+  { href: "/dashboard/explorar", rotulo: "Explorar" },
   { href: "/dashboard/partidas/nova", rotulo: "Nova partida" },
 ];
 

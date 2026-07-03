@@ -2385,3 +2385,62 @@ export async function atualizarCoresDivisao(
   revalidatePath(`/dashboard/ligas/${divisao.season_id}/cores`)
   return { ok: true }
 }
+
+/* -------------------------------------------------------------------------- */
+/* definirListadaLiga — opt-in da vitrine pública (flag na COMPETIÇÃO-mãe)        */
+/* -------------------------------------------------------------------------- */
+
+const definirListadaLigaSchema = z.object({
+  competitionId: z.string().uuid(),
+  /** Só para revalidar a página da temporada corrente. */
+  seasonId: z.string().uuid(),
+  listada: z.boolean(),
+})
+
+/**
+ * Liga/desliga a listagem da pirâmide na vitrine pública (change
+ * add-vitrine-publica-e-compartilhar). A flag é da COMPETIÇÃO
+ * (`league_competitions.listada`), não da season — listar publica a pirâmide
+ * inteira. Gateada por `podeGerir` (dono/admin de liga); a escrita é na própria
+ * linha (RLS de update do dono já cobre; sem policy nova).
+ */
+export async function definirListadaLiga(
+  input: unknown
+): Promise<LeaguePyramidResult> {
+  const parsed = definirListadaLigaSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: "Dados inválidos." }
+  }
+  const { competitionId, seasonId, listada } = parsed.data
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  if (!(await podeGerir(supabase, { competitionId }))) {
+    return { ok: false, error: "Você não tem permissão para gerir esta liga." }
+  }
+
+  try {
+    const { error } = await supabase
+      .from("league_competitions")
+      .update({ listada })
+      .eq("id", competitionId)
+    if (error) {
+      return { ok: false, error: "Não foi possível salvar agora. Tente novamente." }
+    }
+  } catch (error) {
+    Sentry.captureException(error, { tags: { action: "definirListadaLiga" } })
+    return { ok: false, error: "Não foi possível salvar agora. Tente novamente." }
+  }
+
+  revalidatePath("/dashboard/ligas")
+  revalidatePath(`/dashboard/ligas/${seasonId}`)
+  revalidatePath("/dashboard/explorar")
+  return { ok: true }
+}

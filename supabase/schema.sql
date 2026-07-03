@@ -61,7 +61,20 @@ alter table public.tournaments
 alter table public.tournaments
   add column if not exists is_public boolean not null default true;
 
+-- Vitrine pública (change add-vitrine-publica-e-compartilhar): opt-in do dono para
+-- LISTAR o torneio de topo na aba Explorar. default false (opt-in real, diferente
+-- de is_public que é default true). Divisões de pirâmide herdam is_public mas nunca
+-- recebem listada=true (sem UI; a liga-mãe é quem se lista).
+alter table public.tournaments
+  add column if not exists listada boolean not null default false;
+
 create index if not exists tournaments_created_by_idx on public.tournaments (created_by);
+
+-- Índice parcial: a vitrine filtra listada=true e ordena por created_at desc.
+-- Cobre só as poucas linhas listadas.
+create index if not exists tournaments_listada_idx
+  on public.tournaments (created_at desc)
+  where listada;
 
 -- Regras de pontuação por torneio (aditivo; idempotente). Defaults 3/1/0:
 -- torneios legados herdam a convenção do futebol sem migração de dados.
@@ -1751,6 +1764,10 @@ create table if not exists public.league_competitions (
   -- cópia em league_seasons.config_snapshot ao ser montada.
   desempate_padrao text not null default 'cbf',
   is_public        boolean not null default true,
+  -- Vitrine pública (change add-vitrine-publica-e-compartilhar): opt-in do dono
+  -- para LISTAR a pirâmide na aba Explorar. default false (opt-in real). Listar a
+  -- liga publica a pirâmide inteira; a vitrine linka a temporada corrente.
+  listada          boolean not null default false,
   created_at       timestamptz not null default now(),
   constraint league_competitions_nome_nao_vazio check (length(trim(nome)) > 0),
   -- 'cbf'/'ingles' reordenam a cadeia objetiva; 'espanhol'/'fifa' (Fase 5) usam
@@ -1761,6 +1778,16 @@ create table if not exists public.league_competitions (
 
 create index if not exists league_competitions_created_by_idx
   on public.league_competitions (created_by);
+
+-- Vitrine pública (change add-vitrine-publica-e-compartilhar): coluna defensiva
+-- para DBs já existentes (o create table if not exists pula a coluna inline) +
+-- índice parcial da vitrine (listada=true, ordena por created_at desc).
+alter table public.league_competitions
+  add column if not exists listada boolean not null default false;
+
+create index if not exists league_competitions_listada_idx
+  on public.league_competitions (created_at desc)
+  where listada;
 
 -- Cores de identidade da pirâmide (default herdado pelas divisões — change
 -- add-cores-campeonato). Hex #rrggbb minúsculo OU NULL.

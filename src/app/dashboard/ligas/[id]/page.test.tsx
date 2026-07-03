@@ -32,6 +32,14 @@ vi.mock("@/features/league/data/getPlayoffs", () => ({
     fronteiras: [],
   })),
 }))
+// Folhas client da vitrine (add-vitrine-publica-e-compartilhar): neutralizadas
+// (useRouter/Web Share). Stubs identificáveis para asserção de GATING por gestor.
+vi.mock("@/features/discovery/components/ListarVitrineToggle", () => ({
+  ListarVitrineToggle: () => <span>Listar na vitrine pública</span>,
+}))
+vi.mock("@/features/discovery/components/CompartilharCompetitionButton", () => ({
+  CompartilharCompetitionButton: () => <button>Compartilhar</button>,
+}))
 // Controles de GESTÃO → marcadores testid.
 vi.mock("@/features/league/components/MontarTemporadaButton", () => ({
   MontarTemporadaButton: () => <div data-testid="btn-montar" />,
@@ -99,6 +107,7 @@ function temporada(podeGerir: boolean) {
       criadaPor: DONO,
       corPrimaria: null,
       corSecundaria: null,
+      listada: false,
     },
     divisoes: [
       {
@@ -178,6 +187,11 @@ describe("LigaPage — visão de leitura vs gestão", () => {
     expect(screen.getByTestId("btn-iniciar")).toBeInTheDocument()
     expect(screen.getByTestId("turno")).toBeInTheDocument()
     expect(screen.getByTestId("standings")).toBeInTheDocument()
+    // Vitrine (add-vitrine-publica-e-compartilhar): toggle + Compartilhar.
+    expect(screen.getByText("Listar na vitrine pública")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /^compartilhar$/i })
+    ).toBeInTheDocument()
   })
 
   it("leitor (não-gestor): vê a classificação mas NENHUM controle de gestão", async () => {
@@ -195,6 +209,9 @@ describe("LigaPage — visão de leitura vs gestão", () => {
     expect(screen.queryByTestId("btn-iniciar")).toBeNull()
     expect(screen.queryByTestId("turno")).toBeNull()
     expect(screen.queryByTestId("fluxo")).toBeNull()
+    // Vitrine: nem toggle nem Compartilhar para o leitor.
+    expect(screen.queryByText("Listar na vitrine pública")).toBeNull()
+    expect(screen.queryByRole("button", { name: /^compartilhar$/i })).toBeNull()
   })
 
   it("não-logado: redireciona para o login (não renderiza)", async () => {

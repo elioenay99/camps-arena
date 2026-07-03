@@ -68,6 +68,9 @@ export interface TemporadaCompleta {
      * divisões sem cor própria + cor do header/seções cross-divisão. null = base. */
     corPrimaria: string | null
     corSecundaria: string | null
+    /** Listada na vitrine pública (change add-vitrine-publica-e-compartilhar):
+     * estado inicial do toggle de gestão. A flag é da COMPETIÇÃO (não da season). */
+    listada: boolean
   }
   /** Divisões ordenadas por nível ascendente (1 = topo). */
   divisoes: DivisaoTemporada[]
@@ -158,7 +161,7 @@ export const getSeason = cache(async function getSeason(
     .from("league_seasons")
     .select(
       `id, numero, status, ciclo,
-       competition:league_competitions!inner ( id, nome, created_by, cor_primaria, cor_secundaria ),
+       competition:league_competitions!inner ( id, nome, created_by, cor_primaria, cor_secundaria, listada ),
        league_division_seasons ( id, nivel, nome, por_nome, desempate, tamanho, tournament_id, tournament_id_clausura, final_tournament_id, cor_primaria, cor_secundaria, formato, ida_e_volta, apertura:tournaments!league_division_seasons_tournament_id_fkey ( status ) ),
        league_boundaries ( nivel_superior, vagas_acesso, vagas_rebaixamento )`
     )
@@ -191,6 +194,7 @@ export const getSeason = cache(async function getSeason(
       created_by: string | null
       cor_primaria: string | null
       cor_secundaria: string | null
+      listada: boolean
     }
     league_division_seasons: DivisaoEmbed[]
     league_boundaries: FronteiraEmbed[]
@@ -261,6 +265,7 @@ export const getSeason = cache(async function getSeason(
       criadaPor: linha.competition.created_by,
       corPrimaria: linha.competition.cor_primaria,
       corSecundaria: linha.competition.cor_secundaria,
+      listada: linha.competition.listada,
     },
     divisoes,
     fronteiras,

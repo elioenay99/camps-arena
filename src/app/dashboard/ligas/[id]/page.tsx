@@ -12,6 +12,8 @@ import {
   resolverCores,
 } from "@/features/championship/championshipTheme"
 import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge"
+import { CompartilharCompetitionButton } from "@/features/discovery/components/CompartilharCompetitionButton"
+import { ListarVitrineToggle } from "@/features/discovery/components/ListarVitrineToggle"
 import { FluxoTemporadaPanel } from "@/features/league/components/FluxoTemporadaPanel"
 import { IniciarDivisaoButton } from "@/features/league/components/IniciarDivisaoButton"
 import { TurnoDivisaoControl } from "@/features/league/components/TurnoDivisaoControl"
@@ -222,9 +224,24 @@ export default async function TemporadaPage({
                 Identidade
               </Link>
             </Button>
+            <CompartilharCompetitionButton
+              path={`/dashboard/ligas/${id}`}
+              titulo={temporada.competicao.nome.trim() || "Pirâmide"}
+            />
           </div>
         ) : null}
       </header>
+
+      {/* Vitrine pública (add-vitrine-publica-e-compartilhar): toggle de listagem
+          da pirâmide, só para quem gere. A flag é da COMPETIÇÃO-mãe. */}
+      {podeGerir ? (
+        <ListarVitrineToggle
+          tipo="liga"
+          competitionId={temporada.competicao.id}
+          seasonId={temporada.seasonId}
+          listada={temporada.competicao.listada}
+        />
+      ) : null}
 
       {/* Não montada: a temporada existe mas as divisões ainda não viraram
           torneios. Monte para criar os torneios e as vagas. */}

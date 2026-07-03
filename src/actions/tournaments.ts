@@ -1669,3 +1669,76 @@ export async function recolherRodadas(
   // Sem notificação: recolher ESCONDE partidas (o inverso de avisar que liberou).
   return { ok: true, recolhidas: recolhidas?.length ?? 0 }
 }
+
+/* -------------------------------------------------------------------------- */
+/* definirListadaTorneio — opt-in da vitrine pública (só torneio de TOPO)        */
+/* -------------------------------------------------------------------------- */
+
+export type DefinirListadaResult = { ok: true } | { ok: false; error: string }
+
+const definirListadaTorneioSchema = z.object({
+  tournamentId: z.string().uuid(),
+  listada: z.boolean(),
+})
+
+/**
+ * Liga/desliga a listagem do torneio na vitrine pública (change
+ * add-vitrine-publica-e-compartilhar). Gateada por `podeGerir` (dono/admin) — o
+ * toggle só existe na gestão. REJEITA torneios de DIVISÃO de pirâmide
+ * (`liga_do_torneio` não-nulo): uma divisão se publica pela liga-mãe, nunca
+ * sozinha (belt-and-suspenders com a UI, que esconde o toggle na divisão). A
+ * escrita é na própria linha (RLS de update do dono já cobre; sem policy nova).
+ */
+export async function definirListadaTorneio(
+  input: unknown
+): Promise<DefinirListadaResult> {
+  const parsed = definirListadaTorneioSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: "Dados inválidos." }
+  }
+  const { tournamentId, listada } = parsed.data
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  if (!(await podeGerir(supabase, { tournamentId }))) {
+    return { ok: false, error: "Você não tem permissão para gerir este torneio." }
+  }
+
+  // Divisão de pirâmide não é listável sozinha (a liga-mãe é quem se publica).
+  const { data: liga, error: ligaError } = await supabase.rpc("liga_do_torneio", {
+    p_tid: tournamentId,
+  })
+  if (ligaError) {
+    return { ok: false, error: "Não foi possível validar o torneio. Tente novamente." }
+  }
+  if (liga !== null) {
+    return {
+      ok: false,
+      error: "Divisões de pirâmide se listam pela liga-mãe, não isoladamente.",
+    }
+  }
+
+  try {
+    const { error } = await supabase
+      .from("tournaments")
+      .update({ listada })
+      .eq("id", tournamentId)
+    if (error) {
+      return { ok: false, error: "Não foi possível salvar agora. Tente novamente." }
+    }
+  } catch (error) {
+    Sentry.captureException(error, { tags: { action: "definirListadaTorneio" } })
+    return { ok: false, error: "Não foi possível salvar agora. Tente novamente." }
+  }
+
+  revalidatePath(`/dashboard/torneios/${tournamentId}`)
+  revalidatePath("/dashboard/explorar")
+  return { ok: true }
+}

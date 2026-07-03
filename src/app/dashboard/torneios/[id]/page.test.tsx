@@ -25,6 +25,16 @@ vi.mock("@/features/standings/data/getTournamentClassificacao", () => ({
   // asserções de layout/seções seguem válidas.
   resolverCoresTorneio: vi.fn(async () => ({ primaria: null, secundaria: null })),
 }))
+// Folhas client da vitrine (add-vitrine-publica-e-compartilhar): neutralizadas
+// (usam useRouter/Web Share — fora do alvo). Stubs com texto/role identificáveis
+// para as asserções de GATING (presença/ausência por gestor e por divisão). O
+// comportamento real vive nos testes de componente dedicados.
+vi.mock("@/features/discovery/components/ListarVitrineToggle", () => ({
+  ListarVitrineToggle: () => <span>Listar na vitrine pública</span>,
+}))
+vi.mock("@/features/discovery/components/CompartilharCompetitionButton", () => ({
+  CompartilharCompetitionButton: () => <button>Compartilhar</button>,
+}))
 vi.mock("@/features/tournament/data/getParticipantesDoTorneio", () => ({
   getParticipantesDoTorneio: vi.fn(async () => []),
 }))
@@ -137,6 +147,7 @@ function torneioBase(over: Record<string, unknown> = {}) {
     terceiro_lugar: false,
     classificados_por_grupo: null,
     created_by: DONO,
+    listada: false,
     pontos_vitoria: 3,
     pontos_empate: 1,
     pontos_derrota: 0,
@@ -420,6 +431,41 @@ describe("TorneioPage — link 'Ver liga' da divisão (add-liga-visao-leitura)",
     montarCenario({ torneio: { formato: "liga", status: "ativo" } })
     await renderPage()
     expect(screen.queryByRole("link", { name: /ver liga/i })).toBeNull()
+  })
+})
+
+describe("TorneioPage — vitrine: toggle + compartilhar (add-vitrine-publica-e-compartilhar)", () => {
+  const LIGA_MAE = "22222222-2222-4222-8222-222222222222"
+
+  it("gestor de torneio de TOPO vê o toggle e o botão Compartilhar", async () => {
+    montarCenario({ torneio: { formato: "liga", status: "ativo" } })
+    await renderPage()
+    expect(screen.getByText("Listar na vitrine pública")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /^compartilhar$/i })
+    ).toBeInTheDocument()
+  })
+
+  it("gestor de DIVISÃO: sem toggle (a liga-mãe é quem se lista), mas com Compartilhar", async () => {
+    montarCenario({
+      torneio: { formato: "liga", status: "ativo" },
+      ligaDoTorneio: LIGA_MAE,
+    })
+    await renderPage()
+    expect(screen.queryByText("Listar na vitrine pública")).toBeNull()
+    expect(
+      screen.getByRole("button", { name: /^compartilhar$/i })
+    ).toBeInTheDocument()
+  })
+
+  it("não-gestor: sem toggle e sem Compartilhar", async () => {
+    montarCenario({
+      user: { id: "leitor-1" },
+      torneio: { formato: "liga", status: "ativo" },
+    })
+    await renderPage()
+    expect(screen.queryByText("Listar na vitrine pública")).toBeNull()
+    expect(screen.queryByRole("button", { name: /^compartilhar$/i })).toBeNull()
   })
 })
 
