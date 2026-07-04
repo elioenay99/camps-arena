@@ -555,7 +555,11 @@ function DivisaoCard({
               divisionSeasonId={divisao.id}
               seasonId={seasonId}
               grandeFinal={grandeFinal}
-              bracket={<BracketView partidas={grandeFinal.partidas} />}
+              bracket={
+                grandeFinal.partidas.length > 0 ? (
+                  <BracketView partidas={grandeFinal.partidas} />
+                ) : null
+              }
               podeGerir={podeGerir}
             />
           ) : null}

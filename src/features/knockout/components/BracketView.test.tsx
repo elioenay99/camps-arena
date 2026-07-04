@@ -86,6 +86,18 @@ describe("BracketView — colunas por fase e slots futuros", () => {
   })
 })
 
+describe("BracketView — chave sem partidas (crash-proof)", () => {
+  it("com partidas=[] renderiza o estado gracioso sem lançar (regressão do 500)", () => {
+    // Grande final SPLIT montada e não gerada → getGrandeFinal retorna
+    // `partidas: []`. Antes do fix, rodadaBaseDaChave/tamanhoChaveDasPartidas
+    // lançavam "Chave sem partidas geradas." no topo do componente e derrubavam
+    // o render inteiro da página da liga (500). O componente puro NÃO pode crashar
+    // por uma entrada válida-porém-vazia.
+    expect(() => render(<BracketView partidas={[]} />)).not.toThrow()
+    expect(screen.getByText("A chave ainda não foi gerada.")).toBeInTheDocument()
+  })
+})
+
 describe("BracketView — bye", () => {
   it("card de bye mostra o nome e 'Avança direto (bye)' sem placar cru", () => {
     // Chave de 2 com posicao 1 bye (lado 2 nulo, nasce encerrada 0x0): único

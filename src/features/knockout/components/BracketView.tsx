@@ -161,6 +161,20 @@ export function BracketView({
   /** Torneio com disputa de 3º lugar — a coluna final ganha o slot extra. */
   terceiroLugar?: boolean
 }) {
+  // Chave sem partidas (ex.: grande final montada e não gerada → `partidas: []`): as
+  // derivações abaixo (rodadaBaseDaChave/tamanhoChaveDasPartidas) lançam "Chave sem
+  // partidas geradas." e derrubariam o render inteiro (500). Um componente puro não pode
+  // crashar por uma entrada válida-porém-vazia — retorna cedo um estado gracioso,
+  // espelhando o guard de resultadoDaChave (geradas.length === 0). PartidaDaChave já tem
+  // rodada/posicao não-nulos, então a lista vazia é o único caminho para o throw.
+  if (partidas.length === 0) {
+    return (
+      <div className="text-muted-foreground rounded-lg border border-dashed px-4 py-3 text-sm">
+        A chave ainda não foi gerada.
+      </div>
+    )
+  }
+
   const s = tamanhoChaveDasPartidas(partidas)
   const fases = totalFases(s)
   // Rodada-base: nos formatos de grupos a chave começa após as rodadas de
