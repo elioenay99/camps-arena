@@ -320,6 +320,20 @@ describe("proporPlacar", () => {
     expect(c.proposalsInsertSpy).not.toHaveBeenCalled()
   })
 
+  it("path forjado (pasta de outro uid) aborta antes do insert e remove a órfã", async () => {
+    // Invariante de defesa em profundidade: se subirEvidencia devolver um path
+    // fora de <uid>/<matchId>/ (pasta de OUTRO usuário), a action recusa, remove
+    // a foto órfã e nunca insere a linha.
+    const pathForjado = `${OUTRO}/${MATCH}/x.png`
+    mockSubir.mockResolvedValue({ ok: true, path: pathForjado })
+    const c = montarClient({ user: { id: TECNICO }, match: partidaLiberada() })
+    const r = await proporPlacar(fdProposta())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/não foi possível agora/i)
+    expect(mockRemover).toHaveBeenCalledWith(expect.anything(), pathForjado)
+    expect(c.proposalsInsertSpy).not.toHaveBeenCalled()
+  })
+
   it("reenvio: apaga a pendente anterior e remove a foto antiga antes de inserir", async () => {
     const fotoAntiga = `${TECNICO}/${MATCH}/antiga.png`
     const c = montarClient({

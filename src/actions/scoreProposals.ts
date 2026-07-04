@@ -115,6 +115,16 @@ export async function proporPlacar(formData: FormData): Promise<ProporPlacarResu
   if (!up.ok) {
     return { ok: false, error: up.error }
   }
+  // Invariante: o path fica na pasta <uid>/<matchId>/ (a RLS de INSERT também
+  // amarra a coluna foto_path). Guarda-corpo caso subirEvidencia mude.
+  if (!up.path.startsWith(`${user.id}/${matchId}/`)) {
+    Sentry.captureException(
+      new Error("Invariante de pasta de evidência violado: foto_path fora de <uid>/<matchId>/"),
+      { tags: { action: "proporPlacar", invariante: "foto_path_pasta" } }
+    )
+    await removerEvidencia(supabase, up.path)
+    return { ok: false, error: ERRO_GENERICO }
+  }
 
   // Reenvio: remove a própria pendente desta partida (policy DELETE) e a foto antiga.
   const { data: anterior } = await supabase

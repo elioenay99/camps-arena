@@ -1608,7 +1608,13 @@ drop policy if exists match_wo_requests_insert_tecnico on public.match_wo_reques
 create policy match_wo_requests_insert_tecnico on public.match_wo_requests
   for insert to authenticated
   with check (
-    exists (
+    -- foto OPCIONAL: null OU amarrada à pasta do autor <uid>/<match_id>/<uuid>.ext.
+    -- Sem isso, o browser (anon key) poderia inserir um foto_path apontando pra
+    -- pasta de OUTRO usuário e ler evidência dele via SELECT policy de storage.
+    (foto_path is null
+     or ((storage.foldername(foto_path))[1] = (select auth.uid())::text
+         and (storage.foldername(foto_path))[2] = match_id::text))
+    and exists (
       select 1
       from public.matches m
       join public.tournaments t on t.id = m.tournament_id
@@ -1654,9 +1660,17 @@ create policy match_wo_requests_update_owner on public.match_wo_requests
 -- Escrita restrita por RLS de storage.objects: cada usuário só mexe na PRÓPRIA
 -- pasta `<auth.uid()>/…` (o app sobe em `<uid>/<uuid>.<ext>`). Aplicar
 -- MANUALMENTE no Supabase (mesma política de DDL do projeto).
-insert into storage.buckets (id, name, public)
-values ('avatars', 'avatars', true)
-on conflict (id) do nothing;
+-- Limites do bucket (defesa em profundidade; espelha o MAX_BYTES de 2MB e os
+-- tipos aceitos em src/actions/profile.ts). `do update` porque o bucket já
+-- existe em prod (do nothing não aplicaria os limites). GIF incluído: a app
+-- aceita image/gif (AvatarUpload.accept), omiti-lo quebraria upload legítimo.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', true, 2097152,
+        array['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
 
 -- Hardening (advisor lint 0025): SEM policy SELECT ampla em storage.objects — ela
 -- permitiria LISTAR todos os avatares. O bucket é público, então cada objeto continua
@@ -4746,6 +4760,11 @@ create policy match_score_proposals_insert_tecnico on public.match_score_proposa
   for insert to authenticated
   with check (
     submetido_por = (select auth.uid())
+    -- foto_path (NOT NULL) amarrado à pasta do autor: <uid>/<match_id>/<uuid>.ext.
+    -- Impede forjar a COLUNA da linha via PostgREST (a action é burlável) e ler
+    -- evidência de outra pasta pela SELECT policy de storage (confused deputy).
+    and (storage.foldername(foto_path))[1] = (select auth.uid())::text
+    and (storage.foldername(foto_path))[2] = match_id::text
     and exists (
       select 1 from public.matches m
       where m.id = match_id

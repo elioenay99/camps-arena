@@ -412,6 +412,15 @@ export async function solicitarWO(matchId: unknown, foto?: File | null): Promise
   if (foto instanceof File && foto.size > 0) {
     const up = await subirEvidencia(supabase, user.id, m.data, foto)
     if (!up.ok) return { ok: false, error: up.error }
+    // Invariante: path na pasta <uid>/<matchId>/ (a RLS de INSERT também amarra
+    // a coluna foto_path). Guarda-corpo caso subirEvidencia mude.
+    if (!up.path.startsWith(`${user.id}/${m.data}/`)) {
+      console.error(
+        "solicitarWO: invariante de pasta de evidência violado (foto_path fora de <uid>/<matchId>/)"
+      )
+      await removerEvidencia(supabase, up.path)
+      return { ok: false, error: "Não foi possível solicitar o W.O. agora. Tente novamente." }
+    }
     fotoPath = up.path
   }
 
