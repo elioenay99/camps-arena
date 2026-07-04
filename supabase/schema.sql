@@ -1409,39 +1409,11 @@ create policy matches_insert_tournament_owner on public.matches
     ))
   );
 
--- O jogador/tecnico so mexe em partida LIBERADA (liberada_em <= now()), no using
--- E no with check. Isso barra editar partida oculta e impede ocultar (null) /
--- agendar (futuro) a propria partida via POST direto — a coluna liberada_em fica
--- protegida sem trigger novo (residuo inocuo no v1: poderia reescrever para outro
--- instante passado, sem efeito, pois e lido como booleano). O DONO faz tudo pela
--- policy matches_update_tournament_owner abaixo (sem gate de liberacao).
-drop policy if exists matches_update_participant on public.matches;
-create policy matches_update_participant on public.matches
-  for update to authenticated
-  using (
-    liberada_em is not null and liberada_em <= now()
-    and (
-      auth.uid() = participante_1
-      or auth.uid() = participante_2
-      or exists (
-        select 1 from public.tournament_slots s
-        where s.id in (matches.vaga_1, matches.vaga_2)
-          and s.user_id = auth.uid()
-      )
-    )
-  )
-  with check (
-    liberada_em is not null and liberada_em <= now()
-    and (
-      auth.uid() = participante_1
-      or auth.uid() = participante_2
-      or exists (
-        select 1 from public.tournament_slots s
-        where s.id in (matches.vaga_1, matches.vaga_2)
-          and s.user_id = auth.uid()
-      )
-    )
-  );
+-- A policy de UPDATE do participante (matches_update_participant) é definida na
+-- seção "PROPOSTA DE RESULTADO COM FOTO" (mais abaixo), na sua forma ESTREITA e
+-- única — só participante_1/participante_2 em partida LIBERADA. Não há definição
+-- aqui: num apply de cima para baixo a definição de lá venceria de qualquer forma,
+-- então mantemos uma fonte única para evitar código morto e divergência.
 
 -- UPDATE também para o DONO do torneio (policies são OR): é ele quem encerra
 -- e reabre partidas (modelo árbitro). A semântica de COLUNA (status só dono;

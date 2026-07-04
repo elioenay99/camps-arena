@@ -56,18 +56,12 @@ importers:
       react-hook-form:
         specifier: ^7.76.1
         version: 7.76.1(react@19.2.4)
-      shadcn:
-        specifier: ^4.8.3
-        version: 4.8.3(@types/node@20.19.41)(typescript@5.9.3)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
-      tw-animate-css:
-        specifier: ^1.4.0
-        version: 1.4.0
       web-push:
         specifier: ^3.6.7
         version: 3.6.7
@@ -114,9 +108,15 @@ importers:
       playwright:
         specifier: ^1.60.0
         version: 1.60.0
+      shadcn:
+        specifier: ^4.8.3
+        version: 4.8.3(@types/node@20.19.41)(typescript@5.9.3)
       tailwindcss:
         specifier: ^4
         version: 4.3.0
+      tw-animate-css:
+        specifier: ^1.4.0
+        version: 1.4.0
       typescript:
         specifier: ^5
         version: 5.9.3

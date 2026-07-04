@@ -3,14 +3,21 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 // Fail-fast: valida as variáveis de ambiente no início do build/dev (o Next
 // carrega os .env* ANTES de avaliar esta config), em vez de falhar no meio
-// do prerender ou na primeira request.
-import "./src/lib/env";
+// do prerender ou na primeira request. O import nomeado mantém o parse eager
+// (o objeto `env` só existe após validar) e ainda dá o host do Storage.
+import { env } from "./src/lib/env";
 
 // Headers de segurança estáticos (não dependem de nonce) — em headers() cobrem
 // TODAS as rotas, inclusive _next/static e imagens (que o matcher do proxy
 // exclui). A CSP por nonce mora no proxy. HSTS só em produção (em dev sobre
 // http://localhost os browsers ignoram, mas não emitimos por higiene).
 const isProd = process.env.NODE_ENV === "production";
+
+// Host EXATO do Supabase Storage (deriva do env, igual à CSP em
+// src/lib/security/csp.ts) — o Image Optimizer só busca avatar do PRÓPRIO
+// projeto, nunca de um `*.supabase.co` qualquer. Cobre prod
+// (<ref>.supabase.co) E dev local (127.0.0.1:54321) sem hardcodar o ref.
+const supabaseUrl = new URL(env.NEXT_PUBLIC_SUPABASE_URL);
 
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
@@ -79,10 +86,12 @@ const nextConfig: NextConfig = {
         hostname: "media.api-sports.io",
         pathname: "/football/teams/**",
       },
-      // Fotos de perfil no bucket público do Supabase Storage.
+      // Fotos de perfil no bucket público do Supabase Storage — restrito ao
+      // host EXATO do projeto (derivado do env), não `*.supabase.co`.
       {
-        protocol: "https",
-        hostname: "*.supabase.co",
+        protocol: supabaseUrl.protocol.replace(":", "") as "http" | "https",
+        hostname: supabaseUrl.hostname,
+        ...(supabaseUrl.port ? { port: supabaseUrl.port } : {}),
         pathname: "/storage/v1/object/public/**",
       },
     ],
