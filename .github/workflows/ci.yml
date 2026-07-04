@@ -149,3 +149,44 @@ jobs:
       # 4. Grants de paridade local (sem eles PostgREST/anon quebra). Estrito.
       - name: Aplica local-grants.sql (estrito)
         run: psql -v ON_ERROR_STOP=1 -q -f supabase/local-grants.sql
+
+  rls-tests:
+    name: rls-tests
+    runs-on: ubuntu-latest
+    # Suite de INTEGRACAO das policies RLS: exercita as ~101 policies e os
+    # SECURITY DEFINER de VERDADE num Postgres real (pgTAP), fechando o
+    # falso-verde estrutural dos ~100 testes hermeticos (vi.mock do Supabase).
+    # DEDICADO e SEPARADO do job `quality` (que roda sem banco): nao altera o
+    # run hermetico. Sem segredo do dono: o Postgres e local ao runner e nada
+    # aponta para producao (dados ficticios efemeros).
+    services:
+      postgres:
+        # Mesmo major do supabase/config.toml (major_version = 17).
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # run.sh em modo externo (nao sobe docker; usa o service container acima).
+      RLS_PG_EXTERNAL: "1"
+      PGPASSWORD: postgres
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # Aplica bootstrap + schema (2 passes) + grants + pgTAP + seed e roda os
+      # testes pgTAP por papel. O runner ubuntu-latest ja traz `psql` (mesmo
+      # pressuposto do job `schema`). pgTAP e vendorizado (supabase/tests/
+      # pgtap-1.3.3.sql) — nenhum download nem CREATE EXTENSION.
+      - name: Suite RLS (pgTAP)
+        run: bash supabase/tests/run.sh
