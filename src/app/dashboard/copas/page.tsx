@@ -23,8 +23,12 @@ function CartaoCopa({ copa, i }: { copa: CopaResumo; i: number }) {
       className="animate-rise"
       style={{ "--stagger": `${i * 45}ms` } as React.CSSProperties}
     >
+      {/* Sem prefetch: a lista prefetcharia N rotas copas/[id] (RSC caras) de
+          uma vez; a rajada estourava a borda da Vercel (503). Ver
+          add-dashboard-prefetch-hardening. */}
       <Link
         href={`/dashboard/copas/${copa.id}`}
+        prefetch={false}
         className={`elevate-hover group flex items-center gap-3.5 rounded-xl border bg-card/80 px-4 py-3.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none ${themeProps?.className ?? ""}`}
         style={themeProps?.style}
       >

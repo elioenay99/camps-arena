@@ -488,7 +488,14 @@ function DivisaoCard({
                 size="sm"
                 className="text-muted-foreground rounded-full"
               >
-                <Link href={`/dashboard/torneios/${divisao.tournamentId}`}>
+                {/* Sem prefetch: a página lista N divisões, cada uma com link(s)
+                    de torneio (rotas RSC caras); os prefetches em massa
+                    estouravam a borda da Vercel (503). Ver
+                    add-dashboard-prefetch-hardening. */}
+                <Link
+                  href={`/dashboard/torneios/${divisao.tournamentId}`}
+                  prefetch={false}
+                >
                   <ExternalLink aria-hidden="true" />
                   Abrir Apertura
                 </Link>
@@ -501,6 +508,7 @@ function DivisaoCard({
               >
                 <Link
                   href={`/dashboard/torneios/${divisao.tournamentIdClausura}`}
+                  prefetch={false}
                 >
                   <ExternalLink aria-hidden="true" />
                   Abrir Clausura
@@ -514,7 +522,10 @@ function DivisaoCard({
               size="sm"
               className="text-muted-foreground rounded-full"
             >
-              <Link href={`/dashboard/torneios/${divisao.tournamentId}`}>
+              <Link
+                href={`/dashboard/torneios/${divisao.tournamentId}`}
+                prefetch={false}
+              >
                 <ExternalLink aria-hidden="true" />
                 Abrir torneio
               </Link>

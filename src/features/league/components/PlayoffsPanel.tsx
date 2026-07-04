@@ -275,7 +275,13 @@ function FronteiraChave({
             size="sm"
             className="text-muted-foreground rounded-full"
           >
-            <Link href={`/dashboard/torneios/${playoffTournamentId}`}>
+            {/* Sem prefetch: link p/ rota de torneio (RSC cara). Evita somar à
+                rajada de prefetches da liga que estourava a borda da Vercel
+                (503). Ver add-dashboard-prefetch-hardening. */}
+            <Link
+              href={`/dashboard/torneios/${playoffTournamentId}`}
+              prefetch={false}
+            >
               <ExternalLink aria-hidden="true" />
               Abrir chave
             </Link>

@@ -211,9 +211,14 @@ export function MatchCard({
             <h2>{tituloPartida}</h2>
           </CardTitle>
           <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            {/* Título do torneio linka para a classificação (entrada do Tier 2). */}
+            {/* Título do torneio linka para a classificação (entrada do Tier 2).
+                Sem prefetch: a lista de partidas repete este link (rota RSC
+                cara) e a ação primária do card é o modal, não a navegação; a
+                rajada estourava a borda da Vercel (503). Ver
+                add-dashboard-prefetch-hardening. */}
             <Link
               href={`/dashboard/torneios/${partida.tournament.id}`}
+              prefetch={false}
               className="underline-offset-4 hover:underline focus-visible:underline"
             >
               {torneio}

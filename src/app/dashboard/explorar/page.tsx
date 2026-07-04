@@ -19,9 +19,13 @@ function CardVitrine({ item }: { item: ItemVitrine }) {
   const Icone = item.tipo === "liga" ? Layers : FORMATO_META[item.formato].Icon
   const legenda =
     item.tipo === "liga" ? "Liga de divisões" : FORMATO_META[item.formato].label
+  // Sem prefetch: a vitrine é a lista mais longa e aponta pra ligas/[id] E
+  // torneios/[id] (RSC caras); a rajada de prefetches estourava a borda da
+  // Vercel (503). Ver add-dashboard-prefetch-hardening.
   return (
     <Link
       href={item.href}
+      prefetch={false}
       className="elevate-hover group flex items-center gap-3.5 rounded-xl border bg-card/80 px-4 py-3.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
     >
       <ChampionshipBadge

@@ -107,6 +107,10 @@ export function NavLinks({ links }: { links: NavLink[] }) {
             <li key={link.href}>
               <Link
                 href={link.href}
+                // Sem prefetch: a nav aparece em TODA página e prefetcharia as
+                // ~6 rotas de seção (RSC caras) de uma vez; a rajada estourava
+                // a borda da Vercel (503). Ver add-dashboard-prefetch-hardening.
+                prefetch={false}
                 aria-current={ativo ? "page" : undefined}
                 className={`inline-flex min-h-11 items-center rounded-full px-3 py-1.5 text-sm transition-colors ${
                   ativo
