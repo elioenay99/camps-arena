@@ -49,6 +49,7 @@ import { PropostasPendentes } from "@/features/match/components/PropostasPendent
 import { ResponderWoButtons } from "@/features/match/components/WoButtons";
 import { getPropostasPendentes } from "@/features/match/data/getPropostasPendentes";
 import { getSolicitacoesWO } from "@/features/match/data/getSolicitacoesWO";
+import { ClassificacaoResponsiva } from "@/features/standings/components/ClassificacaoResponsiva";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
 import {
   getTournamentClassificacao,
@@ -354,7 +355,7 @@ export default async function TorneioPage({
 
   // ABA "Classificação" (padrão, sempre presente): chave / grupos / pontos /
   // clubes — ou o aviso de cadência manual ao não-dono.
-  const classificacaoContent = (
+  const classificacaoInner = (
     <>
       {aguardandoLiberacao ? <AvisoAguardandoLiberacao /> : null}
 
@@ -454,6 +455,20 @@ export default async function TorneioPage({
         </SecaoTorneio>
       ) : null}
     </>
+  );
+
+  // Só há StandingsTable (e, portanto, cabe o toggle rolar/caber) quando há
+  // grupos com linhas, classificação geral (torneio não-mata-mata) ou clubes.
+  // Mata-mata puro (só bracket) e estados vazios/aguardando ficam CRUS.
+  const temTabelaClassificacao =
+    !aguardandoLiberacao &&
+    ((ehGrupos && grupos.some((g) => g.linhas.length > 0)) ||
+      (!ehMataMata && !ehGrupos && linhas.length > 0) ||
+      (!ehMataMata && clubes.length > 0));
+  const classificacaoContent = temTabelaClassificacao ? (
+    <ClassificacaoResponsiva>{classificacaoInner}</ClassificacaoResponsiva>
+  ) : (
+    classificacaoInner
   );
 
   // ABA "Partidas": consoles de ação (pendentes/W.O.) no topo + listas paginadas
@@ -624,6 +639,7 @@ export default async function TorneioPage({
     {
       value: "classificacao",
       label: "Classificação",
+      labelCurto: "Class.",
       icon: <ListOrdered aria-hidden="true" />,
       content: classificacaoContent,
     },
@@ -632,6 +648,7 @@ export default async function TorneioPage({
           {
             value: "partidas",
             label: "Partidas",
+            labelCurto: "Part.",
             icon: <Swords aria-hidden="true" />,
             content: partidasContent,
             // Mantém o passador montado: trocar de aba não reseta a rodada navegada.
@@ -645,6 +662,7 @@ export default async function TorneioPage({
           {
             value: "rodadas",
             label: "Rodadas",
+            labelCurto: "Rod.",
             icon: <CalendarClock aria-hidden="true" />,
             content: rodadasContent,
           } satisfies AbaTorneio,
@@ -653,6 +671,7 @@ export default async function TorneioPage({
     {
       value: "vagas",
       label: ehGerado ? "Vagas" : "Participantes",
+      labelCurto: ehGerado ? "Vagas" : "Times",
       icon: <Users aria-hidden="true" />,
       content: vagasContent,
     },

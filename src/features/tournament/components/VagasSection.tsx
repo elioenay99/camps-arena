@@ -79,39 +79,39 @@ export function VagasSection({
                 key={vaga.id}
                 className="flex flex-col gap-3 rounded-lg border px-4 py-3"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <TeamCrest nome={vaga.clube} escudoUrl={vaga.escudoUrl} size={28} />
-                    <span className="flex min-w-0 flex-col">
-                      <span className="truncate text-sm font-medium">{vaga.clube}</span>
-                      {/* Modo por-nome: o rótulo é o competidor — sem linha de
-                          técnico ("téc."/"vaga aberta"). */}
-                      {vaga.porNome ? null : vaga.tecnico ? (
-                        <span className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs">
-                          <UserAvatar
-                            nome={vaga.tecnico.nome}
-                            avatarUrl={vaga.tecnico.avatar}
-                            size={16}
-                          />
-                          <span className="truncate">
-                            {`téc. ${vaga.tecnico.nome?.trim() || "Sem nome"}`}
-                            {souTecnico ? " (você)" : ""}
-                          </span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <TeamCrest nome={vaga.clube} escudoUrl={vaga.escudoUrl} size={28} />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-sm font-medium">{vaga.clube}</span>
+                    {/* Modo por-nome: o rótulo é o competidor — sem linha de
+                        técnico ("téc."/"vaga aberta"). */}
+                    {vaga.porNome ? null : vaga.tecnico ? (
+                      <span className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs">
+                        <UserAvatar
+                          nome={vaga.tecnico.nome}
+                          avatarUrl={vaga.tecnico.avatar}
+                          size={16}
+                        />
+                        <span className="truncate">
+                          {`téc. ${vaga.tecnico.nome?.trim() || "Sem nome"}`}
+                          {souTecnico ? " (você)" : ""}
                         </span>
-                      ) : (
-                        <span className="text-muted-foreground truncate text-xs">
-                          vaga aberta
-                        </span>
-                      )}
-                    </span>
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground truncate text-xs">
+                        vaga aberta
+                      </span>
+                    )}
                   </span>
-
-                  {/* Técnico da própria vaga: desistir (qualquer status
-                      não-encerrado). */}
-                  {souTecnico && !torneioEncerrado ? (
-                    <DesistirDaVagaButton tournamentId={tournamentId} />
-                  ) : null}
                 </div>
+
+                {/* Técnico da própria vaga: desistir (qualquer status
+                    não-encerrado). Em linha própria, full-width no mobile. */}
+                {souTecnico && !torneioEncerrado ? (
+                  <div className="[&_[data-slot=button]]:w-full sm:[&_[data-slot=button]]:w-auto">
+                    <DesistirDaVagaButton tournamentId={tournamentId} />
+                  </div>
+                ) : null}
 
                 {/* Console de moderação por vaga: convite + troca de técnico. Só
                     renderizado para quem modera — o code é segredo de gestão.
@@ -119,13 +119,14 @@ export function VagasSection({
                 {podeModerar && !torneioEncerrado && !vaga.porNome ? (
                   <div className="flex flex-col gap-2 border-t pt-3">
                     {url ? (
-                      <p className="bg-muted min-w-0 truncate rounded-md px-3 py-1.5 font-mono text-xs">
+                      <p className="bg-muted min-w-0 break-all rounded-md px-3 py-1.5 font-mono text-xs">
                         {url}
                       </p>
                     ) : null}
-                    {/* gap-x-6: >=24px entre alvos de ação irreversível
-                        (regenerar/expulsar/assumir) — meta de toque mobile. */}
-                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                    {/* Cluster ÚNICO: empilha full-width no mobile, inline no
+                        desktop; gap-x-6 (>=24px entre ações irreversíveis) só no
+                        desktop. */}
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3 [&_[data-slot=button]]:w-full sm:[&_[data-slot=button]]:w-auto">
                       {url ? <CopyVagaLinkButton url={url} /> : null}
                       <RegenerarConviteVagaButton
                         slotId={vaga.id}

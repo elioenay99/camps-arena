@@ -24,6 +24,7 @@ import { CUP_FORMAT_LABEL } from "@/features/cup/cupLabels"
 import { getEdicao, type ParticipanteEdicao } from "@/features/cup/data/getEdicao"
 import { rotuloGrupo } from "@/features/groups/gerarFaseDeGrupos"
 import { BracketView } from "@/features/knockout/components/BracketView"
+import { ClassificacaoResponsiva } from "@/features/standings/components/ClassificacaoResponsiva"
 import { StandingsTable } from "@/features/standings/components/StandingsTable"
 import {
   getTournamentClassificacao,
@@ -121,31 +122,40 @@ function VisualizacaoTorneio({
   terceiroLugar: boolean
 }) {
   const { chave, grupos } = dados
+  // Toggle rolar/caber só quando há ao menos uma tabela de grupo com linhas.
+  const temTabelaGrupos = ehGrupos && grupos.some((g) => g.linhas.length > 0)
+  const gruposSecao = ehGrupos ? (
+    <Secao id="grupos-titulo" titulo="Fase de grupos" Icon={Users}>
+      {grupos.length === 0 ? (
+        <EstadoVazio Icon={Users}>
+          Os grupos aparecem quando a edição for iniciada.
+        </EstadoVazio>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {grupos.map((g) => (
+            <div key={g.grupo} className="flex flex-col gap-2">
+              <h3 className="text-sm font-medium">{rotuloGrupo(g.grupo)}</h3>
+              {g.linhas.length === 0 ? (
+                <EstadoVazio Icon={ListOrdered}>
+                  A classificação aparece depois da primeira partida encerrada.
+                </EstadoVazio>
+              ) : (
+                <StandingsTable linhas={g.linhas} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Secao>
+  ) : null
   return (
     <>
-      {ehGrupos ? (
-        <Secao id="grupos-titulo" titulo="Fase de grupos" Icon={Users}>
-          {grupos.length === 0 ? (
-            <EstadoVazio Icon={Users}>
-              Os grupos aparecem quando a edição for iniciada.
-            </EstadoVazio>
-          ) : (
-            <div className="flex flex-col gap-4">
-              {grupos.map((g) => (
-                <div key={g.grupo} className="flex flex-col gap-2">
-                  <h3 className="text-sm font-medium">{rotuloGrupo(g.grupo)}</h3>
-                  {g.linhas.length === 0 ? (
-                    <EstadoVazio Icon={ListOrdered}>
-                      A classificação aparece depois da primeira partida encerrada.
-                    </EstadoVazio>
-                  ) : (
-                    <StandingsTable linhas={g.linhas} />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </Secao>
+      {gruposSecao ? (
+        temTabelaGrupos ? (
+          <ClassificacaoResponsiva>{gruposSecao}</ClassificacaoResponsiva>
+        ) : (
+          gruposSecao
+        )
       ) : null}
 
       <Secao id="chave-titulo" titulo={ehGrupos ? "Mata-mata" : "Chave"} Icon={Network}>

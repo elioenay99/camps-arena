@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -374,48 +375,53 @@ export function MatchScoreModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="elevate rounded-2xl border bg-card/60 p-4">
-          <p className="mb-4 text-center text-xs font-semibold tracking-wide uppercase text-muted-foreground">
-            {ehProposta ? "Enviar placar para aprovação" : "Lançar placar"}
-          </p>
-          <div className="grid grid-cols-2 gap-4">
-            <ColunaParticipante
-              participante={participante1}
-              lado={1}
-              value={placar1}
-              onChange={setPlacar1}
-              onSelecionarClube={onSelecionarClube}
-            />
-            <ColunaParticipante
-              participante={participante2}
-              lado={2}
-              value={placar2}
-              onChange={setPlacar2}
-              onSelecionarClube={onSelecionarClube}
-            />
+        {/* Miolo rolável: o header e o footer (enviar/fechar) ficam FORA, então
+            nunca somem num modal alto ou com o teclado virtual aberto. */}
+        <DialogBody className="flex flex-col gap-4">
+          <div className="elevate rounded-2xl border bg-card/60 p-4">
+            <p className="mb-4 text-center text-xs font-semibold tracking-wide uppercase text-muted-foreground">
+              {ehProposta ? "Enviar placar para aprovação" : "Lançar placar"}
+            </p>
+            {/* Empilha os lados em 360-390px; lado a lado no sm+. */}
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <ColunaParticipante
+                participante={participante1}
+                lado={1}
+                value={placar1}
+                onChange={setPlacar1}
+                onSelecionarClube={onSelecionarClube}
+              />
+              <ColunaParticipante
+                participante={participante2}
+                lado={2}
+                value={placar2}
+                onChange={setPlacar2}
+                onSelecionarClube={onSelecionarClube}
+              />
+            </div>
           </div>
-        </div>
 
-        {ehProposta ? (
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="foto-evidencia"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              Foto de evidência (obrigatória)
-            </label>
-            <input
-              id="foto-evidencia"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={(e) => setFoto(e.target.files?.[0] ?? null)}
-              className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-full file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-secondary-foreground"
-            />
-            {foto ? (
-              <span className="truncate text-xs text-muted-foreground">{foto.name}</span>
-            ) : null}
-          </div>
-        ) : null}
+          {ehProposta ? (
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="foto-evidencia"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Foto de evidência (obrigatória)
+              </label>
+              <input
+                id="foto-evidencia"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(e) => setFoto(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-full file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-secondary-foreground"
+              />
+              {foto ? (
+                <span className="truncate text-xs text-muted-foreground">{foto.name}</span>
+              ) : null}
+            </div>
+          ) : null}
+        </DialogBody>
 
         <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
           {/* Anuncia o estado em voo a leitores de tela: o botão fica

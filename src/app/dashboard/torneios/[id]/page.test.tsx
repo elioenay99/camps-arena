@@ -495,8 +495,19 @@ describe("TorneioPage — composição dinâmica das abas (change add-torneio-ab
       proximaRodadaOculta: 1,
     })
     await renderPage()
-    const nomes = screen.getAllByRole("tab").map((t) => t.textContent?.trim())
-    expect(nomes).toEqual(["Classificação", "Partidas", "Rodadas", "Vagas"])
+    // O rótulo agora tem span curto (aria-hidden) + completo (sr-only): o
+    // textContent concatena ("Class.Classificação"), então asserta por
+    // accessible name, na ordem das abas.
+    const tabs = screen.getAllByRole("tab")
+    expect(tabs).toHaveLength(4)
+    for (const [i, nome] of [
+      "Classificação",
+      "Partidas",
+      "Rodadas",
+      "Vagas",
+    ].entries()) {
+      expect(tabs[i]).toHaveAccessibleName(new RegExp(nome))
+    }
     // Classificação é o padrão (aba ativa inicial).
     expect(screen.getByRole("tab", { name: "Classificação" })).toHaveAttribute(
       "aria-selected",

@@ -57,7 +57,7 @@ export default async function DashboardLayout({
             <Link
               href="/dashboard/conta"
               aria-label="Sua conta"
-              className="rounded-full ring-offset-background transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="flex size-11 items-center justify-center rounded-full ring-offset-background transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               <UserAvatar
                 nome={perfil?.nome ?? null}

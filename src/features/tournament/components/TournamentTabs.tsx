@@ -10,6 +10,8 @@ export type AbaTorneio = {
   /** Ícone JÁ RENDERIZADO (elemento), nunca o componente — funções não cruzam a fronteira RSC→client. */
   icon: React.ReactNode
   content: React.ReactNode
+  /** Rótulo curto, exibido só no mobile (ex.: "Class." para "Classificação"). */
+  labelCurto?: string
   /** Contador opcional (ex.: itens pendentes que pedem ação). */
   badge?: number
   /** Mantém o conteúdo montado p/ preservar estado aninhado (ex.: a rodada do passador). */
@@ -53,17 +55,33 @@ export function TournamentTabs({
     <Tabs value={ativo} onValueChange={setValor}>
       <TabsList aria-label="Seções do torneio">
         {abas.map((a) => (
-          <TabsTrigger key={a.value} value={a.value}>
-            <span aria-hidden="true" className="[&_svg]:size-4">
-              {a.icon}
-            </span>
-            {a.label}
-            {a.badge ? (
-              <span className="ml-0.5 inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground tabular-nums">
-                {a.badge}
-                <span className="sr-only"> pendente(s)</span>
+          <TabsTrigger
+            key={a.value}
+            value={a.value}
+            className="flex-col gap-1 sm:flex-row sm:gap-2"
+          >
+            {/* Ícone + badge numa linha só (evita 3 linhas no mobile). */}
+            <span className="flex items-center gap-1">
+              <span aria-hidden="true" className="[&_svg]:size-4">
+                {a.icon}
               </span>
-            ) : null}
+              {a.badge ? (
+                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground tabular-nums">
+                  {a.badge}
+                  <span className="sr-only"> pendente(s)</span>
+                </span>
+              ) : null}
+            </span>
+            {/* Rótulo curto: só visual, só no mobile. */}
+            <span
+              aria-hidden="true"
+              className="text-[11px] leading-none font-medium sm:hidden"
+            >
+              {a.labelCurto ?? a.label}
+            </span>
+            {/* Nome acessível SEMPRE presente (sr-only), visível no desktop.
+                NUNCA `hidden`: removeria o nome do a11y tree no mobile. */}
+            <span className="sr-only sm:not-sr-only">{a.label}</span>
           </TabsTrigger>
         ))}
       </TabsList>

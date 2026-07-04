@@ -449,7 +449,7 @@ function AvisoSorteio({ seed }: { seed: string }) {
           Reordene os empatados abaixo se quiser sobrepor o sorteio. Semente para
           auditoria:
         </p>
-        <code className="mt-0.5 block truncate font-mono text-[0.7rem] text-muted-foreground">
+        <code className="mt-0.5 block break-all font-mono text-[0.7rem] text-muted-foreground">
           {seed}
         </code>
       </div>

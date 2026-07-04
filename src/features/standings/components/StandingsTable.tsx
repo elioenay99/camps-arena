@@ -99,7 +99,7 @@ export function StandingsTable({
       <div className="overflow-x-auto rounded-lg border">
       {/* min-w dá piso à tabela: sem ele, w-full nunca transborda o wrapper e
           o overflow-x-auto seria inerte — 10 colunas espremidas no mobile. */}
-      <table className="w-full min-w-[34rem] text-sm">
+      <table className="w-full min-w-[34rem] text-sm group-data-[modo=caber]/standings:min-w-0 group-data-[modo=caber]/standings:text-xs">
         <caption className="sr-only">
           {`Classificação por ${rotuloLado.toLowerCase()}: posição, pontos e estatísticas`}
         </caption>
@@ -115,7 +115,7 @@ export function StandingsTable({
                   className={
                     c.chave === "nome"
                       ? "px-3 py-2 text-left font-semibold"
-                      : "px-2 py-2 text-center font-semibold"
+                      : "px-2 py-2 text-center font-semibold group-data-[modo=caber]/standings:px-1"
                   }
                 >
                   {/* abbr (tooltip no hover) escondida do leitor de tela; o
@@ -178,7 +178,7 @@ export function StandingsTable({
                 className={`border-b last:border-b-0 even:bg-muted/30 motion-safe:transition-colors hover:bg-accent/50 ${ehLider ? "bg-gold/12 hover:bg-gold/16" : tom}`}
               >
                 <td
-                  className={`px-2 py-2 text-center font-display font-bold tabular-nums ${
+                  className={`px-2 py-2 text-center font-display font-bold tabular-nums group-data-[modo=caber]/standings:px-1 ${
                     temFaixa
                       ? `relative before:absolute before:inset-y-0 before:left-0 before:w-1 ${faixa}`
                       : ehPlayoffMarcado
@@ -198,12 +198,12 @@ export function StandingsTable({
                   </span>
                 </td>
                 {temPromedio ? (
-                  <td className="px-2 py-2 text-center font-semibold tabular-nums">
+                  <td className="px-2 py-2 text-center font-semibold tabular-nums group-data-[modo=caber]/standings:px-1">
                     {fmtPromedio(promedioPorParticipante.get(linha.participanteId) ?? 0)}
                   </td>
                 ) : null}
-                <td className="px-3 py-2 text-left">
-                  <span className="flex items-center gap-2 whitespace-nowrap">
+                <td className="px-3 py-2 text-left min-w-0">
+                  <span className="flex min-w-0 items-center gap-2 whitespace-nowrap group-data-[modo=caber]/standings:whitespace-normal">
                     {linha.escudoUrl ? (
                       <TeamCrest
                         nome={linha.nome}
@@ -229,16 +229,16 @@ export function StandingsTable({
                     )}
                   </span>
                 </td>
-                <td className="px-2 py-2 text-center font-semibold tabular-nums">
+                <td className="px-2 py-2 text-center font-semibold tabular-nums group-data-[modo=caber]/standings:px-1">
                   {linha.pontos}
                 </td>
-                <td className="px-2 py-2 text-center tabular-nums">{linha.jogos}</td>
-                <td className="px-2 py-2 text-center tabular-nums">{linha.vitorias}</td>
-                <td className="px-2 py-2 text-center tabular-nums">{linha.empates}</td>
-                <td className="px-2 py-2 text-center tabular-nums">{linha.derrotas}</td>
-                <td className="px-2 py-2 text-center tabular-nums">{linha.golsPro}</td>
-                <td className="px-2 py-2 text-center tabular-nums">{linha.golsContra}</td>
-                <td className="px-2 py-2 text-center tabular-nums">{linha.saldo}</td>
+                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.jogos}</td>
+                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.vitorias}</td>
+                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.empates}</td>
+                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.derrotas}</td>
+                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.golsPro}</td>
+                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.golsContra}</td>
+                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.saldo}</td>
               </tr>
             )
           })}

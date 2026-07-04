@@ -38,6 +38,7 @@ import {
   type DivisaoTemporada,
 } from "@/features/league/data/getSeason"
 import { BracketView } from "@/features/knockout/components/BracketView"
+import { ClassificacaoResponsiva } from "@/features/standings/components/ClassificacaoResponsiva"
 import { StandingsTable } from "@/features/standings/components/StandingsTable"
 import { createClient } from "@/lib/supabase/server"
 
@@ -170,6 +171,31 @@ export default async function TemporadaPage({
   const mostrarFluxo =
     (todasEncerradas && !playoffPendente) || emRetomada
 
+  // Toggle rolar/caber (mobile): um só controla TODAS as divisões. Só aparece
+  // quando ao menos uma divisão já tem tabela (não-rascunho).
+  const temTabelaDivisoes = standingsPorDivisao.some(
+    (s) => s !== null && s.status !== "rascunho"
+  )
+  const secaoDivisoes = (
+    <section aria-label="Divisões" className="flex flex-col gap-5">
+      {temporada.divisoes.map((div, i) => (
+        <DivisaoCard
+          key={div.id}
+          divisao={div}
+          standings={standingsPorDivisao[i]}
+          grandeFinal={grandeFinalPorDivisao[i]}
+          seasonId={temporada.seasonId}
+          corCompeticao={{
+            cor_primaria: temporada.competicao.corPrimaria,
+            cor_secundaria: temporada.competicao.corSecundaria,
+          }}
+          ordem={i}
+          podeGerir={podeGerir}
+        />
+      ))}
+    </section>
+  )
+
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
       <header className="elevate flex flex-col gap-4 rounded-2xl border bg-card/60 p-5 sm:flex-row sm:items-start sm:justify-between">
@@ -281,24 +307,10 @@ export default async function TemporadaPage({
             </div>
           )}
         </Card>
+      ) : temTabelaDivisoes ? (
+        <ClassificacaoResponsiva>{secaoDivisoes}</ClassificacaoResponsiva>
       ) : (
-        <section aria-label="Divisões" className="flex flex-col gap-5">
-          {temporada.divisoes.map((div, i) => (
-            <DivisaoCard
-              key={div.id}
-              divisao={div}
-              standings={standingsPorDivisao[i]}
-              grandeFinal={grandeFinalPorDivisao[i]}
-              seasonId={temporada.seasonId}
-              corCompeticao={{
-                cor_primaria: temporada.competicao.corPrimaria,
-                cor_secundaria: temporada.competicao.corSecundaria,
-              }}
-              ordem={i}
-              podeGerir={podeGerir}
-            />
-          ))}
-        </section>
+        secaoDivisoes
       )}
 
       {/* Playoffs (Fase 2): entre as Divisões e o Fim-de-temporada. Aparece
@@ -450,7 +462,7 @@ function DivisaoCard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2
           id={`div-${divisao.id}`}
-          className="font-display flex items-center gap-2 text-lg font-bold tracking-tight"
+          className="font-display flex min-w-0 items-center gap-2 text-lg font-bold tracking-tight"
         >
           <ChampionshipBadge
             icon={
@@ -460,9 +472,11 @@ function DivisaoCard({
             }
             primary={primaria}
             secondary={secundaria}
-            className="size-6 rounded-md"
+            className="size-6 shrink-0 rounded-md"
           />
-          {divisao.nome.trim() || `Divisão ${divisao.nivel}`}
+          <span className="min-w-0 break-words">
+            {divisao.nome.trim() || `Divisão ${divisao.nivel}`}
+          </span>
         </h2>
         {/* Split: DOIS links (lançar placares de cada turno). Anual: um só. */}
         {divisao.tournamentId ? (

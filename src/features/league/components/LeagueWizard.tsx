@@ -1615,8 +1615,10 @@ function PassoFronteiras({
               key={d.nivel}
               className={cn("flex justify-between", ok ? "" : "text-destructive font-medium")}
             >
-              <span>{d.nome || nomePadraoDivisao(d.nivel)}</span>
-              <span className="font-display tabular-nums">
+              <span className="min-w-0 break-words">
+                {d.nome || nomePadraoDivisao(d.nivel)}
+              </span>
+              <span className="font-display shrink-0 tabular-nums">
                 {d.tamanho} → {pos}
               </span>
             </p>

@@ -157,6 +157,9 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Rede de segurança contra overflow horizontal da viewport no mobile — NÃO
+       substitui os consertos por-elemento (break-words/cluster/min-w-0). */
+    overflow-x: clip;
   }
   html {
     @apply font-sans;

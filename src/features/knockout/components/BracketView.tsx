@@ -10,6 +10,9 @@ import {
 } from "@/features/knockout/gerarChaveMataMata"
 import type { PartidaDaChave } from "@/features/standings/data/getTournamentClassificacao"
 
+/** Largura do card de confronto: mais estreito no mobile (390px), padrão no sm+. */
+const CARD_CONFRONTO = "w-44 sm:w-56"
+
 /**
  * Confronto de um slot: 1 partida (jogo único/bye) ou 2 (pernas). Decisão e
  * rótulos vêm do MOTOR (decidirConfronto/rotuloFase) — fonte única com a
@@ -86,7 +89,7 @@ function ConfrontoCard({ confronto }: { confronto: Confronto }) {
   )
 
   return (
-    <div className="flex w-56 flex-col gap-1 rounded-lg border px-3 py-2 text-sm motion-safe:transition-colors hover:border-primary/30">
+    <div className={`flex ${CARD_CONFRONTO} flex-col gap-1 rounded-lg border px-3 py-2 text-sm motion-safe:transition-colors hover:border-primary/30`}>
       {confronto.terceiroLugar ? (
         <span className="mb-0.5 w-fit rounded-full border border-gold/30 px-2 py-0.5 text-xs font-medium text-gold-ink">
           Disputa de 3º lugar
@@ -137,7 +140,7 @@ function ConfrontoCard({ confronto }: { confronto: Confronto }) {
 /** Slot futuro (fase ainda não gerada). */
 function ConfrontoFuturo() {
   return (
-    <div className="text-muted-foreground flex w-56 flex-col gap-1 rounded-lg border border-dashed px-3 py-2 text-sm">
+    <div className={`text-muted-foreground flex ${CARD_CONFRONTO} flex-col gap-1 rounded-lg border border-dashed px-3 py-2 text-sm`}>
       <span>A definir</span>
       <span>A definir</span>
     </div>
@@ -194,13 +197,14 @@ export function BracketView({
       {campeao !== null ? (
         <p className="trophy-sheen animate-rise flex items-center gap-2.5 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-sm shadow-[0_0_28px_-8px_color-mix(in_oklch,var(--gold)_45%,transparent)]">
           <Trophy className="size-5 shrink-0 text-gold-ink" aria-hidden="true" />
-          <span className="font-display font-bold tracking-wide text-gold-ink">{`Campeão: ${campeao}`}</span>
+          <span className="min-w-0 font-display font-bold tracking-wide break-words text-gold-ink">{`Campeão: ${campeao}`}</span>
         </p>
       ) : null}
 
-      <div className="overflow-x-auto">
-        <div className="flex min-w-max gap-6">
-          {Array.from({ length: fases }, (_, i) => i + 1).map((fase) => {
+      <div className="relative">
+        <div className="overflow-x-auto snap-x snap-proximity scroll-px-4">
+          <div className="flex min-w-max gap-3 sm:gap-6">
+            {Array.from({ length: fases }, (_, i) => i + 1).map((fase) => {
             const slots = porFase.get(fase)
             // A coluna final ganha 1 placeholder extra quando o 3º lugar virá.
             const confrontosEsperados =
@@ -209,7 +213,7 @@ export function BracketView({
               <section
                 key={fase}
                 aria-label={rotuloFase(fase, fases)}
-                className="flex flex-col gap-3"
+                className="flex snap-start flex-col gap-3"
               >
                 <h3 className="font-display text-xs font-bold tracking-wide text-muted-foreground uppercase">
                   {rotuloFase(fase, fases)}
@@ -238,7 +242,18 @@ export function BracketView({
               </section>
             )
           })}
+          </div>
         </div>
+        {/* Affordance de rolagem: gradientes nas bordas revelam que há mais
+            fases além do que cabe na tela. Decorativos (pointer-events-none). */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-background"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background"
+        />
       </div>
     </div>
   )

@@ -134,7 +134,7 @@ export default async function ConvitePage({
         <PainelConvite>
           <HeroIcone icon={Trophy} />
           <div className="flex flex-col items-center gap-1">
-            <span className="font-display text-xl font-bold tracking-tight">
+            <span className="font-display text-xl font-bold tracking-tight break-words">
               {titulo}
             </span>
             <p className="text-muted-foreground text-sm">

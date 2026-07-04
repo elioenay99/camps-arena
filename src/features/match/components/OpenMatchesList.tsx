@@ -111,7 +111,7 @@ export function OpenMatchesList({
     return (
       <li
         key={p.id}
-        className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-card/40 px-4 py-3 text-sm motion-safe:transition-colors hover:border-primary/30"
+        className="flex flex-col items-stretch gap-3 rounded-lg border bg-card/40 px-4 py-3 text-sm motion-safe:transition-colors hover:border-primary/30 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
       >
         <span className="flex min-w-0 items-center gap-2" aria-hidden="true">
           {p.rodada !== null ? (
@@ -132,19 +132,19 @@ export function OpenMatchesList({
               (vaga aberta)
             </span>
           ) : null}
+          {/* Pill de status: mora na linha de info (não no cluster de ações),
+              para os botões empilharem limpos no mobile. */}
+          <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs">
+            {LABEL_STATUS[p.status]}
+          </span>
         </span>
         <span className="sr-only">
           {`${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}${p.perna !== null ? ` (${p.perna === 1 ? "ida" : "volta"})` : ""}: ` : ""}Placar atual: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2} — partida ${LABEL_STATUS[p.status]}`}
         </span>
-        {/* gap-x-6: >=24px entre alvos de ação irreversível
-            (solicitar/marcar W.O., encerrar) — meta de toque mobile. */}
-        <span className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3">
-          <span
-            aria-hidden="true"
-            className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs"
-          >
-            {LABEL_STATUS[p.status]}
-          </span>
+        {/* Cluster ÚNICO: empilha full-width no mobile, inline no desktop.
+            O seletor de descendente atinge todo shadcn Button do cluster sem
+            editar as folhas client; gap-x-6 (>=24px) só no desktop. */}
+        <span className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3 [&_[data-slot=button]]:w-full sm:[&_[data-slot=button]]:w-auto">
           {atalho ? (
             <Button
               asChild

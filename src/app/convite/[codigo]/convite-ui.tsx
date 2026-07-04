@@ -63,11 +63,11 @@ export function HeroClube({
       <span className="glow-primary flex size-24 items-center justify-center rounded-full bg-primary/5 ring-1 ring-primary/25">
         <TeamCrest nome={clube} escudoUrl={escudoUrl} size={72} />
       </span>
-      <div className="flex flex-col items-center gap-0.5">
-        <span className="font-display text-2xl font-bold tracking-tight">
+      <div className="flex min-w-0 flex-col items-center gap-0.5">
+        <span className="font-display text-2xl font-bold tracking-tight break-words">
           {clube}
         </span>
-        <span className="text-muted-foreground text-xs">{`em "${torneio}"`}</span>
+        <span className="text-muted-foreground text-xs break-words">{`em "${torneio}"`}</span>
       </div>
     </div>
   );

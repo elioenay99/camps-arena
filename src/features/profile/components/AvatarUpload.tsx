@@ -104,11 +104,11 @@ export function AvatarUpload({
         aria-label="Escolher foto de perfil"
       />
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Cluster ÚNICO: empilha full-width no mobile, inline no desktop. */}
+      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3 [&_[data-slot=button]]:w-full sm:[&_[data-slot=button]]:w-auto">
         <Button
           type="button"
           variant="outline"
-          size="sm"
           disabled={pendente}
           onClick={() => inputRef.current?.click()}
         >
@@ -116,13 +116,12 @@ export function AvatarUpload({
         </Button>
         {arquivo ? (
           <>
-            <Button type="button" size="sm" disabled={pendente} onClick={enviar}>
+            <Button type="button" disabled={pendente} onClick={enviar}>
               {pendente ? "Enviando…" : "Enviar"}
             </Button>
             <Button
               type="button"
               variant="ghost"
-              size="sm"
               disabled={pendente}
               onClick={limpar}
             >
@@ -133,7 +132,6 @@ export function AvatarUpload({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
             disabled={pendente}
             onClick={remover}
           >

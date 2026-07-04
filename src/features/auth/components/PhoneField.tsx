@@ -12,6 +12,7 @@ import {
 
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -154,7 +155,7 @@ export function PhoneField({
             type="button"
             aria-label={`País: ${nomePais(country)} (+${ddi})`}
             className={cn(
-              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-input bg-transparent px-2.5 text-base transition-colors outline-none hover:bg-accent focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
+              "inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border border-input bg-transparent px-2.5 text-base transition-colors outline-none hover:bg-accent focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:h-8 md:text-sm dark:bg-input/30"
             )}
           >
             <span aria-hidden="true" className="text-base leading-none">
@@ -171,27 +172,28 @@ export function PhoneField({
               Busque e selecione o país do seu número de celular.
             </DialogDescription>
           </DialogHeader>
-          <Input
-            autoFocus
-            type="search"
-            inputMode="search"
-            placeholder="Buscar país ou DDI"
-            aria-label="Buscar país"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
-          <ul className="-mx-1 max-h-72 overflow-y-auto">
-            {filtrados.map((p) => (
-              <li key={p.code}>
-                <button
-                  type="button"
-                  onClick={() => escolher(p)}
-                  aria-current={p.code === country ? "true" : undefined}
-                  className={cn(
-                    "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
-                    p.code === country && "bg-accent/60"
-                  )}
-                >
+          <DialogBody className="flex flex-col gap-3">
+            <Input
+              autoFocus
+              type="search"
+              inputMode="search"
+              placeholder="Buscar país ou DDI"
+              aria-label="Buscar país"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+            <ul className="-mx-1 max-h-72 overflow-y-auto">
+              {filtrados.map((p) => (
+                <li key={p.code}>
+                  <button
+                    type="button"
+                    onClick={() => escolher(p)}
+                    aria-current={p.code === country ? "true" : undefined}
+                    className={cn(
+                      "flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
+                      p.code === country && "bg-accent/60"
+                    )}
+                  >
                   <span aria-hidden="true" className="text-base leading-none">
                     {bandeira(p.code)}
                   </span>
@@ -205,7 +207,8 @@ export function PhoneField({
                 Nenhum país encontrado.
               </li>
             )}
-          </ul>
+            </ul>
+          </DialogBody>
         </DialogContent>
       </Dialog>
 
