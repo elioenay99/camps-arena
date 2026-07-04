@@ -1,4 +1,4 @@
-import { MessageCircle } from "lucide-react"
+import { Clock, MessageCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { MatchScoreModalConnected } from "@/features/match/components/MatchScoreModalConnected"
@@ -56,16 +56,24 @@ function ladoModal(
  * W.O." para quem JOGA a partida e não é o dono. Competitivo (partidas com
  * rodada) é AGRUPADO por rodada, com "Fechar rodada N" no cabeçalho da rodada
  * ATIVA (só dono); avulso mantém a lista plana.
+ *
+ * `matchesComPropostaPendente`: partidas com uma PROPOSTA de placar pendente. O
+ * console do organizador (Editar placar/Encerrar/W.O.) some nelas — gravar placar
+ * direto por cima de uma proposta é inconsistente; o caminho é aprovar/rejeitar na
+ * seção "Resultados pendentes". Gate de UX (autorização real é servidor/RLS); o Set
+ * chega vazio a quem não arbitra, então nada muda fora da visão do organizador.
  */
 export function OpenMatchesList({
   partidas,
   mostrarEncerrar = false,
+  matchesComPropostaPendente = new Set<string>(),
   convocacao,
   rodadaAtiva = null,
   tournamentId,
 }: {
   partidas: PartidaAberta[]
   mostrarEncerrar?: boolean
+  matchesComPropostaPendente?: Set<string>
   convocacao?: { userId: string; titulo: string; tournamentId: string }
   rodadaAtiva?: number | null
   tournamentId?: string
@@ -102,11 +110,14 @@ export function OpenMatchesList({
 
   function renderItem(p: PartidaAberta) {
     const atalho = atalhoDe(p)
+    // Proposta de placar pendente: esconde o console do organizador (Editar
+    // placar/Encerrar/W.O.) e mostra um indicador — o caminho é aprovar/rejeitar.
+    const temPropostaPendente = matchesComPropostaPendente.has(p.id)
     // W.O. (marcar ou solicitar) só faz sentido no COMPETITIVO (lados por
     // vaga) — no avulso vagaId é null e a action recusaria com mensagem
     // confusa ("você não joga"), então o botão nem aparece.
     const ehCompetitivo = p.vagaId_1 != null && p.vagaId_2 != null
-    const podeMarcarWo = mostrarEncerrar && ehCompetitivo
+    const podeMarcarWo = mostrarEncerrar && ehCompetitivo && !temPropostaPendente
     const podeSolicitarWo = !mostrarEncerrar && ehCompetitivo && jogaPartida(p)
     return (
       <li
@@ -174,7 +185,17 @@ export function OpenMatchesList({
               autorização real é servidor/RLS. placarInicial é OBRIGATÓRIO aqui:
               omiti-lo (default 0) abriria um 2×1 mostrando 0×0 e sobrescreveria
               ao salvar. Sem busca de clube e sem lado convocável (sem PII). */}
-          {mostrarEncerrar ? (
+          {/* Proposta pendente: no lugar do console do organizador (Editar
+              placar/Encerrar/W.O.), um indicador discreto apontando ao fluxo de
+              aprovação. Só a quem arbitra (mostrarEncerrar) — para os demais o
+              console nunca existiu. */}
+          {mostrarEncerrar && temPropostaPendente ? (
+            <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
+              <Clock className="size-3.5" aria-hidden="true" />
+              Aguardando aprovação — veja Resultados pendentes
+            </span>
+          ) : null}
+          {mostrarEncerrar && !temPropostaPendente ? (
             <MatchScoreModalConnected
               matchId={p.id}
               tituloPartida={`${p.nome_1} x ${p.nome_2}`}
@@ -205,7 +226,7 @@ export function OpenMatchesList({
               }
             />
           ) : null}
-          {mostrarEncerrar ? (
+          {mostrarEncerrar && !temPropostaPendente ? (
             <MatchStatusButton matchId={p.id} acao="encerrar" />
           ) : null}
         </span>

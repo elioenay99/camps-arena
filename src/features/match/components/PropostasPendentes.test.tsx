@@ -26,6 +26,7 @@ const TORNEIO = "11111111-1111-4111-8111-111111111111"
 function proposta(over: Partial<PropostaPendente> = {}): PropostaPendente {
   return {
     id: "p1",
+    matchId: "m1",
     placar_1: 2,
     placar_2: 1,
     lado1: "Grêmio",

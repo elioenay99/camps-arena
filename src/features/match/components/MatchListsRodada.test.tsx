@@ -424,6 +424,82 @@ describe("OpenMatchesList — atalho de convocação (re-engajamento)", () => {
   })
 })
 
+describe("OpenMatchesList — gate de proposta de placar pendente", () => {
+  it("partida COM proposta pendente esconde o console do organizador e mostra o indicador", () => {
+    modalProps.mockClear()
+    render(
+      <OpenMatchesList
+        partidas={[abertaComp({ placar_1: 2, placar_2: 1 })]}
+        mostrarEncerrar
+        matchesComPropostaPendente={new Set(["m1"])}
+        rodadaAtiva={1}
+      />
+    )
+    // O console do organizador some por completo: nem "Editar placar", nem
+    // "Encerrar", nem "W.O." — o modal nem chega a ser montado.
+    expect(
+      screen.queryByRole("button", { name: /editar placar/i })
+    ).toBeNull()
+    expect(screen.queryByRole("button", { name: "Encerrar" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "W.O." })).toBeNull()
+    expect(modalProps).not.toHaveBeenCalled()
+    // No lugar, o indicador aponta ao fluxo de aprovação.
+    expect(
+      screen.getByText(/aguardando aprovação — veja resultados pendentes/i)
+    ).toBeInTheDocument()
+  })
+
+  it("partida SEM pendência (Set vazio ou outro id) preserva o console e não mostra o indicador", () => {
+    modalProps.mockClear()
+    render(
+      <OpenMatchesList
+        partidas={[abertaComp({ placar_1: 2, placar_2: 1 })]}
+        mostrarEncerrar
+        // Pendência é de OUTRA partida — não gateia a "m1".
+        matchesComPropostaPendente={new Set(["outra-partida"])}
+        rodadaAtiva={1}
+      />
+    )
+    expect(
+      screen.getByRole("button", { name: /editar placar de grêmio contra inter/i })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Encerrar" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "W.O." })).toBeInTheDocument()
+    expect(modalProps).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/aguardando aprovação — veja resultados pendentes/i)).toBeNull()
+  })
+
+  it("sem a prop (default): comportamento atual preservado, sem indicador", () => {
+    render(
+      <OpenMatchesList
+        partidas={[abertaComp()]}
+        mostrarEncerrar
+        rodadaAtiva={1}
+      />
+    )
+    expect(
+      screen.getByRole("button", { name: /editar placar/i })
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/aguardando aprovação — veja resultados pendentes/i)).toBeNull()
+  })
+
+  it("indicador NÃO aparece a quem não arbitra (sem mostrarEncerrar), mesmo com pendência", () => {
+    render(
+      <OpenMatchesList
+        partidas={[abertaComp()]}
+        matchesComPropostaPendente={new Set(["m1"])}
+        rodadaAtiva={1}
+      />
+    )
+    // O console nunca existiu para o não-organizador; o indicador é substituto
+    // do console, então também não aparece.
+    expect(screen.queryByText(/aguardando aprovação — veja resultados pendentes/i)).toBeNull()
+    expect(
+      screen.queryByRole("button", { name: /editar placar/i })
+    ).toBeNull()
+  })
+})
+
 describe("contenção de PII — fronteira RSC (guard de regressão)", () => {
   it("OpenMatchesList e MatchCard permanecem Server Components", async () => {
     // A contenção do celular depende de estas superfícies serem RSC: props

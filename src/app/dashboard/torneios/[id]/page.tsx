@@ -478,6 +478,15 @@ export default async function TorneioPage({
   const pendentesArbitragem = podeArbitrarPartidas
     ? propostasPendentes.length + solicitacoesWO.length
     : 0;
+  // Partidas com PROPOSTA de placar pendente: a lista esconde o console do
+  // organizador (Editar placar/Encerrar/W.O.) nelas — o caminho é aprovar/rejeitar
+  // (seção "Resultados pendentes"). O Set pode ficar NÃO-vazio também para o JOGADOR
+  // da própria partida (a RLS de match_score_proposals entrega a proposta a ele
+  // também), mas todo o consumo no OpenMatchesList é gateado por `mostrarEncerrar`
+  // (quem arbitra), então para o jogador é inócuo — nada muda na visão dele.
+  const matchesComPropostaPendente = new Set(
+    propostasPendentes.map((p) => p.matchId)
+  );
   const temConteudoPartidas =
     partidasAbertas.length > 0 ||
     partidasEncerradas.length > 0 ||
@@ -538,6 +547,7 @@ export default async function TorneioPage({
           <OpenMatchesList
             partidas={partidasAbertas}
             mostrarEncerrar={podeArbitrarPartidas}
+            matchesComPropostaPendente={matchesComPropostaPendente}
             convocacao={{ userId: user.id, titulo, tournamentId: id }}
             rodadaAtiva={rodadaAtiva}
             tournamentId={id}

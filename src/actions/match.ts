@@ -144,6 +144,30 @@ export async function updateMatchScore(
     }
   }
 
+  // Proposta de placar pendente: bloqueia a edição DIRETA enquanto houver uma
+  // proposta aguardando aprovação (change fix-editar-placar-com-proposta-pendente).
+  // A UI (OpenMatchesList) já esconde o botão, mas a action é alcançável por POST
+  // direto / aba velha — esta guarda fecha a corrida e dá mensagem limpa (não o
+  // "unexpected response"): o caminho é aprovar/rejeitar. Só faz sentido no
+  // COMPETITIVO (avulso não tem propostas) — escopada por `!ehAvulso` para não
+  // custar uma viagem ao banco no caminho avulso comum.
+  if (!ehAvulso) {
+    const { data: pendente } = await supabase
+      .from("match_score_proposals")
+      .select("id")
+      .eq("match_id", matchId)
+      .eq("status", "pendente")
+      .limit(1)
+      .maybeSingle()
+    if (pendente) {
+      return {
+        ok: false,
+        error:
+          "Há uma proposta de placar aguardando aprovação. Aprove ou rejeite antes de editar o placar direto.",
+      }
+    }
+  }
+
   // 3) UPDATE — apenas placares (não dispara o trigger de trava de relações).
   //    `.select()` confirma a escrita: se a RLS barrar ou a partida sumir
   //    entre a checagem e o update, nenhuma linha volta.

@@ -7,6 +7,8 @@ type ServerClient = Awaited<ReturnType<typeof createClient>>
 /** Uma proposta de placar pendente, pronta para a UI de aprovação. */
 export interface PropostaPendente {
   id: string
+  /** Id da PARTIDA a que a proposta se refere (para gatear a edição direta na lista). */
+  matchId: string
   placar_1: number
   placar_2: number
   lado1: string
@@ -34,6 +36,7 @@ export async function getPropostasPendentes(
     .select(
       `id, placar_1, placar_2,
        match:matches!match_score_proposals_match_id_fkey!inner (
+         id,
          tournament_id,
          vaga_1:tournament_slots!matches_vaga_1_fkey ( rotulo, clube:teams ( nome ) ),
          vaga_2:tournament_slots!matches_vaga_2_fkey ( rotulo, clube:teams ( nome ) )
@@ -49,9 +52,12 @@ export async function getPropostasPendentes(
     id: string
     placar_1: number
     placar_2: number
-    match: { vaga_1: LadoEmbed; vaga_2: LadoEmbed } | null
+    match: { id: string; vaga_1: LadoEmbed; vaga_2: LadoEmbed } | null
   }>).map((p) => ({
     id: p.id,
+    // O `!inner` do embed garante `match` presente; o `?? ""` é só defensivo
+    // (matchId vazio nunca casa com um id real, então o gate seria no-op).
+    matchId: p.match?.id ?? "",
     placar_1: p.placar_1,
     placar_2: p.placar_2,
     lado1: nomeLado(p.match?.vaga_1 ?? null),

@@ -36,6 +36,9 @@ interface Cenario {
   readError?: { message: string } | null
   writeData?: { id: string }[] | null
   writeError?: { message: string } | null
+  /** Proposta de placar PENDENTE para a partida (só consultada no caminho
+   * NÃO-avulso, ANTES do UPDATE). Default null = nenhuma pendente. */
+  propostaPendente?: { id: string } | null
 }
 
 /**
@@ -48,6 +51,7 @@ function montarClient(c: Cenario) {
   const updateSpy = vi.fn()
   const readEqSpy = vi.fn()
   const writeEqSpy = vi.fn()
+  const proposalEqSpy = vi.fn()
   const client = {
     auth: {
       getUser: vi
@@ -56,36 +60,54 @@ function montarClient(c: Cenario) {
     },
     // podeArbitrar() delega à RPC pode_arbitrar_torneio (só no caminho não-avulso).
     rpc: vi.fn(async () => ({ data: c.arbitra ?? false, error: null })),
-    from: vi.fn(() => ({
-      // Leitura: select(...).eq("id", matchId).maybeSingle()
-      select: vi.fn(() => ({
-        eq: vi.fn((coluna: string, valor: unknown) => {
-          readEqSpy(coluna, valor)
-          return {
-            maybeSingle: vi
-              .fn()
-              .mockResolvedValue({ data: c.readData ?? null, error: c.readError ?? null }),
-          }
-        }),
-      })),
-      // Escrita: update({...}).eq("id", matchId).select("id")
-      update: vi.fn((vals: unknown) => {
-        updateSpy(vals)
-        return {
+    from: vi.fn((tabela: string) => {
+      // Guarda de proposta pendente (caminho não-avulso, ANTES do UPDATE):
+      // select("id").eq("match_id", …).eq("status", "pendente").limit(1).maybeSingle()
+      if (tabela === "match_score_proposals") {
+        const builder = {
           eq: vi.fn((coluna: string, valor: unknown) => {
-            writeEqSpy(coluna, valor)
+            proposalEqSpy(coluna, valor)
+            return builder
+          }),
+          limit: vi.fn(() => builder),
+          maybeSingle: vi
+            .fn()
+            .mockResolvedValue({ data: c.propostaPendente ?? null, error: null }),
+        }
+        return { select: vi.fn(() => builder) }
+      }
+      return {
+        // Leitura: select(...).eq("id", matchId).maybeSingle()
+        select: vi.fn(() => ({
+          eq: vi.fn((coluna: string, valor: unknown) => {
+            readEqSpy(coluna, valor)
             return {
-              select: vi
+              maybeSingle: vi
                 .fn()
-                .mockResolvedValue({ data: c.writeData ?? null, error: c.writeError ?? null }),
+                .mockResolvedValue({ data: c.readData ?? null, error: c.readError ?? null }),
             }
           }),
-        }
-      }),
-    })),
+        })),
+        // Escrita: update({...}).eq("id", matchId).select("id")
+        update: vi.fn((vals: unknown) => {
+          updateSpy(vals)
+          return {
+            eq: vi.fn((coluna: string, valor: unknown) => {
+              writeEqSpy(coluna, valor)
+              return {
+                select: vi
+                  .fn()
+                  .mockResolvedValue({ data: c.writeData ?? null, error: c.writeError ?? null }),
+              }
+            }),
+          }
+        }),
+      }
+    }),
     updateSpy,
     readEqSpy,
     writeEqSpy,
+    proposalEqSpy,
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
   return client
@@ -301,6 +323,71 @@ describe("updateMatchScore", () => {
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toBe("Você não participa desta partida.")
     expect(client.updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("competitivo: com PROPOSTA pendente, o árbitro é recusado limpo e NÃO grava", async () => {
+    // O árbitro (arbitra:true) normalmente grava direto; mas havendo uma proposta
+    // de placar aguardando aprovação, a action recusa com mensagem clara (não o
+    // "unexpected response") e não escreve — fecha a corrida de aba velha.
+    const client = montarClient({
+      user: { id: USER_ID },
+      arbitra: true,
+      readData: {
+        id: UUID,
+        participante_1: null,
+        participante_2: null,
+        vaga_1: { user_id: OUTRO_ID },
+        vaga_2: { user_id: null },
+      },
+      propostaPendente: { id: "prop1" },
+      // writeData não deve ser alcançado.
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/proposta de placar aguardando aprovação/i)
+    // Consultou a proposta pendente da PARTIDA certa e SÓ as pendentes.
+    expect(client.from).toHaveBeenCalledWith("match_score_proposals")
+    expect(client.proposalEqSpy).toHaveBeenCalledWith("match_id", UUID)
+    expect(client.proposalEqSpy).toHaveBeenCalledWith("status", "pendente")
+    // Barreira: nenhum UPDATE.
+    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it("competitivo: SEM proposta pendente, o árbitro segue gravando direto", async () => {
+    // Mesmo caminho não-avulso, mas propostaPendente:null → a guarda não barra.
+    const client = montarClient({
+      user: { id: USER_ID },
+      arbitra: true,
+      readData: {
+        id: UUID,
+        participante_1: null,
+        participante_2: null,
+        vaga_1: { user_id: OUTRO_ID },
+        vaga_2: { user_id: null },
+      },
+      propostaPendente: null,
+      writeData: [{ id: UUID }],
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(true)
+    // A guarda consultou a tabela (caminho não-avulso), mas nada pendente → gravou.
+    expect(client.proposalEqSpy).toHaveBeenCalledWith("match_id", UUID)
+    expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
+  })
+
+  it("avulso: a guarda de proposta NEM é consultada (evita hop no caminho comum)", async () => {
+    // Participante do avulso grava direto; propostas não existem no avulso, então
+    // a action não deve nem tocar match_score_proposals.
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(true)
+    expect(client.from).not.toHaveBeenCalledWith("match_score_proposals")
+    expect(client.proposalEqSpy).not.toHaveBeenCalled()
   })
 
   it("rejeita quando o UPDATE falha", async () => {
