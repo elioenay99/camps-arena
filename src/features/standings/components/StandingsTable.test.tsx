@@ -1,10 +1,31 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest"
 import { cleanup, render } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import type { ReactNode } from "react"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { StandingsTable } from "@/features/standings/components/StandingsTable"
 import type { LinhaComNome } from "@/features/standings/data/getTournamentClassificacao"
+
+// Captura a prop `prefetch` do next/link (que NÃO vira atributo do DOM) num
+// data-attr, para afirmar o contrato "sem prefetch em massa" do link de
+// competidor. Não interfere nas smoke tests (elas não geram link).
+vi.mock("next/link", () => ({
+  default: ({
+    children,
+    href,
+    prefetch,
+    ...rest
+  }: {
+    children: ReactNode
+    href: string
+    prefetch?: boolean | null
+  } & Record<string, unknown>) => (
+    <a href={href} data-prefetch={String(prefetch)} {...rest}>
+      {children}
+    </a>
+  ),
+}))
 
 afterEach(cleanup)
 
@@ -36,5 +57,27 @@ describe("StandingsTable (smoke)", () => {
     const cls = container.querySelector("table")!.className
     expect(cls).toContain("group-data-[modo=caber]/standings:min-w-0")
     expect(cls).toContain("group-data-[modo=caber]/standings:text-xs")
+  })
+
+  it("o link de competidor NÃO dispara prefetch automático (prefetch={false})", () => {
+    const { container } = render(
+      <StandingsTable
+        linhas={[linha]}
+        hrefCompetidorBase="/dashboard/ligas/competidor"
+      />,
+    )
+    const link = container.querySelector<HTMLAnchorElement>(
+      'a[href="/dashboard/ligas/competidor/p1"]',
+    )
+    // Navegação por clique intacta (o link existe e aponta pro competidor)...
+    expect(link).not.toBeNull()
+    // ...mas sem o prefetch no viewport que causaria a rajada de RSC (N+1 → 503).
+    expect(link).toHaveAttribute("data-prefetch", "false")
+  })
+
+  it("sem hrefCompetidorBase o nome é texto puro, sem link (torneio avulso)", () => {
+    const { container } = render(<StandingsTable linhas={[linha]} />)
+    expect(container.querySelector("a")).toBeNull()
+    expect(container.textContent).toContain("Time Um")
   })
 })

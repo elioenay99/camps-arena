@@ -220,6 +220,11 @@ export function StandingsTable({
                     {hrefCompetidorBase ? (
                       <Link
                         href={`${hrefCompetidorBase}/${linha.participanteId}`}
+                        // Sem prefetch: a pirâmide renderiza ~40 links por vez;
+                        // o prefetch no viewport dispararia ~40 renders RSC de
+                        // getCompetitorProfile de uma vez (N+1 → 503). A navegação
+                        // por clique segue intacta. Ver change add-liga-prefetch-fix.
+                        prefetch={false}
                         className="rounded underline-offset-2 hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                       >
                         {linha.nome}
