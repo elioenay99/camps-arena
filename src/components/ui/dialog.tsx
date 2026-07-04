@@ -61,7 +61,10 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // flex-col + max-h em dvh: o miolo (DialogBody) rola; header, footer e
+          // o botão fechar ficam FORA do scroll. dvh (não vh) para o teclado
+          // virtual do mobile não empurrar o conteúdo para fora da viewport.
+          "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
@@ -71,7 +74,9 @@ function DialogContent({
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
             <Button
               variant="ghost"
-              className="absolute top-2 right-2"
+              // Alvo de toque de 44px no mobile (icon-sm=28px não atende);
+              // absolute no Content → fora do scroll do body, sempre visível.
+              className="absolute top-2 right-2 size-11 md:size-8"
               size="icon-sm"
             >
               <XIcon
@@ -82,6 +87,23 @@ function DialogContent({
         )}
       </DialogPrimitive.Content>
     </DialogPortal>
+  )
+}
+
+/**
+ * Miolo rolável do dialog — o ÚNICO elemento com `overflow-y`. Header e footer
+ * ficam como irmãos FORA dele (`shrink-0` natural), então nunca somem num modal
+ * alto (inclusive com o teclado virtual aberto). O `-mx-4 px-4` preserva o
+ * padding lateral enquanto a barra de scroll ocupa a largura total. Só os
+ * modais ALTOS precisam envolver o miolo nele; os curtos dispensam.
+ */
+function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn("-mx-4 min-h-0 flex-1 overflow-y-auto px-4", className)}
+      {...props}
+    />
   )
 }
 
@@ -156,6 +178,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,
