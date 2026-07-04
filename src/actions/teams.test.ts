@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }))
+// O rehost do escudo é testado à parte (escudos.test.ts). Aqui isolamos
+// selectTeam do Storage/rede: controlamos a URL final que o helper devolve.
+vi.mock("@/lib/escudos", () => ({ rehospedarEscudo: vi.fn() }))
 
 import { searchTeams, selectTeam } from "@/actions/teams"
+import { rehospedarEscudo } from "@/lib/escudos"
 import { createClient } from "@/lib/supabase/server"
 
 const mockCreateClient = vi.mocked(createClient)
+const mockRehospedar = vi.mocked(rehospedarEscudo)
 
 // ----------------------------- searchTeams -----------------------------
 
@@ -172,9 +177,15 @@ const CLUBE = {
   nome: "Manchester United",
   escudoUrl: "https://media.api-sports.io/football/teams/33.png",
 }
+/** URL do Storage próprio devolvida pelo rehost (self-host). */
+const ESCUDO_STORAGE = "https://ref.supabase.co/storage/v1/object/public/escudos/33.png"
 
 describe("selectTeam", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Por padrão o rehost devolve a URL do Storage (caminho feliz).
+    mockRehospedar.mockResolvedValue(ESCUDO_STORAGE)
+  })
 
   it("rejeita entrada inválida", async () => {
     const r = await selectTeam({ externalId: "", nome: "", escudoUrl: null })
@@ -217,26 +228,56 @@ describe("selectTeam", () => {
     expect(client.insertSpy).not.toHaveBeenCalled()
   })
 
-  it("reutiliza o clube já cacheado (sem inserir)", async () => {
+  it("reutiliza o clube já cacheado (sem inserir e sem re-hospedar)", async () => {
     const client = montarTeamsClient({ user: { id: "u1" } })
     client.maybeSingle.mockResolvedValue({ data: { id: "t-existente" }, error: null })
     const r = await selectTeam(CLUBE)
     expect(r).toEqual({ ok: true, teamId: "t-existente" })
     expect(client.insertSpy).not.toHaveBeenCalled()
+    // Idempotência: clube já cacheado NÃO re-baixa/re-hospeda o escudo.
+    expect(mockRehospedar).not.toHaveBeenCalled()
   })
 
-  it("insere o clube novo e retorna o id", async () => {
+  it("insere o clube novo self-hostando o escudo (grava a URL do Storage)", async () => {
     const client = montarTeamsClient({ user: { id: "u1" } })
     client.maybeSingle.mockResolvedValue({ data: null, error: null })
     client.single.mockResolvedValue({ data: { id: "t-novo" }, error: null })
     const r = await selectTeam(CLUBE)
     expect(r).toEqual({ ok: true, teamId: "t-novo" })
+    // Rehost recebe a URL da api-sports (origem) e o external_id (chave).
+    expect(mockRehospedar).toHaveBeenCalledWith(client, "33", CLUBE.escudoUrl)
+    // A URL gravada é a do Storage próprio, não a do CDN de terceiro.
     expect(client.insertSpy).toHaveBeenCalledWith({
       nome: "Manchester United",
-      escudo_url: "https://media.api-sports.io/football/teams/33.png",
+      escudo_url: ESCUDO_STORAGE,
       external_id: "33",
       provider: "api-football",
     })
+  })
+
+  it("rehost falho não bloqueia: grava a URL de origem (fallback) e retorna ok", async () => {
+    const client = montarTeamsClient({ user: { id: "u1" } })
+    client.maybeSingle.mockResolvedValue({ data: null, error: null })
+    client.single.mockResolvedValue({ data: { id: "t-novo" }, error: null })
+    // Helper devolve a própria origem quando download/upload falha (non-fatal).
+    mockRehospedar.mockResolvedValue(CLUBE.escudoUrl)
+    const r = await selectTeam(CLUBE)
+    expect(r).toEqual({ ok: true, teamId: "t-novo" })
+    expect(client.insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ escudo_url: CLUBE.escudoUrl })
+    )
+  })
+
+  it("clube sem escudo: grava null e NÃO chama o rehost", async () => {
+    const client = montarTeamsClient({ user: { id: "u1" } })
+    client.maybeSingle.mockResolvedValue({ data: null, error: null })
+    client.single.mockResolvedValue({ data: { id: "t-novo" }, error: null })
+    const r = await selectTeam({ externalId: "127", nome: "Flamengo", escudoUrl: null })
+    expect(r).toEqual({ ok: true, teamId: "t-novo" })
+    expect(mockRehospedar).not.toHaveBeenCalled()
+    expect(client.insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ escudo_url: null })
+    )
   })
 
   it("trata corrida: insert falha por duplicidade → relê o existente", async () => {

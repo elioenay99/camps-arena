@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og"
 
+import { env } from "@/lib/env"
 import type { ConfrontoRodada } from "@/features/match/data/getPartidasDaRodada"
 import type { CoresResolvidas } from "@/features/standings/data/getTournamentClassificacao"
 
@@ -72,8 +73,28 @@ function cortar(nome: string, max = 18): string {
   return chars.length > max ? `${chars.slice(0, max - 1).join("")}…` : nome
 }
 
+/**
+ * Hosts confiáveis do escudo, para o fetch server-side (anti-SSRF). Espelha o
+ * `csp.ts`/`next.config.ts`: CDN da api-sports (transição) + host EXATO do
+ * Storage do projeto (derivado do env). `escudo_url` vem do banco, mas a RLS de
+ * `teams` não valida a URL — sem esta allowlist, um dono de torneio poderia
+ * gravar uma URL interna (ex.: metadata endpoint) e disparar SSRF cego por esta
+ * rota. Host fora da allowlist ⇒ cai no monograma (non-fatal, já existente).
+ */
+const ESCUDO_HOSTS_CONFIAVEIS = new Set<string>([
+  "media.api-sports.io",
+  new URL(env.NEXT_PUBLIC_SUPABASE_URL).host,
+])
+
 /** Escudo remoto → data URL (timeout 2s, paralelizável). Falha ⇒ null (monograma). */
 async function escudoDataURL(url: string): Promise<string | null> {
+  // Allowlist de host ANTES do fetch (anti-SSRF): URL malformada ou host fora
+  // da lista ⇒ null (monograma).
+  try {
+    if (!ESCUDO_HOSTS_CONFIAVEIS.has(new URL(url).host)) return null
+  } catch {
+    return null
+  }
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(2000) })
     if (!res.ok) return null

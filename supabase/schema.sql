@@ -504,16 +504,31 @@ alter table public.matches
   add constraint matches_times_distintos
   check (time_1 is null or time_2 is null or time_1 <> time_2);
 
--- Escudo só do CDN confiável da API-Football (espelha next.config.ts) ou nulo.
--- ATENÇÃO: se houver registros legados com escudo_url fora desse domínio, o ADD
--- falha. Conferir ANTES de aplicar:
+-- Escudo do CDN da API-Football (transição) OU do NOSSO Storage (self-host,
+-- change add-escudos-self-host) OU nulo. Preserva a intenção anti-injeção: como
+-- a RLS teams_insert_authenticated NÃO valida escudo_url, esta CHECK é a ÚNICA
+-- defesa no banco contra POST direto via anon key (que ignora o Zod). Os ramos
+-- do Storage ANCORAM o host (`https://%.supabase.co/...` prod e
+-- `http://127.0.0.1:54321/...` local) — `%` só no meio (sub-ref) e no fim
+-- (path); nunca na frente do host, senão `http://169.254.169.254/x/storage/v1/
+-- object/public/escudos/y.png` passaria e abriria SSRF no sink (og/rodada.tsx).
+-- O ramo api-sports pode SAIR após o backfill 100% migrar os legados.
+-- ATENÇÃO: se houver registros com escudo_url fora desses hosts, o ADD falha.
+-- Conferir ANTES de aplicar:
 --   select count(*) from public.teams
 --   where escudo_url is not null
---     and escudo_url not like 'https://media.api-sports.io/%';
+--     and escudo_url not like 'https://media.api-sports.io/%'
+--     and escudo_url not like 'https://%.supabase.co/storage/v1/object/public/escudos/%'
+--     and escudo_url not like 'http://127.0.0.1:54321/storage/v1/object/public/escudos/%';
 alter table public.teams drop constraint if exists teams_escudo_url_dominio;
 alter table public.teams
   add constraint teams_escudo_url_dominio
-  check (escudo_url is null or escudo_url like 'https://media.api-sports.io/%');
+  check (
+    escudo_url is null
+    or escudo_url like 'https://media.api-sports.io/%'
+    or escudo_url like 'https://%.supabase.co/storage/v1/object/public/escudos/%'
+    or escudo_url like 'http://127.0.0.1:54321/storage/v1/object/public/escudos/%'
+  );
 
 -- ---------- updated_at automático em matches ----------
 create or replace function public.set_updated_at()
@@ -1704,6 +1719,45 @@ create policy "avatars delete do dono" on storage.objects
     bucket_id = 'avatars'
     and (storage.foldername(name))[1] = auth.uid()::text
   );
+
+-- ============================================================
+-- Storage: bucket `escudos` (escudos de clube self-hostados)
+-- ============================================================
+-- Bucket PÚBLICO (leitura por URL pública; a URL vai em public.teams.escudo_url).
+-- Cache COMPARTILHADO (não é por-dono como avatars): a imagem é a mesma para
+-- todos, gravada em `escudos/<external_id>.png`. Corta o hotlink do CDN da
+-- API-Football em todo render (change add-escudos-self-host). Aplicar
+-- MANUALMENTE no Supabase (mesma política de DDL do projeto).
+-- Limites do bucket (defesa em profundidade; espelham o MAX_BYTES de 256KB e o
+-- CONTENT_TYPE de src/lib/escudos.ts). `do update` porque o bucket pode já
+-- existir. Só PNG/WEBP: SVG fica FORA do allowlist (espelha o hardening do
+-- avatars) — mata o vetor de SVG-XSS armazenado servido pelo host do projeto.
+-- A app grava sempre image/png; webp por robustez.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('escudos', 'escudos', true, 262144,
+        array['image/png', 'image/webp'])
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+-- Hardening (espelha avatars, advisor lint 0025): SEM policy SELECT ampla — ela
+-- permitiria LISTAR todos os escudos. O bucket é público, então cada objeto
+-- continua acessível pela sua URL; o app só usa URLs diretas (nunca lista).
+drop policy if exists "escudos leitura publica" on storage.objects;
+
+-- INSERT liberado a autenticados: mesmo nível de confiança de inserir em
+-- public.teams (a RLS de teams já permite INSERT a autenticados). O escudo é
+-- WRITE-ONCE pela app (chave determinística por external_id; o selectTeam só
+-- re-hospeda clube NOVO). O `name` é ANCORADO a `<external_id>.png` (external_id
+-- é numérico pela CHECK teams_external_id_num) — bloqueia hosting de arquivo/path
+-- arbitrário por autenticado. SEM policy de UPDATE/DELETE amplas — o objeto vira
+-- imutável via anon/authenticated. O backfill (service_role) ignora a RLS e
+-- pode reprocessar (upsert) qualquer chave.
+drop policy if exists "escudos insert autenticado" on storage.objects;
+create policy "escudos insert autenticado" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'escudos' and name ~ '^[0-9]+\.png$');
 
 -- ---------- Realtime ----------
 -- O painel (/dashboard) assina UPDATE de `matches` via Supabase Realtime para

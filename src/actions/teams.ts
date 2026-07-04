@@ -1,6 +1,7 @@
 "use server"
 
 import { apiFootballKey } from "@/lib/env"
+import { rehospedarEscudo } from "@/lib/escudos"
 import { createClient } from "@/lib/supabase/server"
 import {
   selectTeamSchema,
@@ -154,9 +155,16 @@ export async function selectTeam(input: SelectTeamInput): Promise<SelectTeamResu
     return { ok: true, teamId: existente.id }
   }
 
+  // Self-hosta o escudo ANTES de inserir: `teams` não tem policy de UPDATE via
+  // RLS (só INSERT idempotente), então a URL final precisa entrar já na
+  // inserção. Best-effort — falha devolve a URL de origem (fallback), nunca
+  // bloqueia o cache do clube. Só para clube novo (o `existente` acima já
+  // retornou), garantindo idempotência (não re-hospeda o que já está cacheado).
+  const escudoFinal = escudoUrl ? await rehospedarEscudo(supabase, externalId, escudoUrl) : null
+
   const { data: inserido, error: insErr } = await supabase
     .from("teams")
-    .insert({ nome, escudo_url: escudoUrl, external_id: externalId, provider: PROVIDER })
+    .insert({ nome, escudo_url: escudoFinal, external_id: externalId, provider: PROVIDER })
     .select("id")
     .single()
 

@@ -21,7 +21,10 @@ export function buildContentSecurityPolicy({
   const supabaseHttps = `${supabase.protocol}//${supabase.host}`
   // Realtime do painel conecta por WebSocket no mesmo host do Supabase.
   const supabaseWss = `wss://${supabase.host}`
-  // CDN de escudos de clube (espelha next.config images.remotePatterns).
+  // CDN de escudos de clube (espelha next.config images.remotePatterns). Os
+  // escudos agora são self-hostados no Storage (`supabaseHttps` já cobre a URL
+  // pública — change add-escudos-self-host); este host permanece na TRANSIÇÃO
+  // (registros legados ainda apontam pro CDN) e pode SAIR após o backfill 100%.
   const apiFootball = "https://media.api-sports.io"
 
   const directives = [
