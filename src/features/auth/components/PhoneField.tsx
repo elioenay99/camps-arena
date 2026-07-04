@@ -172,17 +172,20 @@ export function PhoneField({
               Busque e selecione o país do seu número de celular.
             </DialogDescription>
           </DialogHeader>
-          <DialogBody className="flex flex-col gap-3">
-            <Input
-              autoFocus
-              type="search"
-              inputMode="search"
-              placeholder="Buscar país ou DDI"
-              aria-label="Buscar país"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-            />
-            <ul className="-mx-1 max-h-72 overflow-y-auto">
+          {/* Busca PINADA fora do DialogBody: some do scroll da lista, então
+              continua visível com o teclado aberto (dvh menor). A lista é o
+              único scroll (o overflow do DialogBody), sem aninhar scrollbars. */}
+          <Input
+            autoFocus
+            type="search"
+            inputMode="search"
+            placeholder="Buscar país ou DDI"
+            aria-label="Buscar país"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+          <DialogBody>
+            <ul className="-mx-1">
               {filtrados.map((p) => (
                 <li key={p.code}>
                   <button

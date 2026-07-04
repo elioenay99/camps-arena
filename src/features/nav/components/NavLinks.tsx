@@ -16,8 +16,9 @@ export interface NavLink {
  * Única folha client do shell. No desktop (`sm+`) é a faixa de links inline
  * (item ativo por `aria-current="page"`, via `usePathname`). No mobile colapsa
  * num **disclosure leve** (NÃO `role=menu`): um botão hambúrguer revela a `<ul>`
- * como dropdown. A `<ul>` nunca é desmontada — a visibilidade é só CSS, então os
- * links seguem no DOM (a11y tree + testes). Landmarks `<nav>`/`<ul>`/`<Link>`
+ * como dropdown. A `<ul>` nunca é desmontada (segue no DOM p/ testes/hidratação);
+ * colapsada, some por CSS (`hidden`/`display:none`) — e portanto sai da a11y tree,
+ * comportamento esperado de um disclosure fechado. Landmarks `<nav>`/`<ul>`/`<Link>`
  * preservados; toggle de tema, avatar e "Sair" seguem no cabeçalho (fora daqui).
  */
 export function NavLinks({ links }: { links: NavLink[] }) {
