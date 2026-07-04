@@ -721,7 +721,12 @@ export default async function TorneioPage({
                 variant="ghost"
                 className="text-muted-foreground rounded-full"
               >
-                <Link href={`/dashboard/ligas/${ligaSeasonId}`}>
+                {/* Sem prefetch no back-link "Ver liga" e nos botões de gestão
+                    (Cores/Equipe): rotas RSC caras (a pirâmide-mãe e as telas de
+                    gestão) que somariam à rajada do header/listas — a borda da
+                    Vercel descarta o excesso (503). O clique navega. Ver change
+                    add-header-prefetch-hardening. */}
+                <Link href={`/dashboard/ligas/${ligaSeasonId}`} prefetch={false}>
                   <Layers aria-hidden="true" />
                   Ver liga
                 </Link>
@@ -735,7 +740,7 @@ export default async function TorneioPage({
                   variant="ghost"
                   className="text-muted-foreground rounded-full"
                 >
-                  <Link href={`/dashboard/torneios/${id}/cores`}>
+                  <Link href={`/dashboard/torneios/${id}/cores`} prefetch={false}>
                     <Palette aria-hidden="true" />
                     Cores
                   </Link>
@@ -815,7 +820,7 @@ export default async function TorneioPage({
                 size="sm"
                 className="min-h-10 rounded-full px-4"
               >
-                <Link href={`/dashboard/torneios/${id}/equipe`}>
+                <Link href={`/dashboard/torneios/${id}/equipe`} prefetch={false}>
                   <Users aria-hidden="true" />
                   Equipe
                 </Link>

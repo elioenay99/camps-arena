@@ -234,7 +234,11 @@ export default async function TemporadaPage({
               variant="ghost"
               className="text-muted-foreground rounded-full"
             >
-              <Link href={`/dashboard/ligas/${id}/equipe`}>
+              {/* Sem prefetch nos botões de gestão (Equipe/Identidade): rotas RSC
+                  que somariam à rajada do header/listas — a borda da Vercel
+                  descarta o excesso (503). O clique navega. Ver change
+                  add-header-prefetch-hardening. */}
+              <Link href={`/dashboard/ligas/${id}/equipe`} prefetch={false}>
                 <Users aria-hidden="true" />
                 Equipe
               </Link>
@@ -245,7 +249,7 @@ export default async function TemporadaPage({
               variant="ghost"
               className="text-muted-foreground rounded-full"
             >
-              <Link href={`/dashboard/ligas/${id}/cores`}>
+              <Link href={`/dashboard/ligas/${id}/cores`} prefetch={false}>
                 <Palette aria-hidden="true" />
                 Identidade
               </Link>

@@ -45,6 +45,11 @@ export default async function DashboardLayout({
         <div className="mx-auto flex w-full max-w-2xl flex-wrap items-center gap-x-4 gap-y-2 px-6 py-3">
           <Link
             href="/dashboard"
+            // Sem prefetch: o header aparece em TODA página do dashboard; a marca
+            // e o avatar prefetchariam /dashboard e /dashboard/conta (rotas RSC)
+            // em cima da rajada das listas — a borda da Vercel descarta o excesso
+            // (503). O clique segue navegando. Ver change add-header-prefetch-hardening.
+            prefetch={false}
             className="font-display text-base font-bold tracking-[0.25em] text-foreground"
           >
             GOLISEU<span className="text-primary">.</span>
@@ -57,6 +62,7 @@ export default async function DashboardLayout({
             <Link
               href="/dashboard/conta"
               aria-label="Sua conta"
+              prefetch={false}
               className="flex size-11 items-center justify-center rounded-full ring-offset-background transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               <UserAvatar

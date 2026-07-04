@@ -64,6 +64,10 @@ export default async function CompetidorPage({
                 ? `/dashboard/ligas/${perfil.seasonAtualId}`
                 : "/dashboard/ligas"
             }
+            // Sem prefetch: back-link "Voltar à pirâmide" (rota RSC cara). Evita
+            // somar à rajada que a borda da Vercel descarta (503). O clique
+            // navega. Ver change add-header-prefetch-hardening.
+            prefetch={false}
           >
             <ArrowLeft aria-hidden="true" />
             Voltar à pirâmide

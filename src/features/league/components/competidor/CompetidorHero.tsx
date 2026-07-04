@@ -37,6 +37,10 @@ export function CompetidorHero({ perfil }: { perfil: CompetidorPerfil }) {
                 ? `/dashboard/ligas/${perfil.seasonAtualId}`
                 : "/dashboard/ligas"
             }
+            // Sem prefetch: back-link para a pirâmide-mãe (rota RSC cara). Evita
+            // somar à rajada que a borda da Vercel descarta (503). O clique
+            // navega. Ver change add-header-prefetch-hardening.
+            prefetch={false}
             className="text-muted-foreground inline-flex w-fit items-center gap-1.5 rounded text-sm underline-offset-2 hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             <Layers className="size-3.5" aria-hidden="true" />
