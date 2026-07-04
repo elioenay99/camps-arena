@@ -299,7 +299,7 @@ describe("reabrirPartida — regras de mata-mata", () => {
     })
     const r = await reabrirPartida(PARTIDA)
     expect(r).toEqual({ ok: true })
-    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento", wo: false, wo_vencedor: null })
+    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento", wo: false, wo_vencedor: null, wo_duplo: false })
   })
 
   it("erro na query de posteriores vira mensagem genérica de validação, sem UPDATE", async () => {
@@ -377,6 +377,6 @@ describe("formatos de grupos — lifecycle de partida de GRUPO", () => {
     })
     const r = await reabrirPartida(PARTIDA)
     expect(r).toEqual({ ok: true })
-    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento", wo: false, wo_vencedor: null })
+    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento", wo: false, wo_vencedor: null, wo_duplo: false })
   })
 })

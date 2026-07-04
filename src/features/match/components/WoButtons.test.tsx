@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 // Actions e toasts são efeitos externos — mockados para observar o wiring.
 vi.mock("@/actions/wo", () => ({
   marcarWO: vi.fn(),
+  marcarWoDuplo: vi.fn(),
   solicitarWO: vi.fn(),
   responderWO: vi.fn(),
   fecharRodada: vi.fn(),
@@ -20,10 +21,11 @@ import {
   ResponderWoButtons,
   SolicitarWoButton,
 } from "@/features/match/components/WoButtons"
-import { fecharRodada, marcarWO, responderWO, solicitarWO } from "@/actions/wo"
+import { fecharRodada, marcarWO, marcarWoDuplo, responderWO, solicitarWO } from "@/actions/wo"
 import { toast } from "sonner"
 
 const mockMarcar = vi.mocked(marcarWO)
+const mockMarcarDuplo = vi.mocked(marcarWoDuplo)
 const mockSolicitar = vi.mocked(solicitarWO)
 const mockResponder = vi.mocked(responderWO)
 const mockFechar = vi.mocked(fecharRodada)
@@ -80,6 +82,49 @@ describe("MarcarWoButton", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }))
     expect(screen.getByRole("button", { name: "W.O." })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Grêmio" })).toBeNull()
+  })
+
+  it("SEM permiteDuplo (chave): NÃO mostra 'Ambos ausentes' e rotula 'Vitória de:'", () => {
+    render(
+      <MarcarWoButton matchId={MATCH} nome1="Grêmio" nome2="Inter" vagaId1="s1" vagaId2="s2" />
+    )
+    fireEvent.click(screen.getByRole("button", { name: "W.O." }))
+    expect(screen.getByText(/Vitória de:/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Ambos ausentes/i })).toBeNull()
+  })
+
+  it("COM permiteDuplo (fora de chave): mostra 'Ambos ausentes' e rotula 'Resultado do W.O.:'", () => {
+    render(
+      <MarcarWoButton
+        matchId={MATCH}
+        nome1="Grêmio"
+        nome2="Inter"
+        vagaId1="s1"
+        vagaId2="s2"
+        permiteDuplo
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: "W.O." }))
+    expect(screen.getByText(/Resultado do W\.O\.:/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Ambos ausentes/i })).toBeInTheDocument()
+  })
+
+  it("clicar 'Ambos ausentes' chama marcarWoDuplo(matchId) e avisa sucesso", async () => {
+    mockMarcarDuplo.mockResolvedValue({ ok: true })
+    render(
+      <MarcarWoButton
+        matchId={MATCH}
+        nome1="Grêmio"
+        nome2="Inter"
+        vagaId1="s1"
+        vagaId2="s2"
+        permiteDuplo
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: "W.O." }))
+    fireEvent.click(screen.getByRole("button", { name: /Ambos ausentes/i }))
+    await waitFor(() => expect(mockMarcarDuplo).toHaveBeenCalledWith(MATCH))
+    expect(mockToast.success).toHaveBeenCalled()
   })
 })
 

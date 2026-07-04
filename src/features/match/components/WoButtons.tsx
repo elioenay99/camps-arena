@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
-import { fecharRodada, marcarWO, responderWO, solicitarWO } from "@/actions/wo"
+import { fecharRodada, marcarWO, marcarWoDuplo, responderWO, solicitarWO } from "@/actions/wo"
 import { Button } from "@/components/ui/button"
 
 /**
@@ -30,12 +30,16 @@ export function MarcarWoButton({
   nome2,
   vagaId1,
   vagaId2,
+  permiteDuplo = false,
 }: {
   matchId: string
   nome1: string
   nome2: string
   vagaId1: string
   vagaId2: string
+  /** Fora de chave (`posicao == null`): habilita a opção "Ambos ausentes"
+   * (duplo W.O.). Em chave fica oculta — a chave sempre exige um vencedor. */
+  permiteDuplo?: boolean
 }) {
   const [aberto, setAberto] = useState(false)
   const [pendente, startTransition] = useTransition()
@@ -45,6 +49,18 @@ export function MarcarWoButton({
       const r = await marcarWO(matchId, vencedorSlotId)
       if (r.ok) {
         toast.success("W.O. registrado.")
+        setAberto(false)
+      } else {
+        toast.error(r.error)
+      }
+    })
+  }
+
+  function marcarDuplo() {
+    startTransition(async () => {
+      const r = await marcarWoDuplo(matchId)
+      if (r.ok) {
+        toast.success("Duplo W.O. registrado — ambos ausentes.")
         setAberto(false)
       } else {
         toast.error(r.error)
@@ -68,7 +84,9 @@ export function MarcarWoButton({
 
   return (
     <span className="bg-muted/40 flex flex-wrap items-center gap-2 gap-y-2 rounded-md px-3 py-2 sm:gap-x-6">
-      <span className="text-muted-foreground text-xs">Vitória de:</span>
+      <span className="text-muted-foreground text-xs">
+        {permiteDuplo ? "Resultado do W.O.:" : "Vitória de:"}
+      </span>
       <Button
         type="button"
         size="sm"
@@ -89,6 +107,18 @@ export function MarcarWoButton({
       >
         {nome2}
       </Button>
+      {permiteDuplo ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className={ALVO_TOQUE}
+          disabled={pendente}
+          onClick={marcarDuplo}
+        >
+          Ambos ausentes
+        </Button>
+      ) : null}
       <Button
         type="button"
         size="sm"

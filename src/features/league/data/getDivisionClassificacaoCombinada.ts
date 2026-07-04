@@ -41,6 +41,7 @@ interface PartidaRow {
   status: MatchStatus
   wo: boolean
   wo_vencedor: string | null
+  wo_duplo: boolean
 }
 
 interface TorneioRow {
@@ -137,7 +138,7 @@ export async function getDivisionClassificacaoCombinada(
   //     Clausura: re-chaveia AMBOS os lados E o `wo_vencedor` pelo slot Apertura.
   const { data: partidas, error: partidasErr } = await supabase
     .from("matches")
-    .select("tournament_id, vaga_1, vaga_2, placar_1, placar_2, status, wo, wo_vencedor")
+    .select("tournament_id, vaga_1, vaga_2, placar_1, placar_2, status, wo, wo_vencedor, wo_duplo")
     .in("tournament_id", [aperturaId, clausuraId])
   if (partidasErr) {
     console.error("getDivisionClassificacaoCombinada: partidas", partidasErr.code ?? partidasErr.message)
@@ -166,6 +167,9 @@ export async function getDivisionClassificacaoCombinada(
       placar_2: p.placar_2,
       status: p.status,
       woVencedor: woVenc,
+      // Duplo W.O.: boolean puro, NÃO passa por reKeyClausura (não aponta slot).
+      // Sem propagar, o 0x0 do duplo viraria empate na combinada (sobe/desce).
+      woDuplo: p.wo === true && p.wo_duplo === true,
     }
   })
 

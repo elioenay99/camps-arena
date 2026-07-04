@@ -9,7 +9,7 @@ vi.mock("@/features/match/closeRound", () => ({
 }))
 
 import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
-import { fecharRodada, marcarWO, responderWO, solicitarWO } from "@/actions/wo"
+import { fecharRodada, marcarWO, marcarWoDuplo, responderWO, solicitarWO } from "@/actions/wo"
 import { createClient } from "@/lib/supabase/server"
 
 const mockCreateClient = vi.mocked(createClient)
@@ -325,6 +325,111 @@ describe("marcarWO", () => {
         status: "encerrada",
       })
     )
+  })
+})
+
+describe("marcarWoDuplo", () => {
+  it("uuid inválido rejeita sem tocar o banco", async () => {
+    expect(await marcarWoDuplo("lixo")).toEqual({ ok: false, error: "Dados inválidos." })
+    expect(mockCreateClient).not.toHaveBeenCalled()
+  })
+
+  it("sem sessão rejeita", async () => {
+    const c = montarClient({ user: null })
+    const r = await marcarWoDuplo(MATCH)
+    expect(r.ok).toBe(false)
+    expect(c.matchUpdateSpy).not.toHaveBeenCalled()
+  })
+
+  it("sem capacidade ARBITRAR recusa e NÃO marca", async () => {
+    const c = montarClient({
+      user: { id: DONO },
+      match: partidaAberta(),
+      torneio: { id: TORNEIO },
+      negarCapacidade: true,
+    })
+    const r = await marcarWoDuplo(MATCH)
+    expect(r.ok).toBe(false)
+    expect(c.matchUpdateSpy).not.toHaveBeenCalled()
+    expect(c.tournamentFiltroSpy).not.toHaveBeenCalled()
+  })
+
+  it("torneio não-ativo recebe resposta de propriedade", async () => {
+    const c = montarClient({
+      user: { id: DONO },
+      match: partidaAberta(),
+      torneio: null,
+    })
+    const r = await marcarWoDuplo(MATCH)
+    expect(r.ok).toBe(false)
+    expect(c.matchUpdateSpy).not.toHaveBeenCalled()
+    expect(c.tournamentFiltroSpy).toHaveBeenCalledWith("eq", "status", "ativo")
+  })
+
+  it("partida já encerrada é recusada (corrigir = reabrir antes)", async () => {
+    const c = montarClient({
+      user: { id: DONO },
+      match: partidaAberta({ status: "encerrada" }),
+      torneio: { id: TORNEIO },
+    })
+    const r = await marcarWoDuplo(MATCH)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/já está encerrada/i)
+    expect(c.matchUpdateSpy).not.toHaveBeenCalled()
+  })
+
+  it("RECUSA em partida de CHAVE (posicao != null) com mensagem clara, sem marcar", async () => {
+    const c = montarClient({
+      user: { id: DONO },
+      match: partidaAberta({ posicao: 1 }),
+      torneio: { id: TORNEIO },
+    })
+    const r = await marcarWoDuplo(MATCH)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/chave exige um vencedor/i)
+    expect(c.matchUpdateSpy).not.toHaveBeenCalled()
+  })
+
+  it("recusa se um lado está ausente (bye/vaga vazia)", async () => {
+    const c = montarClient({
+      user: { id: DONO },
+      match: partidaAberta({ vaga_2: null }),
+      torneio: { id: TORNEIO },
+    })
+    const r = await marcarWoDuplo(MATCH)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/dois clubes/i)
+    expect(c.matchUpdateSpy).not.toHaveBeenCalled()
+  })
+
+  it("sucesso FORA de chave: grava duplo (wo, wo_duplo, sem vencedor, 0x0, encerrada)", async () => {
+    const c = montarClient({
+      user: { id: DONO },
+      match: partidaAberta({ posicao: null }),
+      torneio: { id: TORNEIO },
+    })
+    const r = await marcarWoDuplo(MATCH)
+    expect(r).toEqual({ ok: true })
+    expect(c.matchUpdateSpy).toHaveBeenCalledWith({
+      wo: true,
+      wo_duplo: true,
+      wo_vencedor: null,
+      placar_1: 0,
+      placar_2: 0,
+      status: "encerrada",
+    })
+  })
+
+  it("0 linhas no UPDATE (corrida/idempotência) vira mensagem de recarregar", async () => {
+    montarClient({
+      user: { id: DONO },
+      match: partidaAberta({ posicao: null }),
+      torneio: { id: TORNEIO },
+      matchUpdateData: [],
+    })
+    const r = await marcarWoDuplo(MATCH)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/recarregue/i)
   })
 })
 

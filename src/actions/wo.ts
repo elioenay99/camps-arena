@@ -195,6 +195,108 @@ export async function marcarWO(
 }
 
 /**
+ * Declara DUPLO W.O. (ambos ausentes) numa partida ABERTA e JOGÁVEL de torneio
+ * ATIVO, FORA de chave. Espelho simétrico do W.O. simples, mas SEM vencedor:
+ * UPDATE `{wo:true, wo_duplo:true, wo_vencedor:null, 0x0, encerrada}`. Recusado
+ * em CHAVE (`posicao != null`) — a chave sempre exige um vencedor (backstop na
+ * CHECK do banco). Só capacidade ARBITRAR; não há "solicitar duplo" por técnico.
+ */
+export async function marcarWoDuplo(matchId: unknown): Promise<WoResult> {
+  const m = z.uuid().safeParse(matchId)
+  if (!m.success) {
+    return { ok: false, error: "Dados inválidos." }
+  }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+
+  const { data: match, error: fetchError } = await supabase
+    .from("matches")
+    .select("id, status, tournament_id, posicao, vaga_1, vaga_2")
+    .eq("id", m.data)
+    .maybeSingle()
+  if (fetchError) {
+    return { ok: false, error: ERRO_GENERICO_WO }
+  }
+  if (!match) {
+    return { ok: false, error: ERRO_PROPRIEDADE }
+  }
+
+  // Capacidade ARBITRAR (dono, admin ou árbitro) por PRÉ-CHECK; a RLS é o backstop.
+  if (!(await podeArbitrar(supabase, { tournamentId: match.tournament_id }))) {
+    return { ok: false, error: ERRO_PROPRIEDADE }
+  }
+
+  // Estado por FILTRO: só torneio ATIVO aceita W.O.
+  const { data: torneio, error: torneioError } = await supabase
+    .from("tournaments")
+    .select("id")
+    .eq("id", match.tournament_id)
+    .eq("status", "ativo")
+    .maybeSingle()
+  if (torneioError) {
+    return { ok: false, error: ERRO_GENERICO_WO }
+  }
+  if (!torneio) {
+    return { ok: false, error: ERRO_PROPRIEDADE }
+  }
+
+  if (match.status === "encerrada") {
+    return {
+      ok: false,
+      error: "Esta partida já está encerrada. Reabra antes de marcar W.O.",
+    }
+  }
+  // Duplo é PROIBIDO em chave (mata-mata): a chave sempre exige um vencedor.
+  if (match.posicao != null) {
+    return {
+      ok: false,
+      error: "A chave exige um vencedor; use W.O. a favor de um dos lados.",
+    }
+  }
+  // Partida JOGÁVEL: os dois lados presentes (não há duplo em bye/vaga vazia).
+  if (match.vaga_1 == null || match.vaga_2 == null) {
+    return {
+      ok: false,
+      error: "O duplo W.O. exige os dois clubes definidos na partida.",
+    }
+  }
+
+  const { data: atualizada, error: updateError } = await supabase
+    .from("matches")
+    .update({
+      wo: true,
+      wo_duplo: true,
+      wo_vencedor: null,
+      placar_1: 0,
+      placar_2: 0,
+      status: "encerrada",
+    })
+    .eq("id", m.data)
+    .neq("status", "encerrada")
+    .select("id")
+  if (updateError) {
+    return { ok: false, error: ERRO_GENERICO_WO }
+  }
+  if (!atualizada || atualizada.length === 0) {
+    return {
+      ok: false,
+      error: "A partida pode ter sido alterada. Recarregue e tente novamente.",
+    }
+  }
+
+  revalidatePath("/dashboard")
+  revalidatePath(`/dashboard/torneios/${match.tournament_id}`)
+  return { ok: true }
+}
+
+/**
  * Fecha uma rodada (botão do dono): resolve por W.O. as partidas ainda abertas
  * contra clube órfão. Varre incondicionalmente (o dono decidiu fechar);
  * partidas jogáveis abertas NÃO são tocadas. Propriedade por filtro

@@ -9,6 +9,7 @@ type VagaTecnico = { user_id: string | null } | null
 
 interface PartidaAbertaDaRodada {
   id: string
+  posicao: number | null
   vaga_1: string | null
   vaga_2: string | null
   v1: VagaTecnico
@@ -40,7 +41,7 @@ export async function varrerOrfaosDaRodada(
   const { data, error } = await supabase
     .from("matches")
     .select(
-      `id, vaga_1, vaga_2,
+      `id, posicao, vaga_1, vaga_2,
        v1:tournament_slots!matches_vaga_1_fkey ( user_id ),
        v2:tournament_slots!matches_vaga_2_fkey ( user_id )`
     )
@@ -80,6 +81,33 @@ export async function varrerOrfaosDaRodada(
       .select("id")
     if (updErr) {
       console.error("varrerOrfaosDaRodada: W.O. falhou", updErr.code ?? updErr.message)
+      continue
+    }
+    if (ok && ok.length > 0) marcadas += 1
+  }
+
+  // Órfão × órfão FORA de chave (posicao null): DUPLO W.O. automático (sem
+  // vencedor, 0x0). Em CHAVE (posicao != null) fica INTOCADO — a chave exige um
+  // vencedor; byes de chave já nascem encerrados. Mesmo gate/idempotência do XOR.
+  const duplos = comDoisLados.filter(
+    (m) => orfao1(m) && orfao2(m) && m.posicao == null
+  )
+  for (const m of duplos) {
+    const { data: ok, error: updErr } = await supabase
+      .from("matches")
+      .update({
+        wo: true,
+        wo_duplo: true,
+        wo_vencedor: null,
+        placar_1: 0,
+        placar_2: 0,
+        status: "encerrada",
+      })
+      .eq("id", m.id)
+      .neq("status", "encerrada")
+      .select("id")
+    if (updErr) {
+      console.error("varrerOrfaosDaRodada: duplo W.O. falhou", updErr.code ?? updErr.message)
       continue
     }
     if (ok && ok.length > 0) marcadas += 1

@@ -166,6 +166,7 @@ export function OpenMatchesList({
               nome2={p.nome_2}
               vagaId1={p.vagaId_1 as string}
               vagaId2={p.vagaId_2 as string}
+              permiteDuplo={p.posicao == null}
             />
           ) : null}
           {/* Editor de placar do ORGANIZADOR (modo direto → updateMatchScore).

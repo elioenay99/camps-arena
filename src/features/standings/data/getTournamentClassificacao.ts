@@ -85,6 +85,9 @@ export interface PartidaEncerrada {
   wo?: boolean
   /** Lado vencedor do W.O. (1 ou 2); null fora de W.O. */
   woVencedorLado?: 1 | 2 | null
+  /** Duplo W.O. (ambos ausentes): sem vencedor. Rotular "W.O. duplo — ambos
+   * ausentes", nunca afirmar que um lado venceu. Opcional: fixtures antigas omitem. */
+  woDuplo?: boolean
 }
 
 /** Partida ainda não encerrada — console do dono (encerrar) e contexto. */
@@ -97,6 +100,11 @@ export interface PartidaAberta {
   status: MatchStatus
   /** Rodada/fase gerada; null em partida avulsa (sem rótulo na UI). */
   rodada: number | null
+  /** Posição na chave (mata-mata); null fora de chave (liga/grupos/avulso). Gate
+   * do duplo W.O. na UI: `posicao == null` habilita "Ambos ausentes". Opcional:
+   * o fetcher sempre preenche; fixtures de teste antigas o omitem (= não-chave,
+   * seguro — a action e a CHECK são backstop se algo escapar). */
+  posicao?: number | null
   /** Perna do confronto ida-e-volta de chave (1|2); null fora dele. */
   perna: number | null
   /** Grupo da fase de grupos; null fora dela. */
@@ -228,6 +236,7 @@ interface PartidaComNomes {
   grupo: number | null
   wo: boolean
   wo_vencedor: string | null
+  wo_duplo: boolean
   liberada_em: string | null
   created_at: string
   updated_at: string
@@ -358,7 +367,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const { data: partidas, error: partidasError } = await supabase
     .from("matches")
     .select(
-      `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, wo, wo_vencedor, liberada_em, created_at, updated_at,
+      `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, wo, wo_vencedor, wo_duplo, liberada_em, created_at, updated_at,
        p1:users!matches_participante_1_fkey ( id, nome, avatar ),
        p2:users!matches_participante_2_fkey ( id, nome, avatar ),
        t1:teams!matches_time_1_fkey ( id, nome ),
@@ -397,6 +406,9 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   // motor ignora o placar 0x0 e credita só os pontos. No avulso wo é sempre
   // false (formato não recebe W.O.).
   const woVencedor = (p: PartidaComNomes) => (p.wo ? p.wo_vencedor : null)
+  // Duplo W.O. (ambos ausentes): boolean puro, não precisa re-key por slot. O
+  // motor credita derrota aos dois; sem propagar, o 0x0 viraria empate.
+  const woDuplo = (p: PartidaComNomes) => p.wo === true && p.wo_duplo === true
   // Linhas do motor: re-chaveadas pelo id cru do lado conforme o formato.
   const linhasMotor = linhasPartidas.map((p) => ({
     participante_1: ladoCru1(p),
@@ -405,6 +417,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     placar_2: p.placar_2,
     status: p.status,
     woVencedor: woVencedor(p),
+    woDuplo: woDuplo(p),
   }))
 
   // Mapa id-do-lado → nome: no avulso é o participante; no competitivo é o
@@ -551,6 +564,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
         tecnico_2: l2.tecnico,
         wo: p.wo,
         woVencedorLado: woLado(p),
+        woDuplo: woDuplo(p),
       }
     })
 
@@ -588,6 +602,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
         placar_2: p.placar_2,
         status: p.status,
         rodada: p.rodada,
+        posicao: p.posicao,
         perna: p.perna,
         grupo: p.grupo,
         // Contato da convocação: participante no avulso, técnico da vaga no
@@ -667,6 +682,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
           placar_2: p.placar_2,
           status: p.status,
           woVencedor: woVencedor(p),
+          woDuplo: woDuplo(p),
         })),
       desempate
     ).map((linha) => ({

@@ -27,6 +27,7 @@ const A = "aaaaaaaa-0000-4000-8000-000000000000"
 const B = "bbbbbbbb-0000-4000-8000-000000000000"
 const C = "cccccccc-0000-4000-8000-000000000000"
 const D = "dddddddd-0000-4000-8000-000000000000"
+const E = "eeeeeeee-0000-4000-8000-000000000000"
 
 interface PartidaInseridaGrupo {
   tournament_id: string
@@ -58,6 +59,7 @@ interface PartidaPersistida {
   status: string
   wo?: boolean
   wo_vencedor?: string | null
+  wo_duplo?: boolean
 }
 
 interface Torneio {
@@ -1058,6 +1060,42 @@ describe("gerarMataMataDosGrupos", () => {
     expect(vagas).toContain(C)
     expect(vagas).toContain(B)
     expect(vagas).not.toContain(A)
+  })
+
+  it("DUPLO W.O. na fase de grupos credita DERROTA aos dois (não empate) — muda quem classifica", async () => {
+    // Site B do censo. G1 = {A,C,E}, K=1. A×C foi DUPLO; A e C só empataram com E.
+    // Com woDuplo (derrota): A=1, C=1, E=2 ⇒ E classifica LIMPO (sem sorteio).
+    // Sem propagar (0x0 vira empate): A=2, C=2, E=2 ⇒ empate tríplice ⇒ sorteio
+    // promoveria A (1º por id). A asserção pega a regressão.
+    const { insertSpy } = montarClient({
+      user: { id: DONO },
+      torneio: torneioAtivo(),
+      partidas: [
+        jogoGrupo({
+          grupo: 1,
+          vaga_1: A,
+          vaga_2: C,
+          placar_1: 0,
+          placar_2: 0,
+          wo: true,
+          wo_duplo: true,
+          wo_vencedor: null,
+        }),
+        jogoGrupo({ grupo: 1, vaga_1: A, vaga_2: E, placar_1: 0, placar_2: 0 }),
+        jogoGrupo({ grupo: 1, vaga_1: C, vaga_2: E, placar_1: 0, placar_2: 0 }),
+        jogoGrupo({ grupo: 2, vaga_1: B, vaga_2: D, placar_1: 1, placar_2: 0 }),
+      ],
+    })
+    const r = await gerarMataMataDosGrupos(TORNEIO)
+    expect(r).toEqual({ ok: true, sorteioUsado: false })
+    const rows = insertSpy.mock.calls[0][0] as PartidaInseridaChave[]
+    expect(rows).toHaveLength(1)
+    const vagas = [rows[0].vaga_1, rows[0].vaga_2]
+    // E (2 pts, 1º de G1) e B (1º de G2) classificam; A e C (1 pt) NÃO.
+    expect(vagas).toContain(E)
+    expect(vagas).toContain(B)
+    expect(vagas).not.toContain(A)
+    expect(vagas).not.toContain(C)
   })
 
   it("empate total na linha de corte sinaliza sorteioUsado=true (chave ainda gerada)", async () => {

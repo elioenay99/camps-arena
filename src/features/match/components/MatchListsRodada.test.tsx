@@ -272,6 +272,19 @@ describe("MatchHistoryList — rótulo de W.O.", () => {
     expect(screen.getByText("2 x 1")).toBeInTheDocument()
     expect(screen.queryByText("W.O.")).toBeNull()
   })
+
+  it("DUPLO W.O.: rotula 'W.O. duplo' e anuncia 'ambos ausentes', sem afirmar vencedor", () => {
+    render(
+      <MatchHistoryList
+        partidas={[encerradaWO({ woDuplo: true, woVencedorLado: null })]}
+      />
+    )
+    // Rótulo visível "W.O. duplo".
+    expect(screen.getByText("W.O. duplo")).toBeInTheDocument()
+    // Texto acessível: ambos ausentes, sem vencedor. NUNCA "Inter venceu".
+    expect(screen.getByText(/W\.O\. duplo — ambos ausentes/)).toBeInTheDocument()
+    expect(screen.queryByText(/venceu/)).toBeNull()
+  })
 })
 
 describe("OpenMatchesList — controles de W.O. por papel", () => {

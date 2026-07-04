@@ -430,6 +430,95 @@ describe("computeStandings — W.O. (walkover)", () => {
   })
 })
 
+/** Duplo W.O. encerrado: placar 0x0, sem vencedor, ambos ausentes. */
+function duplo(participante_1: string, participante_2: string): PartidaClassificavel {
+  return {
+    participante_1,
+    participante_2,
+    placar_1: 0,
+    placar_2: 0,
+    status: "encerrada",
+    woDuplo: true,
+  }
+}
+
+describe("computeStandings — duplo W.O. (ambos ausentes)", () => {
+  it("é DUPLA DERROTA 0x0: os dois somam derrota, sem gols, contando 1 jogo", () => {
+    const r = computeStandings(CBF, [duplo("a", "b")])
+    for (const id of ["a", "b"]) {
+      expect(r.find((l) => l.participanteId === id)!).toMatchObject({
+        pontos: 0,
+        vitorias: 0,
+        empates: 0,
+        derrotas: 1,
+        jogos: 1, // jogos = V+E+D conta o duplo
+        golsPro: 0,
+        golsContra: 0,
+        saldo: 0,
+      })
+    }
+  })
+
+  it("credita os PONTOS de derrota do torneio aos dois (regra custom 3/1/1)", () => {
+    const r = computeStandings({ vitoria: 3, empate: 1, derrota: 1 }, [duplo("a", "b")])
+    expect(r.find((l) => l.participanteId === "a")!.pontos).toBe(1)
+    expect(r.find((l) => l.participanteId === "b")!.pontos).toBe(1)
+  })
+
+  it("NÃO é empate: mesmo 0x0, o duplo dá 0 (derrota), não 1 (empate) em CBF", () => {
+    // Sem o ramo do duplo, o 0x0 (woVencedor nulo) cairia no ramo de placar e
+    // viraria EMPATE (1 pt cada). Aqui é DERROTA para os dois.
+    const empate = computeStandings(CBF, [partida("a", "b", 0, 0)])
+    const dup = computeStandings(CBF, [duplo("a", "b")])
+    expect(empate.find((l) => l.participanteId === "a")!.pontos).toBe(1)
+    const aDup = dup.find((l) => l.participanteId === "a")!
+    expect(aDup.pontos).toBe(0)
+    expect(aDup.empates).toBe(0)
+    expect(aDup.derrotas).toBe(1)
+  })
+
+  it("confronto direto (cbf): um duplo entre dois empatados os mantém EMPATADOS", () => {
+    // a e b idênticos objetivamente (cada um vence c por 1x0); a única diferença
+    // possível seria o confronto direto — que foi um DUPLO (ninguém venceu).
+    const r = computeStandings(CBF, [
+      partida("a", "c", 1, 0),
+      partida("b", "c", 1, 0),
+      duplo("a", "b"),
+    ])
+    const pos = (id: string) => r.find((l) => l.participanteId === id)!.posicao
+    expect(pos("a")).toBe(pos("b")) // dividem a posição (o 0x0 não deu vitória)
+  })
+
+  it("mini-tabela (espanhol) reusa aplicarPartida: duplo credita derrota, não empate", () => {
+    // a,b,c empatam em PONTOS (7 cada). Na mini-tabela: a×b foi DUPLO (0 aos
+    // dois), e c empatou com a E com b (1 ponto de mini em cada) → c soma 2 na
+    // mini e fica À FRENTE de a/b (que somam 1). Se o duplo virasse EMPATE, a e
+    // b somariam 2 também e o critério cairia no saldo GLOBAL, onde c (menor
+    // saldo) afundaria — a asserção `c à frente` pegaria a regressão.
+    const r = computeStandings(
+      CBF,
+      [
+        // Externos (fora do trio) — todos os três chegam a 7 pontos.
+        partida("a", "d", 1, 0),
+        partida("a", "e", 1, 0), // a: +6 externo
+        partida("b", "d", 1, 0),
+        partida("b", "f", 1, 0), // b: +6 externo
+        partida("c", "d", 1, 0),
+        partida("c", "e", 0, 0),
+        partida("c", "f", 0, 0), // c: +5 externo
+        // Trio empatado:
+        duplo("a", "b"),
+        partida("a", "c", 0, 0),
+        partida("b", "c", 0, 0),
+      ],
+      "espanhol"
+    )
+    const pos = (id: string) => r.find((l) => l.participanteId === id)!.posicao
+    expect(pos("c")).toBeLessThan(pos("a"))
+    expect(pos("c")).toBeLessThan(pos("b"))
+  })
+})
+
 describe("computeStandings — mini-tabela (espanhol/fifa, Fase 5)", () => {
   /**
    * Trio a/b/c empatado em PONTOS (7 cada). Mini-tabela (jogos entre eles):

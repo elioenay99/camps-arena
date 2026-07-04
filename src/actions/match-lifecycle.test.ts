@@ -218,7 +218,7 @@ describe("reabrirPartida", () => {
     const { updateSpy } = montarClient(cenarioFeliz("encerrada"))
     const r = await reabrirPartida(PARTIDA)
     expect(r).toEqual({ ok: true })
-    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento", wo: false, wo_vencedor: null })
+    expect(updateSpy).toHaveBeenCalledWith({ status: "em_andamento", wo: false, wo_vencedor: null, wo_duplo: false })
   })
 
   it("reabrir aplica a GUARDA otimista .eq(status, encerrada) no UPDATE", async () => {

@@ -180,6 +180,7 @@ export interface Database {
           grupo: number | null
           wo: boolean
           wo_vencedor: string | null
+          wo_duplo: boolean
           liberada_em: string | null
           created_at: string
           updated_at: string
@@ -202,6 +203,7 @@ export interface Database {
           grupo?: number | null
           wo?: boolean
           wo_vencedor?: string | null
+          wo_duplo?: boolean
           liberada_em?: string | null
           created_at?: string
           updated_at?: string
@@ -224,6 +226,7 @@ export interface Database {
           grupo?: number | null
           wo?: boolean
           wo_vencedor?: string | null
+          wo_duplo?: boolean
           liberada_em?: string | null
           created_at?: string
           updated_at?: string

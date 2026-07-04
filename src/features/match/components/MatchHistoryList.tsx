@@ -47,7 +47,7 @@ export function MatchHistoryList({
           </span>
           {p.wo ? (
             <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold tracking-wide uppercase">
-              W.O.
+              {p.woDuplo ? "W.O. duplo" : "W.O."}
             </span>
           ) : (
             <span className="shrink-0 font-display font-semibold tabular-nums">
@@ -60,7 +60,7 @@ export function MatchHistoryList({
         </span>
         <span className="sr-only">
           {p.wo
-            ? `${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}: ` : ""}W.O. — ${p.woVencedorLado === 1 ? p.nome_1 : p.nome_2} venceu`
+            ? `${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}: ` : ""}${p.woDuplo ? `W.O. duplo — ambos ausentes, sem vencedor (${p.nome_1} e ${p.nome_2})` : `W.O. — ${p.woVencedorLado === 1 ? p.nome_1 : p.nome_2} venceu`}`
             : `${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}${p.perna !== null ? ` (${p.perna === 1 ? "ida" : "volta"})` : ""}: ` : ""}Placar final: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2}`}
         </span>
         <span className="flex shrink-0 items-center gap-3">

@@ -1237,7 +1237,7 @@ export async function encerrarEdicaoCopa(cupSeasonId: unknown): Promise<CupResul
   const { data: matches, error: matchesError } = await supabase
     .from("matches")
     .select(
-      "rodada, posicao, perna, vaga_1, vaga_2, placar_1, placar_2, status, grupo, wo, wo_vencedor"
+      "rodada, posicao, perna, vaga_1, vaga_2, placar_1, placar_2, status, grupo, wo, wo_vencedor, wo_duplo"
     )
     .eq("tournament_id", edicao.tournamentId)
   if (matchesError) {
@@ -1335,6 +1335,7 @@ function computarEliminadosGrupos(
     status: import("@/lib/supabase/database.types").MatchStatus
     wo: boolean
     wo_vencedor: string | null
+    wo_duplo: boolean
   }>,
   slots: SlotEdicao[],
   naChave: Set<string>
@@ -1354,6 +1355,7 @@ function computarEliminadosGrupos(
       placar_2: m.placar_2,
       status: m.status,
       woVencedor: m.wo ? m.wo_vencedor : null,
+      woDuplo: m.wo === true && m.wo_duplo === true,
     })
     grupos.set(m.grupo, lista)
   }

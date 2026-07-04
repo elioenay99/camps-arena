@@ -1296,7 +1296,7 @@ export async function gerarMataMataDosGrupos(
   const { data: partidasRaw, error: partidasError } = await supabase
     .from("matches")
     .select(
-      "grupo, rodada, posicao, vaga_1, vaga_2, placar_1, placar_2, status, wo, wo_vencedor"
+      "grupo, rodada, posicao, vaga_1, vaga_2, placar_1, placar_2, status, wo, wo_vencedor, wo_duplo"
     )
     .eq("tournament_id", parsed.data)
     .not("rodada", "is", null)
@@ -1316,6 +1316,8 @@ export async function gerarMataMataDosGrupos(
     // W.O. = vitória só nos pontos, zero gols (motor `computeStandings`); sem
     // isto o 0x0 conta como EMPATE e classifica o clube errado na promoção.
     woVencedor: p.wo ? p.wo_vencedor : null,
+    // Duplo W.O.: derrota aos dois (fora de chave); sem propagar viraria empate.
+    woDuplo: p.wo === true && p.wo_duplo === true,
   }))
 
   const deGrupos = partidas.filter(

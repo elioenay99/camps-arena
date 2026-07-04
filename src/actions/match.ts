@@ -521,11 +521,18 @@ async function mudarStatusComoDono(
   // Reabrir LIMPA o W.O. (a partida volta a aberta sem marca; o placar 0x0 é
   // descartável). Idempotente para partidas normais. O lock_match_lifecycle
   // permite a mudança de wo aqui porque o status SAI de encerrada.
-  const patch: { status: "encerrada" | "em_andamento"; wo?: boolean; wo_vencedor?: null } =
-    { status: opts.novoStatus }
+  const patch: {
+    status: "encerrada" | "em_andamento"
+    wo?: boolean
+    wo_vencedor?: null
+    wo_duplo?: boolean
+  } = { status: opts.novoStatus }
   if (opts.novoStatus === "em_andamento") {
     patch.wo = false
     patch.wo_vencedor = null
+    // Duplo W.O. também é limpo — senão a CHECK (ramo fora de W.O., wo_duplo
+    // falso) barraria a reabertura de uma partida que era duplo.
+    patch.wo_duplo = false
   }
 
   // `.select()` confirma a escrita E uma GUARDA OTIMISTA de status no WHERE

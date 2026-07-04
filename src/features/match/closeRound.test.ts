@@ -6,6 +6,7 @@ const TORNEIO = "11111111-1111-4111-8111-111111111111"
 
 interface PartidaRow {
   id: string
+  posicao: number | null
   vaga_1: string | null
   vaga_2: string | null
   v1: { user_id: string | null } | null
@@ -62,9 +63,10 @@ function montarClient(c: Cenario) {
   return client
 }
 
-// Atalhos de partida.
+// Atalhos de partida (posicao null = FORA de chave = liga/grupos).
 const orfaoXtecnico = (id: string): PartidaRow => ({
   id,
+  posicao: null,
   vaga_1: `${id}-s1`,
   vaga_2: `${id}-s2`,
   v1: { user_id: null }, // órfão
@@ -72,6 +74,7 @@ const orfaoXtecnico = (id: string): PartidaRow => ({
 })
 const tecnicoXorfao = (id: string): PartidaRow => ({
   id,
+  posicao: null,
   vaga_1: `${id}-s1`,
   vaga_2: `${id}-s2`,
   v1: { user_id: "tec" },
@@ -79,6 +82,7 @@ const tecnicoXorfao = (id: string): PartidaRow => ({
 })
 const jogavel = (id: string): PartidaRow => ({
   id,
+  posicao: null,
   vaga_1: `${id}-s1`,
   vaga_2: `${id}-s2`,
   v1: { user_id: "t1" },
@@ -86,6 +90,16 @@ const jogavel = (id: string): PartidaRow => ({
 })
 const orfaoXorfao = (id: string): PartidaRow => ({
   id,
+  posicao: null,
+  vaga_1: `${id}-s1`,
+  vaga_2: `${id}-s2`,
+  v1: { user_id: null },
+  v2: { user_id: null },
+})
+// Órfão × órfão EM chave (posicao não nula): duplo é PROIBIDO — fica intocado.
+const orfaoXorfaoChave = (id: string): PartidaRow => ({
+  id,
+  posicao: 1,
   vaga_1: `${id}-s1`,
   vaga_2: `${id}-s2`,
   v1: { user_id: null },
@@ -125,8 +139,23 @@ describe("varrerOrfaosDaRodada", () => {
     expect(client.updateSpy).not.toHaveBeenCalled()
   })
 
-  it("NÃO toca órfão×órfão (ninguém venceria)", async () => {
+  it("órfão×órfão FORA de chave vira DUPLO W.O. (sem vencedor, 0x0)", async () => {
     const client = montarClient({ abertas: [orfaoXorfao("m1")] })
+    const r = await varrerOrfaosDaRodada(client as never, TORNEIO, 1)
+    expect(r.marcadas).toBe(1)
+    expect(client.updateSpy).toHaveBeenCalledWith({
+      wo: true,
+      wo_duplo: true,
+      wo_vencedor: null,
+      placar_1: 0,
+      placar_2: 0,
+      status: "encerrada",
+    })
+    expect(client.updateFiltroSpy).toHaveBeenCalledWith("eq", "id", "m1")
+  })
+
+  it("órfão×órfão EM chave (posicao != null) NÃO é tocado (a chave exige vencedor)", async () => {
+    const client = montarClient({ abertas: [orfaoXorfaoChave("m1")] })
     const r = await varrerOrfaosDaRodada(client as never, TORNEIO, 1)
     expect(r.marcadas).toBe(0)
     expect(client.updateSpy).not.toHaveBeenCalled()
@@ -135,6 +164,7 @@ describe("varrerOrfaosDaRodada", () => {
   it("bye (vaga_2 null) não é tocado", async () => {
     const bye: PartidaRow = {
       id: "m1",
+      posicao: null,
       vaga_1: "s1",
       vaga_2: null,
       v1: { user_id: "tec" },
@@ -164,9 +194,9 @@ describe("varrerOrfaosDaRodada", () => {
     const r = await varrerOrfaosDaRodada(client as never, TORNEIO, 1, {
       somenteSeRodadaCompleta: true,
     })
-    // m1 vira W.O.; m2 (órfão×órfão) fica.
-    expect(r.marcadas).toBe(1)
-    expect(client.updateSpy).toHaveBeenCalledTimes(1)
+    // m1 vira W.O. simples; m2 (órfão×órfão fora de chave) vira DUPLO W.O.
+    expect(r.marcadas).toBe(2)
+    expect(client.updateSpy).toHaveBeenCalledTimes(2)
   })
 
   it("manual (sem flag): varre órfãs mesmo com jogável aberta", async () => {

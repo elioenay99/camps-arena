@@ -32,6 +32,7 @@ type Partida = {
   status: string
   wo: boolean
   wo_vencedor: string | null
+  wo_duplo?: boolean
 }
 
 const torneios = (apStatus = "ativo", clStatus = "ativo"): Torneio[] => [
@@ -79,6 +80,17 @@ const wo = (t: string, v1: string, v2: string, vencedor: string): Partida => ({
   status: "encerrada",
   wo: true,
   wo_vencedor: vencedor,
+})
+const duplo = (t: string, v1: string, v2: string): Partida => ({
+  tournament_id: t,
+  vaga_1: v1,
+  vaga_2: v2,
+  placar_1: 0,
+  placar_2: 0,
+  status: "encerrada",
+  wo: true,
+  wo_vencedor: null,
+  wo_duplo: true,
 })
 
 function fakeSupabase(opts: {
@@ -239,6 +251,39 @@ describe("getDivisionClassificacaoCombinada (Fase 5.1)", () => {
     expect(linhaDe(r!.linhas, "B").pontos).toBe(0)
     expect(linhaDe(r!.linhas, "C").pontos).toBe(3)
     expect(linhaDe(r!.linhas, "D").pontos).toBe(0)
+  })
+
+  it("DUPLO W.O. na divisão: dupla derrota (0 pts, +1 jogo) — base do promédio e do sobe/desce", async () => {
+    // Site D do censo. Sem propagar woDuplo, o 0x0 viraria EMPATE (1 pt cada) e o
+    // promédio (pontos/jogos) NÃO cairia. Aqui os dois levam DERROTA: 0 pt, +1
+    // jogo → promédio de ambos diminui e a posição de corte muda.
+    const r = await getDivisionClassificacaoCombinada(
+      fakeSupabase({
+        tournaments: torneios(),
+        slots: [apSlot("A", "Alpha"), apSlot("B", "Beta"), clSlot("A"), clSlot("B")],
+        matches: [duplo("ap", "apS-A", "apS-B")],
+      }),
+      { aperturaId: "ap", clausuraId: "cl", desempate: "cbf" }
+    )
+    const a = linhaDe(r!.linhas, "A")
+    const b = linhaDe(r!.linhas, "B")
+    expect(a).toMatchObject({ pontos: 0, jogos: 1, derrotas: 1, empates: 0 })
+    expect(b).toMatchObject({ pontos: 0, jogos: 1, derrotas: 1, empates: 0 })
+  })
+
+  it("DUPLO W.O. re-chaveado da Clausura sobrevive (boolean não passa por re-key)", async () => {
+    // O duplo na Clausura tem os lados re-chaveados p/ o slot da Apertura; o
+    // woDuplo (boolean) é repassado sem re-key e ainda credita derrota aos dois.
+    const r = await getDivisionClassificacaoCombinada(
+      fakeSupabase({
+        tournaments: torneios(),
+        slots: [apSlot("A", "Alpha"), apSlot("B", "Beta"), clSlot("A"), clSlot("B")],
+        matches: [duplo("cl", "clS-A", "clS-B")],
+      }),
+      { aperturaId: "ap", clausuraId: "cl", desempate: "cbf" }
+    )
+    expect(linhaDe(r!.linhas, "A")).toMatchObject({ pontos: 0, jogos: 1, derrotas: 1 })
+    expect(linhaDe(r!.linhas, "B")).toMatchObject({ pontos: 0, jogos: 1, derrotas: 1 })
   })
 
   it("não-regressão: Clausura sem partidas ⇒ combinada == Apertura sozinha", async () => {

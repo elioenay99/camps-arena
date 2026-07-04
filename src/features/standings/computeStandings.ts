@@ -22,6 +22,13 @@ export interface PartidaClassificavel {
    * normal).
    */
   woVencedor?: string | null
+  /**
+   * Duplo W.O. (ambos ausentes): quando true, o motor credita DERROTA aos DOIS
+   * lados (pontos de derrota, sem gols/saldo), espelho simétrico do W.O. simples
+   * — nunca empate pelo 0x0. Mutuamente exclusivo com `woVencedor` (o duplo não
+   * tem vencedor). Opcional: fixtures sem duplo omitem (= false).
+   */
+  woDuplo?: boolean
 }
 
 export interface LinhaClassificacao {
@@ -149,6 +156,16 @@ function aplicarPartida(
   p: PartidaElegivel,
   regras: RegrasPontuacao
 ): void {
+  // Duplo W.O.: os DOIS levam derrota (pontos de derrota), 0 gols. ANTES do ramo
+  // de placar — senão o 0x0 cairia em empate. Mutuamente exclusivo com woVencedor.
+  if (p.woDuplo) {
+    lado1.derrotas += 1
+    lado1.pontos += regras.derrota
+    lado2.derrotas += 1
+    lado2.pontos += regras.derrota
+    return // não toca golsPro/golsContra
+  }
+
   if (p.woVencedor != null) {
     const vencedor = p.woVencedor === p.participante_1 ? lado1 : lado2
     const perdedor = vencedor === lado1 ? lado2 : lado1
@@ -331,6 +348,12 @@ export function computeStandings(
         (p.participante_1 === eu && p.participante_2 === rival) ||
         (p.participante_1 === rival && p.participante_2 === eu)
       if (!direto) continue
+      // Duplo W.O. entre os dois: DERROTA para ambos — o 0x0 contaria como empate
+      // e contradiria a dupla derrota (nenhum venceu o confronto).
+      if (p.woDuplo) {
+        pontos += regras.derrota
+        continue
+      }
       // W.O. entre os dois: vitória/derrota pelo vencedor explícito — o 0x0
       // contaria como empate e contradiria a vitória nos pontos.
       if (p.woVencedor != null) {

@@ -432,22 +432,42 @@ alter table public.matches
 alter table public.matches
   add column if not exists wo_vencedor uuid
     references public.tournament_slots (id) on delete restrict;
+-- W.O. de AMBOS ausentes ("duplo W.O."): partida ENCERRADA 0x0 SEM vencedor.
+-- Só ocorre FORA de chave (liga/grupos/avulso, posicao nula) — a chave sempre
+-- exige um vencedor. Aditivo, sem backfill: legado nasce false (ramos 1 e 2 da
+-- CHECK exigem wo_duplo = false).
+alter table public.matches
+  add column if not exists wo_duplo boolean not null default false;
 
--- Coerência do W.O.: fora dele, wo_vencedor é nulo; nele, partida ENCERRADA,
--- vencedor não-nulo, placar zerado e o vencedor é UM DOS LADOS (vaga). O
--- `status = 'encerrada'` fecha o POST direto de um participante gravando
+-- Coerência do W.O. em TRÊS formas mutuamente exclusivas:
+--   1) fora de W.O.: wo_vencedor nulo e wo_duplo falso;
+--   2) W.O. simples (um lado ausente): partida ENCERRADA, wo_duplo falso,
+--      vencedor não-nulo e igual a UM DOS LADOS (vaga), placar zerado;
+--   3) duplo W.O. (ambos ausentes): partida ENCERRADA, wo_duplo verdadeiro,
+--      SEM vencedor, placar zerado, NÃO é chave (posicao nula) e os dois lados
+--      presentes (vaga_1/vaga_2 não nulos). O `posicao is null` é o BACKSTOP
+--      contra duplo em chave por POST direto; o `vaga_* is not null` é defesa
+--      em profundidade (a action já exige ambos os lados — sem duplo em bye).
+-- O `status = 'encerrada'` fecha o POST direto de um participante gravando
 -- wo=true numa partida AINDA aberta (a RLS matches_update_participant permite
 -- o UPDATE da linha; o lock_match_lifecycle só trava wo em encerrada→encerrada,
--- não em aberta). marcarWO/varredura setam wo E status no mesmo statement, e a
--- reabertura limpa wo=false — ambos satisfazem a CHECK.
+-- não em aberta). marcarWO/marcarWoDuplo/varredura setam wo E status no mesmo
+-- statement, e a reabertura limpa wo=false, wo_duplo=false — todos satisfazem a
+-- CHECK.
 alter table public.matches drop constraint if exists matches_wo_coerente;
 alter table public.matches
   add constraint matches_wo_coerente
   check (
-    (wo = false and wo_vencedor is null)
-    or (wo = true and status = 'encerrada' and wo_vencedor is not null
+    (wo = false and wo_vencedor is null and wo_duplo = false)
+    or (wo = true and wo_duplo = false and status = 'encerrada'
+        and wo_vencedor is not null
         and placar_1 = 0 and placar_2 = 0
         and (wo_vencedor = vaga_1 or wo_vencedor = vaga_2))
+    or (wo = true and wo_duplo = true and status = 'encerrada'
+        and wo_vencedor is null
+        and placar_1 = 0 and placar_2 = 0
+        and posicao is null
+        and vaga_1 is not null and vaga_2 is not null)
   );
 
 create index if not exists matches_wo_vencedor_idx on public.matches (wo_vencedor);
@@ -592,7 +612,8 @@ begin
             or new.time_1 is distinct from old.time_1
             or new.time_2 is distinct from old.time_2
             or new.wo is distinct from old.wo
-            or new.wo_vencedor is distinct from old.wo_vencedor)
+            or new.wo_vencedor is distinct from old.wo_vencedor
+            or new.wo_duplo is distinct from old.wo_duplo)
     then
       raise exception 'Partida encerrada não aceita alteração de placar, clube ou W.O.';
     end if;
