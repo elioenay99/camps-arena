@@ -410,14 +410,6 @@
     opacity: 0.15;
     animation: hs-cheer 5.5s ease-in-out infinite;
   }
-  /* Troca do ranking no gol: o time que sai (out) some, o que sobe (in) entra. */
-  .hs-rank-out {
-    animation: hs-rank-out 5.5s ease-in-out infinite;
-  }
-  .hs-rank-in {
-    opacity: 0;
-    animation: hs-rank-in 5.5s ease-in-out infinite;
-  }
 }
 
 @keyframes hs-score-a {
@@ -458,19 +450,6 @@
   52% { opacity: 0.55; }
   72%, 100% { opacity: 0.15; }
 }
-@keyframes hs-rank-out {
-  0%, 46% { opacity: 1; transform: translateY(0); }
-  52% { opacity: 0; transform: translateY(-6px); }
-  89% { opacity: 0; transform: translateY(-6px); }
-  95%, 100% { opacity: 1; transform: translateY(0); }
-}
-@keyframes hs-rank-in {
-  0%, 46% { opacity: 0; transform: translateY(6px); }
-  52% { opacity: 1; transform: translateY(0); }
-  89% { opacity: 1; transform: translateY(0); }
-  95%, 100% { opacity: 0; transform: translateY(6px); }
-}
-
 /* Bola rola do gramado (perto) até o gol (fundo, menor), comemora e reinicia. */
 @keyframes hs-roll {
   0% { transform: translate(200px, 250px) scale(1); opacity: 1; }
@@ -580,9 +559,7 @@
   .hs-beam,
   .ball-bounce,
   .hs-confetti,
-  .hs-cheer,
-  .hs-rank-out,
-  .hs-rank-in {
+  .hs-cheer {
     animation: none;
   }
   /* Escudo da marca: aparece desenhado por completo e parado. */

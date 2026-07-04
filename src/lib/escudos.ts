@@ -1,3 +1,4 @@
+import { env } from "@/lib/env"
 import type { createClient } from "@/lib/supabase/server"
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>
@@ -14,6 +15,19 @@ type ServerClient = Awaited<ReturnType<typeof createClient>>
  * `public.teams`). Ver `supabase/schema.sql`.
  */
 export const ESCUDOS_BUCKET = "escudos"
+
+/**
+ * URL pública do escudo já rehospedado, derivada por `external_id`. Monta o mesmo
+ * caminho determinístico de `rehospedarEscudo` (`escudos/<external_id>.png`), mas a
+ * partir de `NEXT_PUBLIC_SUPABASE_URL` — assim o host bate SEMPRE com o
+ * `remotePatterns`/CSP do `next.config.ts` (que derivam do mesmo env), em prod ou
+ * dev local. Útil para referenciar escudos conhecidos sem ida ao banco (ex.: vitrine
+ * da landing).
+ */
+export function escudoPublicUrl(externalId: string | number): string {
+  const base = env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/$/, "")
+  return `${base}/storage/v1/object/public/${ESCUDOS_BUCKET}/${externalId}.png`
+}
 
 /** Timeout do download do escudo de origem (espelha `searchTeams`). */
 const DOWNLOAD_TIMEOUT_MS = 8000

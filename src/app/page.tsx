@@ -5,6 +5,7 @@ import { Trophy, Swords, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { GoliseuMark } from "@/components/goliseu-mark";
 import { HeroStadium } from "@/components/hero-stadium";
+import { LandingShowcase } from "@/features/landing/components/LandingShowcase";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -109,95 +110,7 @@ export default async function Home() {
           <HeroStadium className="w-full max-w-xl" />
         </section>
 
-        <section
-          aria-hidden="true"
-          className="animate-rise flex justify-center"
-          style={{ "--stagger": "270ms" } as React.CSSProperties}
-        >
-          <span className="sr-only">
-            Exemplo de classificação e placar ao vivo
-          </span>
-          <div className="glow-primary w-full max-w-md rounded-2xl border bg-card/60 p-5 backdrop-blur-sm">
-            <div className="flex items-center justify-between">
-              <p className="font-display text-sm font-medium">
-                Copa dos Amigos
-              </p>
-              <span className="rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                Liga
-              </span>
-            </div>
-
-            {/* Classificação sincronizada com o gol do SVG (HeroStadium): Palmeiras
-                lidera, e quando a bola entra lá em cima o Flamengo sobe pro 1º
-                (troféu) e o placar do jogo vira 1→2 — mesmos times/narrativa do
-                SVG, no mesmo loop de 5.5s. Ao mudar nomes/placar, ajuste os DOIS. */}
-            <ul className="mt-4 flex flex-col gap-1">
-              <li className="trophy-sheen flex items-center gap-3 rounded-md border border-gold/30 bg-gold/10 px-3 py-2">
-                <span className="font-display w-6 text-sm font-bold tabular-nums text-gold-ink">
-                  1º
-                </span>
-                <Trophy className="size-4 shrink-0 text-gold-ink" />
-                <ValorQueTroca
-                  sai="Palmeiras"
-                  entra="Flamengo"
-                  wrapperClassName="min-w-0 flex-1"
-                  className="truncate text-sm font-medium"
-                />
-                {/* Empate provisório (1×1) → vitória do Flamengo (2×1): 19 → 21. */}
-                <ValorQueTroca
-                  sai="19"
-                  entra="21"
-                  className="font-display text-sm font-bold tabular-nums"
-                />
-              </li>
-              <li className="flex items-center gap-3 rounded-md px-3 py-2">
-                <span className="font-display w-6 text-sm font-bold tabular-nums text-muted-foreground">
-                  2º
-                </span>
-                <span className="size-4 shrink-0" />
-                <ValorQueTroca
-                  sai="Flamengo"
-                  entra="Palmeiras"
-                  wrapperClassName="min-w-0 flex-1"
-                  className="truncate text-sm font-medium"
-                />
-                {/* Empate provisório (1×1) → derrota do Palmeiras (2×1): 19 → 18. */}
-                <ValorQueTroca
-                  sai="19"
-                  entra="18"
-                  className="font-display text-sm font-bold tabular-nums"
-                />
-              </li>
-              <li className="flex items-center gap-3 rounded-md px-3 py-2">
-                <span className="font-display w-6 text-sm font-bold tabular-nums text-muted-foreground">
-                  3º
-                </span>
-                <span className="size-4 shrink-0" />
-                <span className="flex-1 truncate text-sm font-medium">Fluminense</span>
-                <span className="font-display text-sm font-bold tabular-nums">13</span>
-              </li>
-            </ul>
-
-            <div className="mt-4 flex items-center gap-2 border-t pt-4 text-sm">
-              <span className="font-medium">Flamengo</span>
-              {/* Placar muda junto com o do SVG (1 → 2). */}
-              <span className="grid font-display font-bold tabular-nums">
-                <span className="hs-score-a col-start-1 row-start-1 text-center">1</span>
-                <span className="hs-score-b col-start-1 row-start-1 text-center">2</span>
-              </span>
-              <span className="text-xs text-muted-foreground">×</span>
-              <span className="font-display font-bold tabular-nums">1</span>
-              <span className="font-medium">Palmeiras</span>
-              <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="relative flex size-2">
-                  <span className="absolute inline-flex size-full rounded-full bg-primary opacity-75 motion-safe:animate-ping" />
-                  <span className="relative inline-flex size-2 rounded-full bg-primary" />
-                </span>
-                em andamento
-              </span>
-            </div>
-          </div>
-        </section>
+        <LandingShowcase />
 
         <section
           aria-label="Destaques do produto"
@@ -233,32 +146,5 @@ export default async function Home() {
         </footer>
       </main>
     </div>
-  );
-}
-
-/**
- * Valor (nome OU pontos) que TROCA no gol, sincronizado com o SVG: o que sai some
- * sutilmente e o que entra desliza para dentro. Os dois ficam empilhados na MESMA
- * célula de grid (sem position absoluto) — a célula dimensiona pelo maior. Sob
- * `prefers-reduced-motion` as classes hs-rank-* param: o estado base mostra só o
- * "sai" (classificação inicial: Palmeiras 1º com 19, Flamengo 2º com 19).
- */
-function ValorQueTroca({
-  sai,
-  entra,
-  className,
-  wrapperClassName,
-}: {
-  sai: string;
-  entra: string;
-  className?: string;
-  wrapperClassName?: string;
-}) {
-  const item = `col-start-1 row-start-1${className ? ` ${className}` : ""}`;
-  return (
-    <span className={`grid${wrapperClassName ? ` ${wrapperClassName}` : ""}`}>
-      <span className={`hs-rank-out ${item}`}>{sai}</span>
-      <span className={`hs-rank-in ${item}`}>{entra}</span>
-    </span>
   );
 }
