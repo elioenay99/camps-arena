@@ -1,0 +1,27 @@
+# Mantem as GitHub Actions (pinadas por SHA) e as dependencias npm atualizadas
+# automaticamente. O Dependabot abre PRs bumpando o SHA/versao — os gates do CI
+# (quality/build/audit/schema) validam cada bump antes do merge.
+version: 2
+updates:
+  # Actions do workflow: sobe o SHA pinado quando sai release nova, preservando
+  # o pin por commit (o Dependabot reescreve `@<sha> # vX.Y.Z`).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+
+  # Dependencias npm (via pnpm-lock.yaml). Agrupa patches/minors para reduzir
+  # ruido de PRs; majors vem separados para revisao manual.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
