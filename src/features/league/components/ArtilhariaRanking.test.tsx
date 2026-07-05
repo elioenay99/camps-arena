@@ -1,7 +1,16 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest"
 import { cleanup, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+// next/image → <img> simples (sem o otimizador), p/ assertir o src do escudo.
+vi.mock("next/image", () => ({
+  default: (props: { src: unknown; alt?: string; onError?: () => void }) => {
+    const src = typeof props.src === "string" ? props.src : ""
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={src} alt={props.alt ?? ""} onError={props.onError} />
+  },
+}))
 
 import { ArtilhariaRanking } from "@/features/league/components/ArtilhariaRanking"
 import type { ArtilhariaLinha } from "@/features/league/data/getArtilharia"
@@ -13,6 +22,7 @@ const linha = (over: Partial<ArtilhariaLinha>): ArtilhariaLinha => ({
   competitorNome: "Ataias",
   jogador: "Endrick",
   gols: 1,
+  escudoUrl: null,
   ...over,
 })
 
@@ -59,5 +69,23 @@ describe("ArtilhariaRanking", () => {
       "href",
       "/dashboard/ligas/competidor/c2"
     )
+  })
+
+  it("mostra o escudo real quando a linha tem escudoUrl", () => {
+    const url = "https://x/joao.png"
+    const { container } = render(
+      <ArtilhariaRanking linhas={[linha({ escudoUrl: url })]} />
+    )
+    expect(container.querySelector("img")).toHaveAttribute("src", url)
+  })
+
+  it("cai no monograma quando escudoUrl é null (competidor por-nome/avulso)", () => {
+    const { container } = render(
+      <ArtilhariaRanking
+        linhas={[linha({ competitorNome: "Ataias", escudoUrl: null })]}
+      />
+    )
+    expect(container.querySelector("img")).toBeNull()
+    expect(screen.getByText("A")).toBeInTheDocument()
   })
 })

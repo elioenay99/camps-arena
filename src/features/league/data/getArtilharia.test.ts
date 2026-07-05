@@ -54,10 +54,22 @@ describe("getArtilharia", () => {
       },
       tournament_slots: {
         data: [
+          // Ataias por-nome (rótulo, team null) → escudoUrl null → monograma
           { id: "slotA", competitor_id: "cAtaias", rotulo: "Ataias", team: null },
           // slotB sem competidor (avulso/legado) — gols desse lado ficam de fora
-          { id: "slotB", competitor_id: null, rotulo: null, team: { nome: "Zé FC" } },
-          { id: "slotC", competitor_id: "cJoao", rotulo: null, team: { nome: "João FC" } },
+          {
+            id: "slotB",
+            competitor_id: null,
+            rotulo: null,
+            team: { nome: "Zé FC", escudo_url: "https://x/ze.png" },
+          },
+          // João FC com escudo real → escudoUrl propagado até a linha
+          {
+            id: "slotC",
+            competitor_id: "cJoao",
+            rotulo: null,
+            team: { nome: "João FC", escudo_url: "https://x/joao.png" },
+          },
         ],
       },
       match_goals: {
@@ -74,9 +86,29 @@ describe("getArtilharia", () => {
     const r = await getArtilharia(client, { tournamentIds: [T] })
     expect(r).toEqual([
       // "Endrick"(2)+"endrick"(2): grafia exibida = menor por localeCompare.
-      { competitorId: "cAtaias", competitorNome: "Ataias", jogador: "endrick", gols: 4 },
-      { competitorId: "cAtaias", competitorNome: "Ataias", jogador: "Vini", gols: 3 },
-      { competitorId: "cJoao", competitorNome: "João FC", jogador: "Endrick", gols: 1 },
+      // Ataias é por-nome (team null) → escudoUrl null (cai no monograma).
+      {
+        competitorId: "cAtaias",
+        competitorNome: "Ataias",
+        jogador: "endrick",
+        gols: 4,
+        escudoUrl: null,
+      },
+      {
+        competitorId: "cAtaias",
+        competitorNome: "Ataias",
+        jogador: "Vini",
+        gols: 3,
+        escudoUrl: null,
+      },
+      // João FC tem clube com escudo → escudoUrl propagado do slot.
+      {
+        competitorId: "cJoao",
+        competitorNome: "João FC",
+        jogador: "Endrick",
+        gols: 1,
+        escudoUrl: "https://x/joao.png",
+      },
     ])
   })
 

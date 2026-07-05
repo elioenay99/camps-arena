@@ -10,8 +10,9 @@ import { TeamCrest } from "@/features/team/components/TeamCrest"
  * nome, com link para a página do competidor), autor e total de gols. RSC puro —
  * só renderiza os dados já agregados/ordenados por `getArtilharia`.
  *
- * `linhas` já vem ordenada por gols desc. Vazia → estado limpo. Sem escudo real
- * no shape: o `TeamCrest` cai no placeholder de iniciais (cor estável por nome).
+ * `linhas` já vem ordenada por gols desc. Vazia → estado limpo. Cada linha traz
+ * o escudo real do clube do competidor (`escudoUrl`); competidor por-nome/avulso
+ * (`escudoUrl` null) cai no placeholder de iniciais do `TeamCrest`.
  */
 export function ArtilhariaRanking({ linhas }: { linhas: ArtilhariaLinha[] }) {
   if (linhas.length === 0) {
@@ -44,7 +45,11 @@ export function ArtilhariaRanking({ linhas }: { linhas: ArtilhariaLinha[] }) {
           >
             {i + 1}
           </span>
-          <TeamCrest nome={linha.competitorNome} size={28} />
+          <TeamCrest
+            nome={linha.competitorNome}
+            escudoUrl={linha.escudoUrl}
+            size={28}
+          />
           <span className="flex min-w-0 flex-1 flex-col leading-tight">
             <span className="truncate font-medium">{linha.jogador}</span>
             {/* Sem prefetch: a lista pode ter dezenas de links p/ rota RSC cara
