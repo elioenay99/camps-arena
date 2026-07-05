@@ -6,6 +6,12 @@ import { createClient } from "@/lib/supabase/server";
 import { GoliseuMark } from "@/components/goliseu-mark";
 import { HeroStadium } from "@/components/hero-stadium";
 import { LandingShowcase } from "@/features/landing/components/LandingShowcase";
+import { ProfundidadeCards } from "@/features/landing/components/ProfundidadeCards";
+import { TelasAnotadas } from "@/features/landing/components/TelasAnotadas";
+import { ComoFunciona } from "@/features/landing/components/ComoFunciona";
+import { ProvaSocial } from "@/features/landing/components/ProvaSocial";
+import { Faq } from "@/features/landing/components/Faq";
+import { ConversaoCta } from "@/features/landing/components/ConversaoCta";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -83,13 +89,13 @@ export default async function Home() {
             Torneios entre amigos, nível profissional
           </span>
           <h1 className="font-display max-w-2xl text-balance text-5xl font-bold tracking-tight sm:text-6xl">
-            Seu{" "}
-            <span className="text-gradient-brand">campeonato</span> entre amigos,
-            organizado de verdade
+            Monte a sua{" "}
+            <span className="text-gradient-brand">liga nacional</span> entre amigos
           </h1>
-          <p className="max-w-md text-balance text-lg text-muted-foreground">
-            Crie torneios, registre partidas e acompanhe a classificação em
-            tempo real — sem planilha, sem discussão de placar.
+          <p className="max-w-lg text-balance text-lg text-muted-foreground">
+            Divisões, acesso e rebaixamento, temporadas e copas que duram para
+            sempre. Tudo com escudo, classificação automática — e sem planilha nem
+            discussão de placar.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <Button asChild size="lg" className="glow-primary">
@@ -140,6 +146,18 @@ export default async function Home() {
             );
           })}
         </section>
+
+        <ProfundidadeCards />
+
+        <TelasAnotadas />
+
+        <ComoFunciona />
+
+        <ProvaSocial />
+
+        <Faq />
+
+        <ConversaoCta />
 
         <footer className="mt-auto border-t pt-8 text-center text-xs text-muted-foreground">
           Dados e escudos de clubes via API-Football.
