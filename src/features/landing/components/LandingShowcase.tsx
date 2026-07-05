@@ -26,8 +26,8 @@ interface LinhaMock {
 // Série A (elite): campeão + reticências (meio da tabela) + Z4 — dá a sensação de
 // uma tabela cheia de 20 times sem listar todas as linhas.
 const SERIE_A: LinhaMock[] = [
-  { pos: 1, nome: "Palmeiras", id: 121, pontos: 68, zona: "lider" },
-  { pos: 2, nome: "Flamengo", id: 127, pontos: 64 },
+  { pos: 1, nome: "Flamengo", id: 127, pontos: 68, zona: "lider" },
+  { pos: 2, nome: "Palmeiras", id: 121, pontos: 64 },
   { pos: 3, nome: "Cruzeiro", id: 135, pontos: 61 },
   { pos: 18, nome: "Juventude", id: 152, pontos: 34, zona: "rebaixamento" },
   { pos: 19, nome: "Criciúma", id: 140, pontos: 31, zona: "rebaixamento" },
@@ -191,13 +191,13 @@ function HallDaFama() {
 
       <div className="flex items-center gap-4">
         <TeamCrest
-          nome="Cruzeiro"
-          escudoUrl={escudoPublicUrl(135)}
+          nome="Flamengo"
+          escudoUrl={escudoPublicUrl(127)}
           size={60}
           className="ring-1 ring-foreground/10"
         />
         <div className="min-w-0">
-          <p className="font-display text-2xl font-bold tracking-tight">Cruzeiro</p>
+          <p className="font-display text-2xl font-bold tracking-tight">Flamengo</p>
           <p className="text-sm text-muted-foreground">Trajetória na pirâmide</p>
         </div>
       </div>
