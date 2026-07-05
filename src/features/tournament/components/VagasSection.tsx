@@ -1,6 +1,7 @@
 import { env } from "@/lib/env"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { UserAvatar } from "@/features/profile/components/UserAvatar"
+import { Termo } from "@/features/glossario/Termo"
 import { CompartilharListaTimesButton } from "@/features/tournament/components/CompartilharListaTimesButton"
 import type { VagaDoTorneio } from "@/features/tournament/data/getVagasDoTorneio"
 import {
@@ -53,9 +54,12 @@ export function VagasSection({
   return (
     <section aria-labelledby="vagas-titulo" className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="vagas-titulo" className="font-display text-lg font-bold tracking-tight">
-          Vagas
-        </h2>
+        <div className="flex items-center gap-0.5">
+          <h2 id="vagas-titulo" className="font-display text-lg font-bold tracking-tight">
+            Vagas
+          </h2>
+          <Termo id="vaga" />
+        </div>
         {compartilhar ? (
           <CompartilharListaTimesButton
             titulo={compartilhar.titulo}

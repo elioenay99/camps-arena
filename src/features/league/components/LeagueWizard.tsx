@@ -23,6 +23,7 @@ import {
 } from "@/features/groups/gerarFaseDeGrupos"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Termo } from "@/features/glossario/Termo"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { TeamSearchInput } from "@/features/team/components/TeamSearchInput"
 import { previaLiga } from "@/features/league/gerarTabelaLiga"
@@ -1736,9 +1737,19 @@ function CartaoFronteira({
 
       {ehBarragem && (
         <>
-          {/* Estilo da barragem — espelha visualmente o de playoff (2 radios). */}
-          <fieldset className="m-0 grid gap-1.5 border-0 p-0">
-            <legend className="text-xs font-medium">Estilo da barragem</legend>
+          {/* Estilo da barragem — espelha visualmente o de playoff (2 radios).
+              O nome acessível do grupo vem do <span> rotulado (via
+              aria-labelledby), EXCLUINDO o gatilho de ajuda — senão o nome viraria
+              "Estilo da barragem O que é Barragem?". O <legend> segue filho direto
+              do <fieldset> (embrulhá-lo quebraria a associação do grupo). */}
+          <fieldset
+            className="m-0 grid gap-1.5 border-0 p-0"
+            aria-labelledby={`barragem-legend-${ns}`}
+          >
+            <legend className="inline-flex items-center gap-0.5 text-xs font-medium">
+              <span id={`barragem-legend-${ns}`}>Estilo da barragem</span>
+              <Termo id="barragem" />
+            </legend>
             <div className="grid gap-1.5 sm:grid-cols-2">
               <label
                 className={cn(

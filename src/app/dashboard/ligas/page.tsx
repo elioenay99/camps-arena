@@ -5,6 +5,7 @@ import { ChevronRight, Layers, Plus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Termo } from "@/features/glossario/Termo"
 import { SeasonStatusPill } from "@/features/league/components/SeasonStatusPill"
 import {
   getCompetitions,
@@ -87,7 +88,10 @@ function SemPiramides() {
         <Layers className="size-7" />
       </span>
       <div className="flex max-w-sm flex-col gap-1.5">
-        <h2 className="font-display text-xl font-bold">Sua primeira pirâmide</h2>
+        <div className="flex items-center justify-center gap-0.5">
+          <h2 className="font-display text-xl font-bold">Sua primeira pirâmide</h2>
+          <Termo id="piramide" />
+        </div>
         <p className="text-muted-foreground text-sm">
           Empilhe divisões com acesso e queda. A pirâmide é imortal — temporada
           após temporada, os clubes sobem e caem.

@@ -35,6 +35,17 @@ const VAGAS: VagaDoTorneio[] = [
   { id: "s2", clube: "Inter", escudoUrl: null, tecnico: null, porNome: false },
 ]
 
+/**
+ * Botões de AÇÃO da seção — exclui o gatilho de ajuda "?" ("O que é Vaga?"),
+ * que é informativo e SEMPRE presente no cabeçalho (o termo se explica a
+ * qualquer visitante). A intenção guardada é: read-only não vê nenhum CONTROLE
+ * de ação (convite/expulsar/assumir/desistir).
+ */
+const botoesDeAcao = () =>
+  screen
+    .queryAllByRole("button")
+    .filter((b) => !b.getAttribute("aria-label")?.startsWith("O que é"))
+
 function renderSection(over: Partial<Parameters<typeof VagasSection>[0]> = {}) {
   return render(
     <VagasSection
@@ -56,12 +67,21 @@ describe("VagasSection", () => {
     ).toBeInTheDocument()
   })
 
+  it("ancora o '?' de ajuda 'Vaga' no cabeçalho (visível a qualquer visitante)", () => {
+    renderSection()
+    expect(
+      screen.getByRole("button", { name: "O que é Vaga?" })
+    ).toBeInTheDocument()
+    // Não polui o nome acessível do heading "Vagas" (gatilho é IRMÃO do <h2>).
+    expect(screen.getByRole("heading", { name: "Vagas" })).toBeInTheDocument()
+  })
+
   it("visitante vê clube + técnico (ou 'vaga aberta'), sem NENHUMA ação", () => {
     renderSection()
     expect(screen.getByText("Grêmio")).toBeInTheDocument()
     expect(screen.getByText("téc. Ana")).toBeInTheDocument()
     expect(screen.getByText("vaga aberta")).toBeInTheDocument()
-    expect(screen.queryAllByRole("button")).toEqual([])
+    expect(botoesDeAcao()).toEqual([])
   })
 
   it("técnico da vaga vê 'Desistir do clube' SÓ na própria vaga, com '(você)'", () => {
@@ -111,7 +131,7 @@ describe("VagasSection", () => {
       torneioEncerrado: true,
       codigos: new Map([["s1", "aaaaaaaaaaaaaaaa"]]),
     })
-    expect(screen.queryAllByRole("button")).toEqual([])
+    expect(botoesDeAcao()).toEqual([])
     expect(screen.queryByText(/\/convite\//)).toBeNull()
   })
 })

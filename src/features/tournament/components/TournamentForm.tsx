@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { ColorField } from "@/components/ui/color-field"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Termo } from "@/features/glossario/Termo"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { TeamSearchInput } from "@/features/team/components/TeamSearchInput"
 import { FORMATO_META } from "@/features/tournament/formatoMeta"
@@ -47,34 +48,42 @@ function FormatoCard({
 }) {
   const { label, desc, Icon } = FORMATO_META[value]
   return (
-    <label
-      className={`relative flex cursor-pointer flex-col gap-2.5 rounded-xl border p-3.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-background ${
-        selecionado
-          ? "border-primary bg-primary/8 ring-1 ring-primary/40"
-          : "border-border hover:border-primary/40 hover:bg-accent/40"
-      }`}
-    >
-      <input
-        type="radio"
-        name="formato"
-        value={value}
-        checked={selecionado}
-        onChange={onSelect}
-        className="sr-only"
-      />
-      <span
-        aria-hidden="true"
-        className={`flex size-9 items-center justify-center rounded-lg transition-colors ${
-          selecionado ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+    // `relative` no wrapper: o gatilho de ajuda de "Fase de liga" fica FORA do
+    // <label> (aninhar <button> em <label> é HTML inválido e acionaria o radio),
+    // absoluto no canto do card, no mesmo grid cell.
+    <div className="relative">
+      <label
+        className={`relative flex cursor-pointer flex-col gap-2.5 rounded-xl border p-3.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-background ${
+          selecionado
+            ? "border-primary bg-primary/8 ring-1 ring-primary/40"
+            : "border-border hover:border-primary/40 hover:bg-accent/40"
         }`}
       >
-        <Icon className="size-5" />
-      </span>
-      <span className="flex flex-col gap-0.5">
-        <span className="text-sm leading-none font-medium">{label}</span>
-        <span className="text-muted-foreground text-xs">{desc}</span>
-      </span>
-    </label>
+        <input
+          type="radio"
+          name="formato"
+          value={value}
+          checked={selecionado}
+          onChange={onSelect}
+          className="sr-only"
+        />
+        <span
+          aria-hidden="true"
+          className={`flex size-9 items-center justify-center rounded-lg transition-colors ${
+            selecionado ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+          }`}
+        >
+          <Icon className="size-5" />
+        </span>
+        <span className="flex flex-col gap-0.5">
+          <span className="text-sm leading-none font-medium">{label}</span>
+          <span className="text-muted-foreground text-xs">{desc}</span>
+        </span>
+      </label>
+      {value === "fase_liga" ? (
+        <Termo id="fase-de-liga" className="absolute top-1 right-1" />
+      ) : null}
+    </div>
   )
 }
 
@@ -234,9 +243,12 @@ function ClubesStep({
           {`mínimo ${TORNEIO_MIN_CLUBES} · ${clubes.length} adicionado${clubes.length === 1 ? "" : "s"}`}
         </span>
       </legend>
-      <p className="text-muted-foreground -mt-1 pb-1 text-xs">
-        Cada clube é uma vaga: você gera um convite por clube e quem aceita vira
-        o técnico (substituível depois).
+      <p className="text-muted-foreground -mt-1 inline-flex flex-wrap items-center gap-x-1 pb-1 text-xs">
+        <span>
+          Cada clube é uma vaga: você gera um convite por clube e quem aceita
+          vira o técnico (substituível depois).
+        </span>
+        <Termo id="tecnico" />
       </p>
 
       <TeamSearchInput

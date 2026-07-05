@@ -10,6 +10,7 @@ import { ChampionshipBadge } from "@/features/championship/components/Championsh
 import { CupSeasonStatusPill } from "@/features/cup/components/CupSeasonStatusPill"
 import { CUP_FORMAT_LABEL, CUP_SCOPE_LABEL } from "@/features/cup/cupLabels"
 import { getCups, type CopaResumo } from "@/features/cup/data/getCups"
+import { Termo } from "@/features/glossario/Termo"
 import { createClient } from "@/lib/supabase/server"
 
 export const metadata: Metadata = {
@@ -65,7 +66,10 @@ function SemCopas() {
         <Trophy className="size-7" />
       </span>
       <div className="flex max-w-sm flex-col gap-1.5">
-        <h2 className="font-display text-xl font-bold">Sua primeira copa</h2>
+        <div className="flex items-center justify-center gap-0.5">
+          <h2 className="font-display text-xl font-bold">Sua primeira copa</h2>
+          <Termo id="copa-imortal" />
+        </div>
         <p className="text-muted-foreground text-sm">
           Copas nacionais e continentais alimentadas pela classificação das suas ligas
           e copas. A copa é imortal — edição após edição.
