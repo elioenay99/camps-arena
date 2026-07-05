@@ -211,6 +211,9 @@ export function OpenMatchesList({
               participante2={ladoModal(p.nome_2, p.escudo_2, p.tecnico_2, p.orfao_2)}
               placarInicial1={p.placar_1}
               placarInicial2={p.placar_2}
+              // Vagas (competitivo) → habilitam a captura de autores + autocomplete.
+              vagaId1={p.vagaId_1 ?? null}
+              vagaId2={p.vagaId_2 ?? null}
               permitirEscolherClube={false}
               modoPlacar="direto"
               trigger={

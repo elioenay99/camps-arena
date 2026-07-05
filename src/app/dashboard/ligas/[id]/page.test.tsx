@@ -18,6 +18,9 @@ vi.mock("next/navigation", () => ({
 }))
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }))
 vi.mock("@/features/league/data/getSeason", () => ({ getSeason: vi.fn() }))
+vi.mock("@/features/league/data/getArtilharia", () => ({
+  getArtilharia: vi.fn(async () => []),
+}))
 vi.mock("@/features/league/data/getDivisionStandings", () => ({
   getDivisionStandings: vi.fn(),
 }))

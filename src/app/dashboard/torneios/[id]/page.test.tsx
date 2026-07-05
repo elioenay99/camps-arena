@@ -41,6 +41,9 @@ vi.mock("@/features/tournament/data/getParticipantesDoTorneio", () => ({
 vi.mock("@/features/tournament/data/getConviteDoTorneio", () => ({
   getConviteDoTorneio: vi.fn(async () => null),
 }))
+vi.mock("@/features/league/data/getArtilharia", () => ({
+  getArtilharia: vi.fn(async () => []),
+}))
 vi.mock("@/features/tournament/data/getVagasDoTorneio", () => ({
   getVagasDoTorneio: vi.fn(async () => []),
   getCodigosDasVagas: vi.fn(async () => new Map()),
@@ -486,7 +489,7 @@ describe("TorneioPage — composição dinâmica das abas (change add-torneio-ab
     } as unknown as Awaited<ReturnType<typeof getTournamentClassificacao>>)
   }
 
-  it("liga ativo (dono) com partidas e cadência: 4 abas na ordem certa", async () => {
+  it("liga ativo (dono) com partidas e cadência: 5 abas na ordem certa", async () => {
     montarCenario({ torneio: { formato: "liga", status: "ativo" } })
     classificacaoCom({
       partidasAbertas: [{ id: "m1", rodada: 1, grupo: null }],
@@ -497,13 +500,15 @@ describe("TorneioPage — composição dinâmica das abas (change add-torneio-ab
     await renderPage()
     // O rótulo agora tem span curto (aria-hidden) + completo (sr-only): o
     // textContent concatena ("Class.Classificação"), então asserta por
-    // accessible name, na ordem das abas.
+    // accessible name, na ordem das abas. "Artilheiros" (add-artilharia) entra
+    // em todo formato gerado, entre Rodadas e Vagas.
     const tabs = screen.getAllByRole("tab")
-    expect(tabs).toHaveLength(4)
+    expect(tabs).toHaveLength(5)
     for (const [i, nome] of [
       "Classificação",
       "Partidas",
       "Rodadas",
+      "Artilheiros",
       "Vagas",
     ].entries()) {
       expect(tabs[i]).toHaveAccessibleName(new RegExp(nome))

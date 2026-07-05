@@ -39,6 +39,9 @@ interface Cenario {
   /** Proposta de placar PENDENTE para a partida (só consultada no caminho
    * NÃO-avulso, ANTES do UPDATE). Default null = nenhuma pendente. */
   propostaPendente?: { id: string } | null
+  /** Erro simulado do delete/insert de match_goals (autores). */
+  goalsDeleteError?: { message: string } | null
+  goalsInsertError?: { message: string } | null
 }
 
 /**
@@ -52,6 +55,8 @@ function montarClient(c: Cenario) {
   const readEqSpy = vi.fn()
   const writeEqSpy = vi.fn()
   const proposalEqSpy = vi.fn()
+  const goalsDeleteSpy = vi.fn()
+  const goalsInsertSpy = vi.fn()
   const client = {
     auth: {
       getUser: vi
@@ -75,6 +80,22 @@ function montarClient(c: Cenario) {
             .mockResolvedValue({ data: c.propostaPendente ?? null, error: null }),
         }
         return { select: vi.fn(() => builder) }
+      }
+      // Autores dos gols (add-artilharia): delete-then-insert por match_id.
+      //   delete().eq("match_id", …)  e  insert([...])
+      if (tabela === "match_goals") {
+        return {
+          delete: vi.fn(() => ({
+            eq: vi.fn((coluna: string, valor: unknown) => {
+              goalsDeleteSpy(coluna, valor)
+              return Promise.resolve({ error: c.goalsDeleteError ?? null })
+            }),
+          })),
+          insert: vi.fn((rows: unknown) => {
+            goalsInsertSpy(rows)
+            return Promise.resolve({ error: c.goalsInsertError ?? null })
+          }),
+        }
       }
       return {
         // Leitura: select(...).eq("id", matchId).maybeSingle()
@@ -108,6 +129,8 @@ function montarClient(c: Cenario) {
     readEqSpy,
     writeEqSpy,
     proposalEqSpy,
+    goalsDeleteSpy,
+    goalsInsertSpy,
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
   return client
@@ -216,6 +239,106 @@ describe("updateMatchScore", () => {
     // Segurança: só placares no payload (sem reatribuir participantes/torneio).
     expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
+  })
+
+  it("sem autores NÃO toca match_goals (retrocompat)", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(true)
+    expect(client.goalsDeleteSpy).not.toHaveBeenCalled()
+    expect(client.goalsInsertSpy).not.toHaveBeenCalled()
+  })
+
+  it("com autores substitui os gols da partida (delete-then-insert por match_id)", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+    })
+    const r = await updateMatchScore({
+      ...entradaValida,
+      autores: [
+        { lado: 1, jogador: "Endrick", gols: 2 },
+        { lado: 1, jogador: "Vini", gols: 1 },
+        { lado: 2, jogador: "João", gols: 1 },
+      ],
+    })
+    expect(r.ok).toBe(true)
+    expect(client.goalsDeleteSpy).toHaveBeenCalledWith("match_id", UUID)
+    expect(client.goalsInsertSpy).toHaveBeenCalledWith([
+      { match_id: UUID, lado: 1, jogador: "Endrick", gols: 2 },
+      { match_id: UUID, lado: 1, jogador: "Vini", gols: 1 },
+      { match_id: UUID, lado: 2, jogador: "João", gols: 1 },
+    ])
+  })
+
+  it("com autores vazio LIMPA os gols (delete sem insert)", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+    })
+    const r = await updateMatchScore({ ...entradaValida, autores: [] })
+    expect(r.ok).toBe(true)
+    expect(client.goalsDeleteSpy).toHaveBeenCalledWith("match_id", UUID)
+    expect(client.goalsInsertSpy).not.toHaveBeenCalled()
+  })
+
+  it("rejeita autores excedendo o placar (Zod), sem tocar no banco", async () => {
+    const client = montarClient({ user: { id: USER_ID } })
+    const r = await updateMatchScore({
+      matchId: UUID,
+      placar_1: 1,
+      placar_2: 0,
+      autores: [{ lado: 1, jogador: "Endrick", gols: 2 }],
+    })
+    expect(r.ok).toBe(false)
+    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.goalsDeleteSpy).not.toHaveBeenCalled()
+  })
+
+  it("erro ao gravar autores retorna mensagem (placar já salvo)", async () => {
+    montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+      goalsInsertError: { message: "boom" },
+    })
+    const r = await updateMatchScore({
+      ...entradaValida,
+      autores: [{ lado: 1, jogador: "Endrick", gols: 2 }],
+    })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/autores dos gols/i)
+  })
+
+  it("colisão de nome no índice único (lower divergente) é tratada sem crash", async () => {
+    // Caso-limite: dois nomes que o JS considera distintos mas o lower() do
+    // Postgres colapsa (locale/não-ASCII) violariam match_goals_unico no INSERT.
+    // A action deve devolver ok:false com mensagem clara — nunca lançar/500.
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+      goalsInsertError: {
+        message: 'duplicate key value violates unique constraint "match_goals_unico"',
+      },
+    })
+    const r = await updateMatchScore({
+      ...entradaValida,
+      autores: [
+        { lado: 1, jogador: "İrfan", gols: 1 },
+        { lado: 1, jogador: "irfan", gols: 1 },
+      ],
+    })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/autores dos gols/i)
+    // O delete precede o insert (placar já salvo): fluxo chegou até a escrita.
+    expect(client.goalsDeleteSpy).toHaveBeenCalledWith("match_id", UUID)
   })
 
   it("aceita também o participante_2 com o mesmo efeito (simetria)", async () => {

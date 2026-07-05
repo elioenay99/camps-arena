@@ -232,3 +232,138 @@ describe("MatchScoreModal — modo proposta (placar com foto p/ aprovação)", (
     expect(toast.success).toHaveBeenCalledWith("Placar salvo.")
   })
 })
+
+describe("MatchScoreModal — captura de autores de gols (add-artilharia)", () => {
+  function abrir(props: Partial<ComponentProps<typeof MatchScoreModal>> = {}) {
+    render(
+      <MatchScoreModal
+        matchId="m1"
+        tituloPartida="Ataias x João"
+        subtitulo="Série A • em andamento"
+        descricao="Ataias enfrenta João"
+        participante1={{ nome: "Ataias", convocavel: false }}
+        participante2={{ nome: "João", convocavel: false }}
+        {...props}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: /Menu da Partida/ }))
+  }
+
+  it("sem vaga (avulso) NÃO exibe a captura de autores", () => {
+    abrir({ onSave: vi.fn(), placarInicial1: 1 })
+    expect(screen.queryByText("Autores dos gols (opcional)")).toBeNull()
+    expect(screen.queryByRole("button", { name: /Adicionar autor/ })).toBeNull()
+  })
+
+  it("com vaga (competitivo) exibe a captura só no(s) lado(s) com vaga", () => {
+    // Só o lado 1 tem vaga → só ele ganha a captura de autores.
+    abrir({ onSave: vi.fn(), vagaId1: "v1", placarInicial1: 2 })
+    expect(screen.getByText("Autores dos gols (opcional)")).toBeInTheDocument()
+    // Um único "Adicionar autor" (lado 1); o lado 2 (sem vaga) não tem.
+    expect(
+      screen.getAllByRole("button", { name: /Adicionar autor/ })
+    ).toHaveLength(1)
+  })
+
+  it("modo direto: envia os autores informados por onSave", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    abrir({ onSave, vagaId1: "v1", placarInicial1: 2 })
+
+    fireEvent.click(screen.getByRole("button", { name: /Adicionar autor/ }))
+    fireEvent.change(screen.getByLabelText("Autor 1 de Ataias"), {
+      target: { value: "Endrick" },
+    })
+    // gols default = 1; aumenta para 2 (dentro do placar 2).
+    fireEvent.click(screen.getByRole("button", { name: /Aumentar gols de Endrick/ }))
+
+    fireEvent.click(screen.getByRole("button", { name: /Salvar placar/ }))
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith({
+        matchId: "m1",
+        placar_1: 2,
+        placar_2: 0,
+        autores: [{ lado: 1, jogador: "Endrick", gols: 2 }],
+      })
+    })
+  })
+
+  it("soma de autores acima do placar do lado BLOQUEIA o envio", () => {
+    const onSave = vi.fn()
+    // Placar do lado 1 = 1, mas o autor terá 2 gols.
+    abrir({ onSave, vagaId1: "v1", placarInicial1: 1 })
+
+    fireEvent.click(screen.getByRole("button", { name: /Adicionar autor/ }))
+    fireEvent.change(screen.getByLabelText("Autor 1 de Ataias"), {
+      target: { value: "Endrick" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: /Aumentar gols de Endrick/ }))
+
+    // Aviso inline aparece; o submit é recusado com toast e onSave não roda.
+    expect(
+      screen.getByText(/somam mais gols que o placar deste lado/)
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /Salvar placar/ }))
+    expect(onSave).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalled()
+  })
+
+  it("sem tocar na captura, onSave NÃO recebe autores (preserva os atuais)", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    abrir({ onSave, vagaId1: "v1", placarInicial1: 3 })
+
+    fireEvent.click(screen.getByRole("button", { name: /Salvar placar/ }))
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith({
+        matchId: "m1",
+        placar_1: 3,
+        placar_2: 0,
+      })
+    })
+    // `autores` ausente = undefined: a action não toca os gols já gravados.
+    expect(onSave.mock.calls[0][0]).not.toHaveProperty("autores", expect.anything())
+    expect(onSave.mock.calls[0][0].autores).toBeUndefined()
+  })
+
+  it("modo proposta: envia os autores junto da foto", async () => {
+    const onEnviarProposta = vi.fn().mockResolvedValue(undefined)
+    abrir({
+      modoPlacar: "proposta",
+      onEnviarProposta,
+      vagaId1: "v1",
+      placarInicial1: 1,
+    })
+
+    const inputFoto = document.getElementById("foto-evidencia") as HTMLInputElement
+    const file = new File(["b"], "e.png", { type: "image/png" })
+    fireEvent.change(inputFoto, { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole("button", { name: /Adicionar autor/ }))
+    fireEvent.change(screen.getByLabelText("Autor 1 de Ataias"), {
+      target: { value: "Vini" },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /Enviar para aprovação/ }))
+    await waitFor(() => {
+      expect(onEnviarProposta).toHaveBeenCalledWith({
+        matchId: "m1",
+        placar_1: 1,
+        placar_2: 0,
+        foto: file,
+        autores: [{ lado: 1, jogador: "Vini", gols: 1 }],
+      })
+    })
+  })
+
+  it("autocomplete: popula o <datalist> com as sugestões do competidor", async () => {
+    const carregarSugestoes = vi.fn().mockResolvedValue(["Endrick", "Vini"])
+    abrir({ onSave: vi.fn(), vagaId1: "v1", carregarSugestoes, placarInicial1: 2 })
+
+    await waitFor(() => {
+      expect(document.querySelector('option[value="Endrick"]')).not.toBeNull()
+    })
+    expect(document.querySelector('option[value="Vini"]')).not.toBeNull()
+    // Escopado à vaga do lado 1.
+    expect(carregarSugestoes).toHaveBeenCalledWith("v1")
+  })
+})

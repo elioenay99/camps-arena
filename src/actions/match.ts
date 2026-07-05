@@ -11,6 +11,7 @@ import { enviarNotificacoes } from "@/features/notifications/enviar"
 import { podeArbitrar, podeGerir } from "@/lib/autorizacao"
 import { createClient } from "@/lib/supabase/server"
 import {
+  agregarAutores,
   createMatchSchema,
   updateMatchScoreSchema,
   updateMatchTeamsSchema,
@@ -81,7 +82,7 @@ export async function updateMatchScore(
       fieldErrors: z.flattenError(parsed.error).fieldErrors,
     }
   }
-  const { matchId, placar_1, placar_2 } = parsed.data
+  const { matchId, placar_1, placar_2, autores } = parsed.data
 
   const supabase = await createClient()
 
@@ -187,6 +188,39 @@ export async function updateMatchScore(
     return {
       ok: false,
       error: "Não foi possível salvar o placar. A partida pode ter sido alterada. Tente novamente.",
+    }
+  }
+
+  // Autores dos gols (artilharia): quando o campo é informado, SUBSTITUI os gols
+  // desta partida (delete-then-insert por match_id) — a mesma autorização do
+  // placar já passou acima e a RLS de match_goals espelha essa autorização. O
+  // campo AUSENTE não toca os gols (retrocompat); `[]` limpa. O Zod já garantiu
+  // soma por lado ≤ placar e sem duplicata. Não-transacional entre chamadas
+  // (aceitável no MVP): o placar já foi salvo; falha aqui retorna erro claro para
+  // não deixar placar e gols em estados divergentes silenciosamente. Agregamos por
+  // (lado, nome normalizado) antes do INSERT para casar com o índice único do banco
+  // — nomes que só diferem em caixa/espaço somam numa linha só, sem violar o unique.
+  if (autores !== undefined) {
+    const { error: delError } = await supabase
+      .from("match_goals")
+      .delete()
+      .eq("match_id", matchId)
+    if (delError) {
+      return { ok: false, error: "Placar salvo, mas não foi possível registrar os autores dos gols." }
+    }
+    const autoresAgg = agregarAutores(autores)
+    if (autoresAgg.length > 0) {
+      const { error: insError } = await supabase.from("match_goals").insert(
+        autoresAgg.map((a) => ({
+          match_id: matchId,
+          lado: a.lado,
+          jogador: a.jogador,
+          gols: a.gols,
+        }))
+      )
+      if (insError) {
+        return { ok: false, error: "Placar salvo, mas não foi possível registrar os autores dos gols." }
+      }
     }
   }
 

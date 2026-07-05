@@ -8,6 +8,7 @@ import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
 import { enviarNotificacoes } from "@/features/notifications/enviar"
 import { removerEvidencia, subirEvidencia } from "@/lib/evidence"
 import { createClient } from "@/lib/supabase/server"
+import type { Json } from "@/lib/supabase/database.types"
 import {
   proporPlacarSchema,
   rejeitarPropostaSchema,
@@ -54,10 +55,24 @@ function mensagemErroRpc(message: string): string {
  * falhar. Reenvio substitui a própria proposta pendente (policy DELETE).
  */
 export async function proporPlacar(formData: FormData): Promise<ProporPlacarResult> {
+  // Autores dos gols (opcional): a UI serializa a lista como JSON num campo do
+  // FormData. Parse defensivo — JSON malformado vira erro de validação (o Zod
+  // recusa o array inválido), nunca uma exceção não tratada.
+  let autoresRaw: unknown = undefined
+  const autoresField = formData.get("autores")
+  if (typeof autoresField === "string" && autoresField.trim() !== "") {
+    try {
+      autoresRaw = JSON.parse(autoresField)
+    } catch {
+      return { ok: false, error: "Autores dos gols inválidos." }
+    }
+  }
+
   const parsed = proporPlacarSchema.safeParse({
     matchId: formData.get("matchId"),
     placar_1: Number(formData.get("placar_1")),
     placar_2: Number(formData.get("placar_2")),
+    autores: autoresRaw,
   })
   if (!parsed.success) {
     return {
@@ -66,7 +81,7 @@ export async function proporPlacar(formData: FormData): Promise<ProporPlacarResu
       fieldErrors: z.flattenError(parsed.error).fieldErrors,
     }
   }
-  const { matchId, placar_1, placar_2 } = parsed.data
+  const { matchId, placar_1, placar_2, autores } = parsed.data
 
   const foto = formData.get("foto")
   if (!(foto instanceof File) || foto.size === 0) {
@@ -145,6 +160,11 @@ export async function proporPlacar(formData: FormData): Promise<ProporPlacarResu
     placar_1,
     placar_2,
     foto_path: up.path,
+    // Autores propostos ficam guardados até a aprovação, quando a RPC
+    // aprovar_proposta_placar os materializa em match_goals atomicamente. Cast
+    // para Json: a lista tipada não casa com a index signature de Json, mas o
+    // conteúdo (lado/jogador/gols) é serializável — o Zod já validou a forma.
+    autores: (autores ?? null) as Json,
   })
   if (insertError) {
     await removerEvidencia(supabase, up.path) // rollback da foto órfã

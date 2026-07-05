@@ -7,8 +7,11 @@ import { z } from "zod"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { getCompetitorProfile } from "@/features/league/data/getCompetitorProfile"
+import { getArtilheirosDoCompetidor } from "@/features/league/data/getArtilheirosDoCompetidor"
+import { createClient } from "@/lib/supabase/server"
 import { CompetidorHero } from "@/features/league/components/competidor/CompetidorHero"
 import { CompetidorAgregados } from "@/features/league/components/competidor/CompetidorAgregados"
+import { CompetidorArtilheiros } from "@/features/league/components/competidor/CompetidorArtilheiros"
 import { CompetidorConquistas } from "@/features/league/components/competidor/CompetidorConquistas"
 import { PromedioEvolucao } from "@/features/league/components/competidor/PromedioEvolucao"
 import { TemporadaTimeline } from "@/features/league/components/competidor/TemporadaTimeline"
@@ -47,6 +50,13 @@ export default async function CompetidorPage({
     notFound()
   }
 
+  // Artilheiros da carreira (change add-artilharia): mesmo competitor_id do
+  // perfil. Degrada para `[]` (a carreira é secundária) — RLS filtra visibilidade.
+  const supabase = await createClient()
+  const artilheiros = await getArtilheirosDoCompetidor(supabase, {
+    competitorId: id,
+  })
+
   const semTemporadas = perfil.historico.length === 0
 
   return (
@@ -77,6 +87,13 @@ export default async function CompetidorPage({
 
       <CompetidorHero perfil={perfil} />
 
+      {/* Artilheiros com temporada encerrada moram junto dos agregados (abaixo).
+          Caso-borda: gols numa temporada em andamento, sem nenhuma encerrada — a
+          seção sobe pra cá para não sumir sob o estado vazio de "sem temporadas". */}
+      {semTemporadas && artilheiros.length > 0 ? (
+        <CompetidorArtilheiros artilheiros={artilheiros} />
+      ) : null}
+
       {semTemporadas ? (
         // Estado vazio: o competidor existe mas não tem temporada consolidada
         // (entrou agora, ou nenhuma temporada encerrou ainda).
@@ -101,6 +118,7 @@ export default async function CompetidorPage({
         <>
           <CompetidorAgregados perfil={perfil} />
           <CompetidorConquistas perfil={perfil} />
+          <CompetidorArtilheiros artilheiros={artilheiros} />
           <PromedioEvolucao historico={perfil.historico} />
           <TemporadaTimeline historico={perfil.historico} />
         </>

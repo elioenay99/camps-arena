@@ -307,8 +307,51 @@ describe("proporPlacar", () => {
       placar_1: 3,
       placar_2: 0,
       foto_path: FOTO_PATH,
+      // Sem autores no FormData → coluna nasce null (materializa na aprovação).
+      autores: null,
     })
     expect(mockNotificar).toHaveBeenCalled()
+  })
+
+  it("guarda os autores propostos (jsonb) quando o FormData os traz", async () => {
+    const c = montarClient({
+      user: { id: TECNICO },
+      match: partidaLiberada(),
+      anterior: null,
+      torneio: { created_by: DONO, titulo: "Copa" },
+    })
+    const fd = fdProposta({ placar_1: 2, placar_2: 0 })
+    fd.set(
+      "autores",
+      JSON.stringify([{ lado: 1, jogador: "Vini", gols: 2 }])
+    )
+    const r = await proporPlacar(fd)
+    expect(r).toEqual({ ok: true })
+    expect(c.proposalsInsertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autores: [{ lado: 1, jogador: "Vini", gols: 2 }],
+      })
+    )
+  })
+
+  it("recusa autores que excedem o placar (zod), sem subir foto", async () => {
+    const c = montarClient({ user: { id: TECNICO }, match: partidaLiberada() })
+    const fd = fdProposta({ placar_1: 1, placar_2: 0 })
+    fd.set("autores", JSON.stringify([{ lado: 1, jogador: "Vini", gols: 2 }]))
+    const r = await proporPlacar(fd)
+    expect(r.ok).toBe(false)
+    expect(mockSubir).not.toHaveBeenCalled()
+    expect(c.proposalsInsertSpy).not.toHaveBeenCalled()
+  })
+
+  it("recusa autores com JSON malformado", async () => {
+    const c = montarClient({ user: { id: TECNICO }, match: partidaLiberada() })
+    const fd = fdProposta()
+    fd.set("autores", "{lixo")
+    const r = await proporPlacar(fd)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/autores dos gols inválidos/i)
+    expect(c.proposalsInsertSpy).not.toHaveBeenCalled()
   })
 
   it("falha do upload aborta antes do insert", async () => {

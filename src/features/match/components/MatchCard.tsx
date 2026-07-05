@@ -278,6 +278,9 @@ export function MatchCard({
             participante2={p2}
             placarInicial1={partida.placar_1}
             placarInicial2={partida.placar_2}
+            // Vagas (competitivo) → captura de autores + autocomplete por competidor.
+            vagaId1={partida.vaga_1?.id ?? null}
+            vagaId2={partida.vaga_2?.id ?? null}
             // Competitivo: clube vem do torneio (vaga), só exibido. Avulso: pode trocar.
             permitirEscolherClube={!ehCompetitivo}
             // Competitivo + não-aprovador (técnico) → envia placar p/ aprovação com foto.

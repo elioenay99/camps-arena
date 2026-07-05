@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Minus, Plus, MessageCircle } from "lucide-react"
+import { Minus, Plus, MessageCircle, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { PLACAR_MAX } from "@/schema/matchSchema"
+import { PLACAR_MAX, type AutorGolInput } from "@/schema/matchSchema"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { TeamSearchInput } from "@/features/team/components/TeamSearchInput"
 import type { TeamResult } from "@/schema/teamSchema"
@@ -80,7 +80,22 @@ export interface MatchScoreModalProps {
     matchId: string
     placar_1: number
     placar_2: number
+    /** Autores dos gols (opcional). `undefined` = não mexe nos autores atuais. */
+    autores?: AutorGolInput[]
   }) => Promise<void> | void
+  /**
+   * Slot (vaga) de cada lado no competitivo — chave para o autocomplete de
+   * autores de gol (`carregarSugestoes`). null/ausente (avulso ou bye) esconde a
+   * captura de autores daquele lado.
+   */
+  vagaId1?: string | null
+  vagaId2?: string | null
+  /**
+   * Busca sob demanda os nomes já usados por AQUELE competidor (via a vaga), para
+   * o autocomplete dos autores de gol. Injetado pelo wrapper conectado; lazy (só
+   * ao abrir o modal). Degrada em silêncio (`[]`) em qualquer falha.
+   */
+  carregarSugestoes?: (vagaId: string) => Promise<string[]>
   /**
    * Se fornecido, habilita escolher/trocar o clube de cada lado (1 ou 2).
    * Sem isso, o clube é apenas exibido (quando presente).
@@ -98,7 +113,15 @@ export interface MatchScoreModalProps {
     placar_1: number
     placar_2: number
     foto: File
+    /** Autores dos gols (opcional). `undefined` = não envia autores. */
+    autores?: AutorGolInput[]
   }) => Promise<void> | void
+}
+
+/** Linha da captura de autores por lado (nome livre + contagem de gols). */
+interface AutorLinha {
+  jogador: string
+  gols: number
 }
 
 function primeiroNome(nome: string) {
@@ -273,6 +296,137 @@ function ColunaParticipante({
   )
 }
 
+/**
+ * Captura opcional dos autores de gol de UM lado: lista de linhas `{nome, gols}`
+ * com autocomplete (`<datalist>`) dos nomes já usados por aquele competidor. A
+ * soma por lado deve ficar ≤ placar do lado (aviso suave; o backend/Zod também
+ * rejeita). Toque ≥44px nos controles (mobile-first).
+ */
+function AutoresLado({
+  lado,
+  nomeLado,
+  placar,
+  sugestoes,
+  autores,
+  onChange,
+}: {
+  lado: 1 | 2
+  nomeLado: string
+  placar: number
+  sugestoes: string[]
+  autores: AutorLinha[]
+  onChange: (proximo: AutorLinha[]) => void
+}) {
+  const listId = `sugestoes-autor-lado-${lado}`
+  const soma = autores.reduce((acc, a) => acc + (a.gols || 0), 0)
+  const excede = soma > placar
+
+  const atualizarLinha = (i: number, patch: Partial<AutorLinha>) =>
+    onChange(autores.map((a, idx) => (idx === i ? { ...a, ...patch } : a)))
+  const removerLinha = (i: number) =>
+    onChange(autores.filter((_, idx) => idx !== i))
+  const adicionar = () => onChange([...autores, { jogador: "", gols: 1 }])
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-medium">{nomeLado}</span>
+        <span
+          className={`text-xs tabular-nums ${excede ? "text-destructive" : "text-muted-foreground"}`}
+        >
+          {soma}/{placar} gols
+        </span>
+      </div>
+
+      {autores.length > 0 ? (
+        <ul className="flex list-none flex-col gap-2 p-0">
+          {autores.map((linha, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <input
+                type="text"
+                list={listId}
+                value={linha.jogador}
+                onChange={(e) => atualizarLinha(i, { jogador: e.target.value })}
+                placeholder="Nome do autor"
+                aria-label={`Autor ${i + 1} de ${nomeLado}`}
+                maxLength={60}
+                className="border-input bg-background h-11 min-w-0 flex-1 rounded-md border px-3 text-sm md:h-9"
+              />
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label={`Diminuir gols de ${linha.jogador.trim() || `autor ${i + 1}`}`}
+                  aria-disabled={linha.gols <= 1}
+                  className="size-11 aria-disabled:opacity-50 md:size-9"
+                  onClick={() =>
+                    linha.gols > 1 && atualizarLinha(i, { gols: linha.gols - 1 })
+                  }
+                >
+                  <Minus aria-hidden="true" />
+                </Button>
+                <span
+                  className="min-w-6 text-center text-sm font-semibold tabular-nums"
+                  aria-hidden="true"
+                >
+                  {linha.gols}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label={`Aumentar gols de ${linha.jogador.trim() || `autor ${i + 1}`}`}
+                  aria-disabled={linha.gols >= 99}
+                  className="size-11 aria-disabled:opacity-50 md:size-9"
+                  onClick={() =>
+                    linha.gols < 99 && atualizarLinha(i, { gols: linha.gols + 1 })
+                  }
+                >
+                  <Plus aria-hidden="true" />
+                </Button>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Remover ${linha.jogador.trim() || `autor ${i + 1}`}`}
+                className="text-muted-foreground size-11 md:size-9"
+                onClick={() => removerLinha(i)}
+              >
+                <X aria-hidden="true" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <datalist id={listId}>
+        {sugestoes.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={adicionar}
+        className="min-h-9 self-start rounded-full"
+      >
+        <Plus aria-hidden="true" />
+        Adicionar autor
+      </Button>
+
+      {excede ? (
+        <p role="status" className="text-destructive text-xs">
+          Os autores somam mais gols que o placar deste lado.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 export function MatchScoreModal({
   matchId,
   tituloPartida,
@@ -287,13 +441,54 @@ export function MatchScoreModal({
   onSelecionarClube,
   modoPlacar = "direto",
   onEnviarProposta,
+  vagaId1,
+  vagaId2,
+  carregarSugestoes,
 }: MatchScoreModalProps) {
   const [open, setOpen] = React.useState(false)
   const [placar1, setPlacar1] = React.useState(placarInicial1)
   const [placar2, setPlacar2] = React.useState(placarInicial2)
   const [foto, setFoto] = React.useState<File | null>(null)
+  const [autores1, setAutores1] = React.useState<AutorLinha[]>([])
+  const [autores2, setAutores2] = React.useState<AutorLinha[]>([])
+  // Só envia `autores` quando o usuário mexeu na captura — sem isso, `undefined`
+  // preserva os autores já gravados (a action não toca match_goals).
+  const [autoresTocado, setAutoresTocado] = React.useState(false)
+  const [sugestoes1, setSugestoes1] = React.useState<string[]>([])
+  const [sugestoes2, setSugestoes2] = React.useState<string[]>([])
   const [salvando, startSalvar] = React.useTransition()
   const ehProposta = modoPlacar === "proposta"
+  // Captura de autores só no competitivo (lado com vaga/competidor persistente):
+  // no avulso o gol não entra em ranking/carreira, então não há o que capturar.
+  const mostrarAutores1 = Boolean(vagaId1)
+  const mostrarAutores2 = Boolean(vagaId2)
+  const mostrarAutores = mostrarAutores1 || mostrarAutores2
+
+  // Autocomplete: carrega os nomes já usados por cada competidor ao ABRIR (lazy).
+  // Degrada em silêncio — o autocomplete é auxiliar, nunca bloqueia o lançamento.
+  React.useEffect(() => {
+    if (!open || !carregarSugestoes) return
+    let vivo = true
+    if (vagaId1) {
+      carregarSugestoes(vagaId1)
+        .then((s) => vivo && setSugestoes1(s))
+        .catch(() => {})
+    }
+    if (vagaId2) {
+      carregarSugestoes(vagaId2)
+        .then((s) => vivo && setSugestoes2(s))
+        .catch(() => {})
+    }
+    return () => {
+      vivo = false
+    }
+  }, [open, carregarSugestoes, vagaId1, vagaId2])
+
+  const atualizarAutores = (lado: 1 | 2, proximo: AutorLinha[]) => {
+    setAutoresTocado(true)
+    if (lado === 1) setAutores1(proximo)
+    else setAutores2(proximo)
+  }
 
   // Ressincroniza o estado otimista ao (re)abrir o modal — no handler, sem efeito.
   function handleOpenChange(proximo: boolean) {
@@ -303,15 +498,38 @@ export function MatchScoreModal({
       setPlacar1(placarInicial1)
       setPlacar2(placarInicial2)
       setFoto(null)
+      setAutores1([])
+      setAutores2([])
+      setAutoresTocado(false)
     }
     setOpen(proximo)
   }
 
   function handleConfirmar() {
     const normalizar = (n: number) => Math.max(0, Math.trunc(n))
+    const p1 = normalizar(placar1)
+    const p2 = normalizar(placar2)
     if (ehProposta && !foto) {
       toast.error("Anexe uma foto de evidência do placar.")
       return
+    }
+    // Monta os autores só quando a captura foi tocada; nomes vazios são
+    // descartados. `undefined` (não tocado) = preserva os autores atuais.
+    let autores: AutorGolInput[] | undefined
+    if (autoresTocado) {
+      const combinado: AutorGolInput[] = [
+        ...autores1.map((a) => ({ lado: 1 as const, jogador: a.jogador.trim(), gols: a.gols })),
+        ...autores2.map((a) => ({ lado: 2 as const, jogador: a.jogador.trim(), gols: a.gols })),
+      ].filter((a) => a.jogador !== "")
+      // Aviso duro (o inline já mostra o excesso): a soma por lado não pode passar
+      // do placar — o backend/Zod rejeitaria com a mesma regra.
+      const soma1 = combinado.filter((a) => a.lado === 1).reduce((s, a) => s + a.gols, 0)
+      const soma2 = combinado.filter((a) => a.lado === 2).reduce((s, a) => s + a.gols, 0)
+      if (soma1 > p1 || soma2 > p2) {
+        toast.error("Os autores somam mais gols que o placar. Ajuste antes de salvar.")
+        return
+      }
+      autores = combinado
     }
     startSalvar(async () => {
       try {
@@ -319,17 +537,19 @@ export function MatchScoreModal({
           if (onEnviarProposta && foto) {
             await onEnviarProposta({
               matchId,
-              placar_1: normalizar(placar1),
-              placar_2: normalizar(placar2),
+              placar_1: p1,
+              placar_2: p2,
               foto,
+              autores,
             })
             toast.success("Placar enviado para aprovação.")
           }
         } else if (onSave) {
           await onSave({
             matchId,
-            placar_1: normalizar(placar1),
-            placar_2: normalizar(placar2),
+            placar_1: p1,
+            placar_2: p2,
+            autores,
           })
           toast.success("Placar salvo.")
         } else {
@@ -400,6 +620,34 @@ export function MatchScoreModal({
               />
             </div>
           </div>
+
+          {mostrarAutores ? (
+            <div className="elevate flex flex-col gap-4 rounded-2xl border bg-card/60 p-4">
+              <p className="text-center text-xs font-semibold tracking-wide uppercase text-muted-foreground">
+                Autores dos gols (opcional)
+              </p>
+              {mostrarAutores1 ? (
+                <AutoresLado
+                  lado={1}
+                  nomeLado={participante1.nome}
+                  placar={placar1}
+                  sugestoes={sugestoes1}
+                  autores={autores1}
+                  onChange={(proximo) => atualizarAutores(1, proximo)}
+                />
+              ) : null}
+              {mostrarAutores2 ? (
+                <AutoresLado
+                  lado={2}
+                  nomeLado={participante2.nome}
+                  placar={placar2}
+                  sugestoes={sugestoes2}
+                  autores={autores2}
+                  onChange={(proximo) => atualizarAutores(2, proximo)}
+                />
+              ) : null}
+            </div>
+          ) : null}
 
           {ehProposta ? (
             <div className="flex flex-col gap-1.5">

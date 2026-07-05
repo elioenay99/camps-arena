@@ -328,6 +328,40 @@ export interface Database {
           },
         ]
       }
+      match_goals: {
+        Row: {
+          id: string
+          match_id: string
+          lado: number
+          jogador: string
+          gols: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          match_id: string
+          lado: number
+          jogador: string
+          gols?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          match_id?: string
+          lado?: number
+          jogador?: string
+          gols?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_goals_match_id_fkey"
+            columns: ["match_id"]
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       match_score_proposals: {
         Row: {
           id: string
@@ -341,6 +375,7 @@ export interface Database {
           created_at: string
           resolvido_em: string | null
           resolvido_por: string | null
+          autores: Json | null
         }
         Insert: {
           id?: string
@@ -354,6 +389,7 @@ export interface Database {
           created_at?: string
           resolvido_em?: string | null
           resolvido_por?: string | null
+          autores?: Json | null
         }
         Update: {
           id?: string
@@ -367,6 +403,7 @@ export interface Database {
           created_at?: string
           resolvido_em?: string | null
           resolvido_por?: string | null
+          autores?: Json | null
         }
         Relationships: [
           {

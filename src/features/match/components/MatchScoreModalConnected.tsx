@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { updateMatchScore, updateMatchTeams } from "@/actions/match"
 import { proporPlacar } from "@/actions/scoreProposals"
+import { sugestoesDeAutorGol } from "@/actions/scorers"
 import { selectTeam } from "@/actions/teams"
 import {
   MatchScoreModal,
@@ -12,7 +13,7 @@ import {
 
 export type MatchScoreModalConnectedProps = Omit<
   MatchScoreModalProps,
-  "onSave" | "onSelecionarClube" | "onEnviarProposta"
+  "onSave" | "onSelecionarClube" | "onEnviarProposta" | "carregarSugestoes"
 > & {
   /**
    * Habilita a busca/troca de clube de cada lado. Só faz sentido no AVULSO (o
@@ -41,6 +42,8 @@ export function MatchScoreModalConnected({
     <MatchScoreModal
       {...props}
       modoPlacar={modoPlacar}
+      // Autocomplete dos autores de gol: server action lazy (só ao abrir o modal).
+      carregarSugestoes={sugestoesDeAutorGol}
       onSave={async (input) => {
         const resultado = await updateMatchScore(input)
         if (!resultado.ok) {
@@ -50,12 +53,15 @@ export function MatchScoreModalConnected({
       // Modo proposta (técnico no competitivo): envia placar + foto para aprovação.
       onEnviarProposta={
         modoPlacar === "proposta"
-          ? async ({ matchId, placar_1, placar_2, foto }) => {
+          ? async ({ matchId, placar_1, placar_2, foto, autores }) => {
               const fd = new FormData()
               fd.set("matchId", matchId)
               fd.set("placar_1", String(placar_1))
               fd.set("placar_2", String(placar_2))
               fd.set("foto", foto)
+              // Autores (opcional): serializados como JSON — a action faz o parse
+              // defensivo. Ausente = proposta sem autores (retrocompat).
+              if (autores !== undefined) fd.set("autores", JSON.stringify(autores))
               const r = await proporPlacar(fd)
               if (!r.ok) throw new Error(r.error)
             }

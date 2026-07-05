@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
-import { ExternalLink, Layers, Palette, Users } from "lucide-react"
+import { ExternalLink, Goal, Layers, Palette, Users } from "lucide-react"
 import { z } from "zod"
 
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,8 @@ import {
 } from "@/features/championship/championshipTheme"
 import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge"
 import { CompartilharCompetitionButton } from "@/features/discovery/components/CompartilharCompetitionButton"
+import { ArtilhariaRanking } from "@/features/league/components/ArtilhariaRanking"
+import { getArtilharia } from "@/features/league/data/getArtilharia"
 import { ListarVitrineToggle } from "@/features/discovery/components/ListarVitrineToggle"
 import { FluxoTemporadaPanel } from "@/features/league/components/FluxoTemporadaPanel"
 import { IniciarDivisaoButton } from "@/features/league/components/IniciarDivisaoButton"
@@ -132,6 +134,20 @@ export default async function TemporadaPage({
         : Promise.resolve<GrandeFinalDivisao | null>(null)
     )
   )
+
+  // Ranking de artilharia da PIRÂMIDE (change add-artilharia): agrega os gols de
+  // TODOS os torneios da temporada (as divisões — Apertura + Clausura no split).
+  // getArtilharia respeita a RLS (gols de rodada oculta não entram). Vazia
+  // enquanto nenhum autor foi informado ou nada foi montado.
+  const tournamentIdsTemporada = temporada.divisoes.flatMap((d) =>
+    [d.tournamentId, d.tournamentIdClausura].filter(
+      (t): t is string => t !== null
+    )
+  )
+  const artilharia =
+    tournamentIdsTemporada.length > 0
+      ? await getArtilharia(supabase, { tournamentIds: tournamentIdsTemporada })
+      : []
 
   // Mapa nível → nome (para o FluxoTemporadaPanel rotular as divisões).
   const nivelNomes: Record<number, string> = {}
@@ -316,6 +332,24 @@ export default async function TemporadaPage({
       ) : (
         secaoDivisoes
       )}
+
+      {/* Artilheiros da pirâmide (change add-artilharia): leitura para todos.
+          Só quando a temporada foi montada (há torneios a agregar). */}
+      {!naoMontada ? (
+        <section
+          aria-labelledby="artilheiros-titulo"
+          className="flex flex-col gap-4 border-t pt-6"
+        >
+          <h2
+            id="artilheiros-titulo"
+            className="font-display flex items-center gap-2 text-lg font-bold tracking-tight"
+          >
+            <Goal className="text-primary size-5" aria-hidden="true" />
+            Artilheiros
+          </h2>
+          <ArtilhariaRanking linhas={artilharia} />
+        </section>
+      ) : null}
 
       {/* Playoffs (Fase 2): entre as Divisões e o Fim-de-temporada. Aparece
           quando todas as divisões encerraram e há fronteira de playoff ainda

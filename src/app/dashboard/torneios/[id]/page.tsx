@@ -2,6 +2,7 @@ import {
   CalendarClock,
   ClipboardCheck,
   Flag,
+  Goal,
   History,
   Layers,
   ListOrdered,
@@ -28,6 +29,8 @@ import { Button } from "@/components/ui/button";
 import { champThemeProps } from "@/features/championship/championshipTheme";
 import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge";
 import { GerarMataMataButton } from "@/features/groups/components/GerarMataMataButton";
+import { ArtilhariaRanking } from "@/features/league/components/ArtilhariaRanking";
+import { getArtilharia } from "@/features/league/data/getArtilharia";
 import { IniciarGruposPanel } from "@/features/groups/components/IniciarGruposPanel";
 import { rotuloGrupo } from "@/features/groups/gerarFaseDeGrupos";
 import { AvancarFaseButton } from "@/features/knockout/components/AvancarFaseButton";
@@ -343,6 +346,13 @@ export default async function TorneioPage({
     torneio
   );
   const themeProps = champThemeProps(primaria, secundaria);
+
+  // Ranking de artilharia (change add-artilharia): só nos formatos COMPETITIVOS
+  // (gerados) — o avulso não entra no ranking (getArtilharia já o ignora). Agrega
+  // por (competidor, autor) respeitando a visibilidade das partidas via RLS.
+  const artilharia = ehGerado
+    ? await getArtilharia(supabase, { tournamentIds: [id] })
+    : [];
 
   // ----------------------------------------------------------------------------
   // Composição das ABAS (change add-torneio-abas-passador). Os dados e TODOS os
@@ -675,6 +685,27 @@ export default async function TorneioPage({
             labelCurto: "Rod.",
             icon: <CalendarClock aria-hidden="true" />,
             content: rodadasContent,
+          } satisfies AbaTorneio,
+        ]
+      : []),
+    // Artilheiros: só no competitivo (gerado). Sempre presente ali — o estado
+    // vazio orienta o organizador a informar os autores no lançamento do placar.
+    ...(ehGerado
+      ? [
+          {
+            value: "artilheiros",
+            label: "Artilheiros",
+            labelCurto: "Gols",
+            icon: <Goal aria-hidden="true" />,
+            content: (
+              <SecaoTorneio
+                id="artilheiros-titulo"
+                titulo="Artilheiros"
+                Icon={Goal}
+              >
+                <ArtilhariaRanking linhas={artilharia} />
+              </SecaoTorneio>
+            ),
           } satisfies AbaTorneio,
         ]
       : []),

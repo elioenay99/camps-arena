@@ -4808,6 +4808,11 @@ alter table public.match_score_proposals enable row level security;
 -- Foto OPCIONAL na solicitação de W.O.
 alter table public.match_wo_requests add column if not exists foto_path text;
 
+-- Autores dos gols PROPOSTOS (add-artilharia): lista jsonb [{lado,jogador,gols}]
+-- guardada até a aprovação, quando a RPC aprovar_proposta_placar os materializa
+-- em match_goals atomicamente. Nullable/retrocompat (propostas antigas = null).
+alter table public.match_score_proposals add column if not exists autores jsonb;
+
 -- RLS de match_score_proposals -----------------------------------------------
 drop policy if exists match_score_proposals_insert_tecnico on public.match_score_proposals;
 create policy match_score_proposals_insert_tecnico on public.match_score_proposals
@@ -4921,19 +4926,20 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_uid    uuid := auth.uid();
-  v_match  uuid;
-  v_p1     integer;
-  v_p2     integer;
-  v_tid    uuid;
-  v_linhas integer;
+  v_uid     uuid := auth.uid();
+  v_match   uuid;
+  v_p1      integer;
+  v_p2      integer;
+  v_tid     uuid;
+  v_autores jsonb;
+  v_linhas  integer;
 begin
   if v_uid is null then
     raise exception 'AUTH_REQUIRED';
   end if;
 
-  select sp.match_id, sp.placar_1, sp.placar_2, m.tournament_id
-    into v_match, v_p1, v_p2, v_tid
+  select sp.match_id, sp.placar_1, sp.placar_2, m.tournament_id, sp.autores
+    into v_match, v_p1, v_p2, v_tid, v_autores
     from public.match_score_proposals sp
     join public.matches m on m.id = sp.match_id
    where sp.id = p_proposal_id and sp.status = 'pendente'
@@ -4952,6 +4958,46 @@ begin
   get diagnostics v_linhas = row_count;
   if v_linhas = 0 then
     raise exception 'PARTIDA_INDISPONIVEL';
+  end if;
+
+  -- Materializa os autores propostos em match_goals ATOMICAMENTE (add-artilharia).
+  -- `autores` é jsonb LIVRE e a policy de INSERT da proposta NÃO valida o conteúdo,
+  -- logo esta RPC é o writer AUTORITATIVO e endurece tudo aqui:
+  --  * Só mexe em match_goals quando a proposta traz autores como ARRAY. `null` =
+  --    "não informado" → PRESERVA os gols já registrados (alinha com updateMatchScore);
+  --    `[]` = "limpar explicitamente" → delete sem reinsert.
+  --  * Guardas de tipo (jsonb_typeof) ANTES dos casts: elemento malformado
+  --    (lado/gols não-numérico, jogador não-string) é IGNORADO, jamais lança 22P02 e
+  --    trava a aprovação inteira.
+  --  * Agrega por (lado, nome normalizado) coincidindo com o índice único funcional
+  --    (defende contra autores duplicados forjados: soma em vez de violar o unique).
+  --  * Descarta (clampa) o lado cuja SOMA de gols exceda o placar daquele lado, para
+  --    que autores forjados não inflem o ranking sem quebrar a aprovação legítima —
+  --    numa proposta legítima o Zod já garante soma≤placar, então nunca dispara.
+  if v_autores is not null and jsonb_typeof(v_autores) = 'array' then
+    delete from public.match_goals where match_id = v_match;
+    insert into public.match_goals (match_id, lado, jogador, gols)
+    select v_match, g.lado, g.jogador, g.gols
+      from (
+        select x.lado,
+               min(x.jogador)                             as jogador,
+               sum(x.gols)                                as gols,
+               sum(sum(x.gols)) over (partition by x.lado) as total_lado
+          from (
+            select (e->>'lado')::smallint  as lado,
+                   btrim(e->>'jogador')    as jogador,
+                   (e->>'gols')::int       as gols
+              from jsonb_array_elements(v_autores) e
+             where jsonb_typeof(e->'lado')    = 'number'
+               and jsonb_typeof(e->'gols')    = 'number'
+               and jsonb_typeof(e->'jogador') = 'string'
+          ) x
+         where x.lado in (1, 2)
+           and char_length(x.jogador) between 1 and 60
+           and x.gols between 1 and 99
+         group by x.lado, lower(x.jogador)
+      ) g
+     where g.total_lado <= case g.lado when 1 then v_p1 else v_p2 end;
   end if;
 
   update public.match_score_proposals
@@ -5022,4 +5068,116 @@ grant execute on function public.rejeitar_proposta_placar(uuid, text) to authent
 
 -- =====================================================================
 -- Fim — PROPOSTA DE RESULTADO COM FOTO
+-- =====================================================================
+
+-- =====================================================================
+-- ARTILHARIA — autores dos gols (add-artilharia)
+-- Captura QUEM fez cada gol (nome livre + autocomplete por competidor), alimenta
+-- o ranking de artilharia por competição e os artilheiros na carreira do
+-- competidor persistente. Tabela GENÉRICA: resolve o competidor por JOIN
+-- (match.vaga_N → tournament_slots.competitor_id) — NÃO denormaliza competitor_id
+-- (o lado é imutável via lock_match_relations). Assistências/MVP fora de escopo.
+-- =====================================================================
+
+create table if not exists public.match_goals (
+  id         uuid primary key default gen_random_uuid(),
+  match_id   uuid not null references public.matches (id) on delete cascade,
+  lado       smallint not null check (lado in (1, 2)),
+  jogador    text not null,                        -- nome livre (guardado com btrim)
+  gols       int not null default 1 check (gols between 1 and 99),
+  created_at timestamptz not null default now(),
+  constraint match_goals_jogador_tam
+    check (char_length(btrim(jogador)) between 1 and 60)
+);
+
+create index if not exists match_goals_match_idx
+  on public.match_goals (match_id);
+-- Um autor por (partida, lado), case-insensitive: "Endrick"/"endrick" na mesma
+-- partida/lado colidem (contagem fica em `gols`). Índice funcional (constraint
+-- inline não aceita expressão).
+create unique index if not exists match_goals_unico
+  on public.match_goals (match_id, lado, lower(btrim(jogador)));
+
+alter table public.match_goals enable row level security;
+
+-- SELECT: espelha matches_select_visivel — só vê o gol quem vê a partida (não
+-- vaza gol de rodada oculta). anon cai no ramo "liberada + público".
+drop policy if exists match_goals_select on public.match_goals;
+create policy match_goals_select on public.match_goals
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.matches m
+      where m.id = match_id
+        and (
+          public.pode_ver_bastidores_torneio(m.tournament_id)
+          or (
+            m.liberada_em is not null and m.liberada_em <= now()
+            and (
+              exists (
+                select 1 from public.tournaments t
+                where t.id = m.tournament_id
+                  and (t.is_public or public.eh_participante(t.id))
+              )
+              or auth.uid() = m.participante_1
+              or auth.uid() = m.participante_2
+              or exists (
+                select 1 from public.tournament_slots s
+                where s.id in (m.vaga_1, m.vaga_2) and s.user_id = auth.uid()
+              )
+            )
+          )
+        )
+    )
+  );
+
+-- INSERT/DELETE: derivam de quem grava PLACAR DIRETO (o técnico de vaga PROPÕE;
+-- seus autores entram via a RPC definer aprovar_proposta_placar, que ignora RLS).
+-- Espelha matches_update_tournament_owner (ARBITRAR, competitivo) OU
+-- matches_update_participant (avulso liberado). Partida encerrada não recebe gols
+-- (a app só grava com o placar, em partida não encerrada). Sem policy de UPDATE:
+-- a substituição é delete-then-insert.
+drop policy if exists match_goals_insert on public.match_goals;
+create policy match_goals_insert on public.match_goals
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.matches m
+      where m.id = match_id
+        and m.status <> 'encerrada'
+        and (
+          public.pode_arbitrar_torneio(m.tournament_id)
+          or (
+            m.liberada_em is not null and m.liberada_em <= now()
+            and (auth.uid() = m.participante_1 or auth.uid() = m.participante_2)
+          )
+        )
+    )
+  );
+
+drop policy if exists match_goals_delete on public.match_goals;
+create policy match_goals_delete on public.match_goals
+  for delete to authenticated
+  using (
+    exists (
+      select 1 from public.matches m
+      where m.id = match_id
+        and m.status <> 'encerrada'
+        and (
+          public.pode_arbitrar_torneio(m.tournament_id)
+          or (
+            m.liberada_em is not null and m.liberada_em <= now()
+            and (auth.uid() = m.participante_1 or auth.uid() = m.participante_2)
+          )
+        )
+    )
+  );
+
+-- Grants: leitura pública (anon vê gol de partida liberada/pública); escrita só
+-- autenticado (a policy é a barreira fina).
+grant select on public.match_goals to anon, authenticated;
+grant insert, delete on public.match_goals to authenticated;
+
+-- =====================================================================
+-- Fim — ARTILHARIA
 -- =====================================================================
