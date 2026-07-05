@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { getCompetitorProfile } from "@/features/league/data/getCompetitorProfile"
 import { getArtilheirosDoCompetidor } from "@/features/league/data/getArtilheirosDoCompetidor"
+import { getConquistasDoCompetidor } from "@/features/league/data/getConquistasDoCompetidor"
 import { getCompetidorInsights } from "@/features/league/data/getCompetidorInsights"
 import { getRivaisDoCompetidor } from "@/features/league/data/getRivaisDoCompetidor"
 import { createClient } from "@/lib/supabase/server"
@@ -17,6 +18,7 @@ import { ConfrontoDiretoPanel } from "@/features/league/components/competidor/Co
 import { CompetidorAgregados } from "@/features/league/components/competidor/CompetidorAgregados"
 import { CompetidorArtilheiros } from "@/features/league/components/competidor/CompetidorArtilheiros"
 import { CompetidorConquistas } from "@/features/league/components/competidor/CompetidorConquistas"
+import { CompetidorHallDaFama } from "@/features/league/components/competidor/CompetidorHallDaFama"
 import { PromedioEvolucao } from "@/features/league/components/competidor/PromedioEvolucao"
 import { TemporadaTimeline } from "@/features/league/components/competidor/TemporadaTimeline"
 
@@ -59,10 +61,11 @@ export default async function CompetidorPage({
   const supabase = await createClient()
   // Artilheiros + insights (forma/destaques) + rivais do picker de confronto, em
   // paralelo. Todos degradam sozinhos (secundários); a RLS filtra a visibilidade.
-  const [artilheiros, insights, rivais] = await Promise.all([
+  const [artilheiros, insights, rivais, conquistas] = await Promise.all([
     getArtilheirosDoCompetidor(supabase, { competitorId: id }),
     getCompetidorInsights(supabase, { competitorId: id }),
     getRivaisDoCompetidor(supabase, { competitorId: id }),
+    getConquistasDoCompetidor(supabase, { competitorId: id }),
   ])
 
   const semTemporadas = perfil.historico.length === 0
@@ -138,6 +141,7 @@ export default async function CompetidorPage({
         <>
           <CompetidorAgregados perfil={perfil} />
           <CompetidorConquistas perfil={perfil} />
+          <CompetidorHallDaFama temporadas={conquistas} />
           <CompetidorArtilheiros artilheiros={artilheiros} />
           <PromedioEvolucao historico={perfil.historico} />
           <TemporadaTimeline historico={perfil.historico} />

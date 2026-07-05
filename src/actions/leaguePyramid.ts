@@ -17,6 +17,7 @@ import {
   type PartidaJogada,
 } from "@/features/knockout/gerarChaveMataMata"
 import { createClient } from "@/lib/supabase/server"
+import { premiarEEncerrarTemporada } from "@/features/league/data/premiarEEncerrarTemporada"
 import { coresOpcionais, type CoresInput } from "@/schema/corSchema"
 import {
   createCompetitionSchema,
@@ -1924,14 +1925,14 @@ export async function confirmarFluxoTemporada(
     return { ok: false, error: prox.error }
   }
 
-  // (4) season(N) → 'encerrada' (congela). Idempotente (filtra 'em_fluxo').
-  const { error: encerrarError } = await supabase
-    .from("league_seasons")
-    .update({ status: "encerrada", encerrada_em: new Date().toISOString() })
-    .eq("id", parsed.data)
-    .eq("status", "em_fluxo")
-  if (encerrarError) {
-    return { ok: false, error: erroGenerico }
+  // (4) PREMIAR → FLIP para 'encerrada' → PUSH best-effort. Extraído em
+  // `premiarEEncerrarTemporada` para travar a ordem por teste: a RPC de premiação
+  // (writer autoritativo) roda com a season ainda 'em_fluxo'; falha ⇒ `{ok:false}`
+  // ANTES do flip (re-run reexecuta idempotente); o flip é o ÚLTIMO write; o push
+  // só sai DEPOIS do flip. Ver os comentários/testes do helper.
+  const fin = await premiarEEncerrarTemporada(supabase, parsed.data, user.id, itens)
+  if (!fin.ok) {
+    return { ok: false, error: fin.error }
   }
 
   revalidatePath("/dashboard/ligas")

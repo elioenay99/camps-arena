@@ -328,6 +328,55 @@ export interface Database {
           },
         ]
       }
+      conquistas: {
+        Row: {
+          id: string
+          competitor_id: string
+          tipo: string
+          escopo: string
+          ref_id: string
+          ref_rotulo: string
+          nivel: number | null
+          valor_texto: string | null
+          valor_num: number | null
+          jogador: string | null
+          conquistado_em: string
+        }
+        Insert: {
+          id?: string
+          competitor_id: string
+          tipo: string
+          escopo: string
+          ref_id: string
+          ref_rotulo: string
+          nivel?: number | null
+          valor_texto?: string | null
+          valor_num?: number | null
+          jogador?: string | null
+          conquistado_em?: string
+        }
+        Update: {
+          id?: string
+          competitor_id?: string
+          tipo?: string
+          escopo?: string
+          ref_id?: string
+          ref_rotulo?: string
+          nivel?: number | null
+          valor_texto?: string | null
+          valor_num?: number | null
+          jogador?: string | null
+          conquistado_em?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conquistas_competitor_id_fkey"
+            columns: ["competitor_id"]
+            referencedRelation: "league_competitors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       match_goals: {
         Row: {
           id: string
@@ -1509,6 +1558,10 @@ export interface Database {
       aprovar_proposta_placar: {
         Args: { p_proposal_id: string }
         Returns: string
+      }
+      registrar_conquistas_temporada: {
+        Args: { p_season_id: string; p_premios?: Json }
+        Returns: number
       }
       rejeitar_proposta_placar: {
         Args: { p_proposal_id: string; p_motivo: string }
