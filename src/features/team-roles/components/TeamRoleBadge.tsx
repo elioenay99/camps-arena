@@ -21,9 +21,12 @@ const META: Record<
     classes: "border-gold/30 bg-gold/10 text-gold-ink",
   },
   admin: {
+    // Texto em `foreground` (AA nos dois temas); a identidade de marca fica na
+    // borda e no ícone — `text-primary` sobre `primary/10` falhava AA (4.46 dark
+    // / 4.41 light). change add-classificacao-a11y-responsiva.
     rotulo: "Admin",
     icon: Star,
-    classes: "border-primary/30 bg-primary/10 text-primary",
+    classes: "border-primary/30 bg-primary/10 text-foreground [&_svg]:text-primary",
   },
   arbitro: {
     rotulo: "Árbitro",

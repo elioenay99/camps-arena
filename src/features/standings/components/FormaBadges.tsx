@@ -6,10 +6,14 @@ const ROTULO: Record<ItemForma["resultado"], string> = {
   D: "Derrota",
 }
 
+// `text-primary-foreground` (não `text-white`) no "D": foreground ADAPTATIVO por
+// tema (letra escura no dark, clara no light), garantindo AA sobre o fundo
+// destrutivo nos DOIS temas mesmo com o token `--destructive` do dark clareado
+// (senão o branco perderia contraste). change add-classificacao-a11y-responsiva.
 const TOM: Record<ItemForma["resultado"], string> = {
   V: "bg-primary/85 text-primary-foreground",
   E: "bg-muted-foreground/35 text-foreground",
-  D: "bg-destructive/85 text-white",
+  D: "bg-destructive/85 text-primary-foreground",
 }
 
 /**

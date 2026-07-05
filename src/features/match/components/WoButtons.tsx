@@ -13,11 +13,11 @@ import { Button } from "@/components/ui/button"
  */
 
 /**
- * Alvo de toque mínimo (40px) para ações IRREVERSÍVEIS em mobile. A base
+ * Alvo de toque mínimo (44px) para ações IRREVERSÍVEIS em mobile. A base
  * `size="sm"` tem h-7 (28px); aqui elevamos altura + padding sem inflar os
  * botões pequenos legítimos do resto do app (a base do Button fica intacta).
  */
-const ALVO_TOQUE = "min-h-10 px-4"
+const ALVO_TOQUE = "min-h-11 px-4"
 
 /**
  * Marcar W.O. (DONO): o vencedor é apontado entre os dois clubes. Estado local

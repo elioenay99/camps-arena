@@ -94,7 +94,7 @@ export function CupLifecycleActions({
           disabled={arquivando}
           variant="outline"
           size="sm"
-          className="min-h-10 rounded-full px-4"
+          className="min-h-11 rounded-full px-4"
         >
           <Archive aria-hidden="true" />
           {arquivando ? "Arquivando…" : "Arquivar"}
@@ -103,7 +103,7 @@ export function CupLifecycleActions({
 
       <Dialog open={aberto} onOpenChange={setAberto}>
         <DialogTrigger asChild>
-          <Button variant="destructive" size="sm" className="min-h-10 rounded-full px-4">
+          <Button variant="destructive" size="sm" className="min-h-11 rounded-full px-4">
             <Trash2 aria-hidden="true" />
             Apagar
           </Button>

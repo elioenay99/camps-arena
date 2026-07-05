@@ -16,8 +16,8 @@ import type { PropostaPendente } from "@/features/match/data/getPropostasPendent
  * transição. Mesma linguagem visual dos itens de W.O. da página.
  */
 
-/** Alvo de toque mínimo (40px) para ações irreversíveis em mobile. */
-const ALVO_TOQUE = "min-h-10 px-4"
+/** Alvo de toque mínimo (44px) para ações irreversíveis em mobile. */
+const ALVO_TOQUE = "min-h-11 px-4"
 
 export function PropostasPendentes({
   tournamentId,
@@ -80,7 +80,7 @@ function ItemProposta({
           href={`/dashboard/torneios/${tournamentId}/evidencia/placar/${proposta.id}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-primary inline-flex min-h-10 items-center underline-offset-4 hover:underline"
+          className="text-primary inline-flex min-h-11 items-center underline-offset-4 hover:underline"
         >
           Ver foto
         </a>

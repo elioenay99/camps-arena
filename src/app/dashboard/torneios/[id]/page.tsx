@@ -415,7 +415,7 @@ export default async function TorneioPage({
                       encerrada.
                     </EstadoVazioSecao>
                   ) : (
-                    <StandingsTable linhas={g.linhas} />
+                    <StandingsTable linhas={g.linhas} expansivel />
                   )}
                 </div>
               ))
@@ -462,6 +462,7 @@ export default async function TorneioPage({
               <StandingsTable
                 linhas={linhas}
                 formaPorParticipante={insights.formaPorParticipante}
+                expansivel
               />
               <DestaquesClassificacao
                 destaques={insights.destaques}
@@ -476,7 +477,7 @@ export default async function TorneioPage({
           do mata-mata: classificação por pontos não se aplica à chave). */}
       {!ehMataMata && clubes.length > 0 ? (
         <SecaoTorneio id="clubes-titulo" titulo="Clubes" Icon={Shield}>
-          <StandingsTable linhas={clubes} rotuloLado="Clube" />
+          <StandingsTable linhas={clubes} rotuloLado="Clube" expansivel />
         </SecaoTorneio>
       ) : null}
     </>
@@ -552,7 +553,7 @@ export default async function TorneioPage({
                       href={`/dashboard/torneios/${id}/evidencia/wo/${s.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-primary inline-flex min-h-10 items-center underline-offset-4 hover:underline"
+                      className="text-primary inline-flex min-h-11 items-center underline-offset-4 hover:underline"
                     >
                       Ver foto
                     </a>
@@ -874,7 +875,7 @@ export default async function TorneioPage({
                 asChild
                 variant="outline"
                 size="sm"
-                className="min-h-10 rounded-full px-4"
+                className="min-h-11 rounded-full px-4"
               >
                 <Link href={`/dashboard/torneios/${id}/equipe`} prefetch={false}>
                   <Users aria-hidden="true" />

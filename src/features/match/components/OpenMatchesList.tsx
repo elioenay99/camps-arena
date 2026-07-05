@@ -221,7 +221,7 @@ export function OpenMatchesList({
                   type="button"
                   size="sm"
                   variant="secondary"
-                  className="min-h-10 px-4"
+                  className="min-h-11 px-4"
                   aria-label={`Editar placar de ${p.nome_1} contra ${p.nome_2}`}
                 >
                   Editar placar

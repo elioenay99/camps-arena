@@ -49,7 +49,7 @@ export function EncerrarEdicaoButton({ cupSeasonId }: { cupSeasonId: string }) {
         onClick={() => setConfirmando(true)}
         variant="outline"
         size="sm"
-        className="min-h-10 rounded-full px-4"
+        className="min-h-11 rounded-full px-4"
       >
         <Flag aria-hidden="true" />
         Encerrar edição

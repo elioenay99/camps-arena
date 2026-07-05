@@ -175,7 +175,7 @@ export function EdicaoParticipantesPanel({
           disabled={derivando || montando || ajustando}
           variant="outline"
           size="sm"
-          className="min-h-10 rounded-full px-4"
+          className="min-h-11 rounded-full px-4"
         >
           {n > 0 ? (
             <RefreshCw aria-hidden="true" />
@@ -211,7 +211,7 @@ export function EdicaoParticipantesPanel({
             variant="outline"
             onClick={adicionarNome}
             disabled={ajusteBloqueado}
-            className="min-h-10"
+            className="min-h-11"
           >
             <UserPlus aria-hidden="true" />
             Adicionar
@@ -263,7 +263,7 @@ export function EdicaoParticipantesPanel({
                   type="button"
                   size="icon"
                   variant="ghost"
-                  className="min-h-10 min-w-10"
+                  className="min-h-11 min-w-11"
                   disabled={ajusteBloqueado || i === 0}
                   onClick={() => mover(i, -1)}
                   aria-label={`Mover ${p.nome} para cima`}
@@ -274,7 +274,7 @@ export function EdicaoParticipantesPanel({
                   type="button"
                   size="icon"
                   variant="ghost"
-                  className="min-h-10 min-w-10"
+                  className="min-h-11 min-w-11"
                   disabled={ajusteBloqueado || i === participantes.length - 1}
                   onClick={() => mover(i, 1)}
                   aria-label={`Mover ${p.nome} para baixo`}
@@ -285,7 +285,7 @@ export function EdicaoParticipantesPanel({
                   type="button"
                   size="icon"
                   variant="ghost"
-                  className="min-h-10 min-w-10"
+                  className="min-h-11 min-w-11"
                   disabled={ajusteBloqueado}
                   onClick={() => remover(p.id, p.nome)}
                   aria-label={`Remover ${p.nome}`}

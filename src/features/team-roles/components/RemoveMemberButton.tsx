@@ -56,8 +56,8 @@ export function RemoveMemberButton({
           type="button"
           size="sm"
           variant="outline"
-          // Alvo de toque de 40px no mobile para ação irreversível.
-          className="min-h-10 px-4"
+          // Alvo de toque de 44px no mobile para ação irreversível.
+          className="min-h-11 px-4"
         >
           Remover
         </Button>
@@ -71,14 +71,14 @@ export function RemoveMemberButton({
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild>
-            <Button type="button" variant="outline" className="min-h-10">
+            <Button type="button" variant="outline" className="min-h-11">
               Cancelar
             </Button>
           </DialogClose>
           <Button
             type="button"
             variant="destructive"
-            className="min-h-10"
+            className="min-h-11"
             disabled={pendente}
             onClick={confirmar}
           >

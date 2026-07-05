@@ -158,7 +158,7 @@ export function CupRulesPanel({ cupId, regras, piramides, copas }: CupRulesPanel
         onClick={abrirEdicao}
         variant="outline"
         size="sm"
-        className="min-h-10 self-start rounded-full px-4"
+        className="min-h-11 self-start rounded-full px-4"
       >
         <Pencil aria-hidden="true" />
         Editar regras

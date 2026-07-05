@@ -19,11 +19,11 @@ import { Button } from "@/components/ui/button"
  */
 
 /**
- * Alvo de toque mínimo (40px) para ações IRREVERSÍVEIS em mobile —
+ * Alvo de toque mínimo (44px) para ações IRREVERSÍVEIS em mobile —
  * expulsar/assumir/desistir/regenerar convite. A base size="sm" tem h-7;
  * elevamos altura + padding sem mexer na base do Button.
  */
-const ALVO_TOQUE = "min-h-10 px-4"
+const ALVO_TOQUE = "min-h-11 px-4"
 function ActionButton({
   rotulo,
   pendente,
@@ -70,8 +70,8 @@ export function CopyVagaLinkButton({ url }: { url: string }) {
       type="button"
       size="sm"
       variant="outline"
-      // Alvo de toque de 40px no mobile, alinhado às ações irmãs na mesma linha.
-      className="min-h-10 px-4"
+      // Alvo de toque de 44px no mobile, alinhado às ações irmãs na mesma linha.
+      className="min-h-11 px-4"
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(url)

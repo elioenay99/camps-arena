@@ -583,6 +583,7 @@ function DivisaoCard({
             formaPorParticipante={standings.insights?.formaPorParticipante}
             hrefCompetidorBase="/dashboard/ligas/competidor"
             ocultarCampeao={ehSplit}
+            expansivel
           />
           {/* Destaques (change add-insights-classificacao): só quando há insights
               (null no ciclo split, fora do MVP). */}

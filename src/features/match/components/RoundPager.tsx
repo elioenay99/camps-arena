@@ -55,6 +55,8 @@ export function RoundPager({
             type="button"
             variant="outline"
             size="icon-sm"
+            // Alvo de toque ≥44px no mobile (icon-sm é 28px); compacto em md+.
+            className="size-11 md:size-7"
             aria-label="Rodada anterior"
             disabled={seguro === 0}
             onClick={() => setRodadaSel(rounds[seguro - 1].rodada)}
@@ -68,7 +70,7 @@ export function RoundPager({
               aria-label="Ir para a rodada"
               value={atual.rodada}
               onChange={(e) => setRodadaSel(Number(e.target.value))}
-              className="appearance-none rounded-lg border border-input bg-transparent py-1.5 pr-8 pl-3 text-sm font-medium outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+              className="min-h-11 appearance-none rounded-lg border border-input bg-transparent py-1.5 pr-8 pl-3 text-sm font-medium outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring md:min-h-0 dark:bg-input/30"
             >
               {rounds.map((r) => (
                 <option key={r.rodada} value={r.rodada}>{`Rodada ${r.rodada}`}</option>
@@ -85,6 +87,8 @@ export function RoundPager({
             type="button"
             variant="outline"
             size="icon-sm"
+            // Alvo de toque ≥44px no mobile (icon-sm é 28px); compacto em md+.
+            className="size-11 md:size-7"
             aria-label="Próxima rodada"
             disabled={seguro >= total - 1}
             onClick={() => setRodadaSel(rounds[seguro + 1].rodada)}

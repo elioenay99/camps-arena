@@ -1,24 +1,25 @@
-import Link from "next/link"
-import { Trophy } from "lucide-react"
-
-import { TeamCrest } from "@/features/team/components/TeamCrest"
-import { UserAvatar } from "@/features/profile/components/UserAvatar"
-import { FormaBadges } from "@/features/standings/components/FormaBadges"
+import {
+  classesLinha,
+  derivarEstiloLinha,
+  LinhaCelulas,
+  type PosicoesZona,
+} from "@/features/standings/components/standingsCells"
+import { StandingsRow } from "@/features/standings/components/StandingsRow"
 import type { LinhaComNome } from "@/features/standings/data/getTournamentClassificacao"
 import type { ItemForma } from "@/features/standings/insights"
 
 const COLUNAS_BASE = [
-  { chave: "pos", rotulo: "Pos", titulo: "Posição" },
+  { chave: "pos", rotulo: "Pos", titulo: "Posição", prioritaria: true },
   // Rótulo do lado vem por prop: a tabela serve participantes E clubes.
-  { chave: "nome", rotulo: null, titulo: null },
-  { chave: "pontos", rotulo: "P", titulo: "Pontos" },
-  { chave: "jogos", rotulo: "J", titulo: "Jogos" },
-  { chave: "vitorias", rotulo: "V", titulo: "Vitórias" },
-  { chave: "empates", rotulo: "E", titulo: "Empates" },
-  { chave: "derrotas", rotulo: "D", titulo: "Derrotas" },
-  { chave: "golsPro", rotulo: "GP", titulo: "Gols pró" },
-  { chave: "golsContra", rotulo: "GC", titulo: "Gols contra" },
-  { chave: "saldo", rotulo: "SG", titulo: "Saldo de gols" },
+  { chave: "nome", rotulo: null, titulo: null, prioritaria: true },
+  { chave: "pontos", rotulo: "P", titulo: "Pontos", prioritaria: true },
+  { chave: "jogos", rotulo: "J", titulo: "Jogos", prioritaria: true },
+  { chave: "vitorias", rotulo: "V", titulo: "Vitórias", prioritaria: false },
+  { chave: "empates", rotulo: "E", titulo: "Empates", prioritaria: false },
+  { chave: "derrotas", rotulo: "D", titulo: "Derrotas", prioritaria: false },
+  { chave: "golsPro", rotulo: "GP", titulo: "Gols pró", prioritaria: false },
+  { chave: "golsContra", rotulo: "GC", titulo: "Gols contra", prioritaria: false },
+  { chave: "saldo", rotulo: "SG", titulo: "Saldo de gols", prioritaria: true },
 ] as const
 
 /** Zonas de acesso/rebaixamento (posições 1-based) — destaque da pirâmide. */
@@ -33,6 +34,9 @@ export interface StandingsZonas {
   playoffRebaixamento?: number[]
 }
 
+/** Coluna hoje oculta no compacto/mobile (só a linha de detalhe a revela). */
+const OCULTA_COMPACTO = "group-data-[compacto=true]/standings:hidden"
+
 /** Tabela de classificação — RSC puro: só renderiza o que o motor calculou. */
 export function StandingsTable({
   linhas,
@@ -42,6 +46,7 @@ export function StandingsTable({
   formaPorParticipante,
   hrefCompetidorBase,
   ocultarCampeao = false,
+  expansivel = false,
 }: {
   linhas: LinhaComNome[]
   /** Rótulo da coluna de nome ("Participante" ou "Clube"). */
@@ -59,8 +64,8 @@ export function StandingsTable({
   promedioPorParticipante?: Map<string, number>
   /**
    * Forma (últimos 5 V/E/D) por `participanteId` (change add-insights-classificacao).
-   * Quando presente, adiciona a coluna "Forma" (badges) — oculta no modo "caber"
-   * para não estourar o mobile. Ausente = sem coluna (comportamento legado).
+   * Quando presente, adiciona a coluna "Forma" (badges) — oculta no compacto para
+   * não estourar o mobile. Ausente = sem coluna (comportamento legado).
    */
   formaPorParticipante?: Map<string, ItemForma[]>
   /**
@@ -76,20 +81,30 @@ export function StandingsTable({
    * = comportamento atual (1º lugar destacado como campeão).
    */
   ocultarCampeao?: boolean
+  /**
+   * Liga a DIVULGAÇÃO PROGRESSIVA por linha (change add-classificacao-a11y-responsiva):
+   * quando `true`, cada linha é uma folha client (`StandingsRow`) que, no mobile
+   * compacto, expõe o gatilho de expandir + a linha de detalhe. Só a standings-page
+   * (via `ClassificacaoResponsiva`) liga; os consumidores crus deixam FALSE e
+   * permanecem 100% RSC, sem `<button>` por linha. Default: FALSE.
+   */
+  expansivel?: boolean
 }) {
   // Conjuntos de posições para lookup O(1). Vazios quando `zonas` é ausente —
   // o destaque some e a tabela volta ao comportamento standalone.
-  const posAcesso = new Set(zonas?.acesso ?? [])
-  const posRebaixamento = new Set(zonas?.rebaixamento ?? [])
-  // Zonas de PLAYOFF (vão à chave, não sobem/caem direto). Separadas das diretas:
-  // uma posição é OU direta OU de chave, nunca as duas (partição no derivarZonas).
-  const posPlayoffAcesso = new Set(zonas?.playoffAcesso ?? [])
-  const posPlayoffRebaixamento = new Set(zonas?.playoffRebaixamento ?? [])
-  const temPlayoffAcesso = posPlayoffAcesso.size > 0
-  const temPlayoffRebaixamento = posPlayoffRebaixamento.size > 0
+  const pos: PosicoesZona = {
+    posAcesso: new Set(zonas?.acesso ?? []),
+    posRebaixamento: new Set(zonas?.rebaixamento ?? []),
+    // Zonas de PLAYOFF (vão à chave, não sobem/caem direto). Separadas das diretas:
+    // uma posição é OU direta OU de chave, nunca as duas (partição no derivarZonas).
+    posPlayoffAcesso: new Set(zonas?.playoffAcesso ?? []),
+    posPlayoffRebaixamento: new Set(zonas?.playoffRebaixamento ?? []),
+  }
+  const temPlayoffAcesso = pos.posPlayoffAcesso.size > 0
+  const temPlayoffRebaixamento = pos.posPlayoffRebaixamento.size > 0
   const temZonas =
-    posAcesso.size > 0 ||
-    posRebaixamento.size > 0 ||
+    pos.posAcesso.size > 0 ||
+    pos.posRebaixamento.size > 0 ||
     temPlayoffAcesso ||
     temPlayoffRebaixamento
   // Coluna de promédio (Fase 4): inserida logo após "Pos" quando há promedio —
@@ -98,20 +113,26 @@ export function StandingsTable({
   const COLUNAS = temPromedio
     ? [
         COLUNAS_BASE[0],
-        { chave: "promedio", rotulo: "Pro", titulo: "Promédio" } as const,
+        {
+          chave: "promedio",
+          rotulo: "Pro",
+          titulo: "Promédio",
+          prioritaria: true,
+        } as const,
         ...COLUNAS_BASE.slice(1),
       ]
     : COLUNAS_BASE
-  const fmtPromedio = (v: number) => v.toFixed(3)
-  // Coluna "Forma" (últimos 5): última coluna, OCULTA no modo "caber" (compacto)
-  // para preservar o encaixe mobile — badges custam largura.
+  // Coluna "Forma" (últimos 5): última coluna, OCULTA no compacto (mobile) para
+  // preservar o encaixe — badges custam largura.
   const temForma = formaPorParticipante !== undefined
+  // colspan da linha de detalhe: todas as colunas + a coluna Forma quando houver.
+  const colSpanN = COLUNAS.length + (temForma ? 1 : 0)
   return (
     <div className="flex flex-col gap-2">
       <div className="overflow-x-auto rounded-lg border">
       {/* min-w dá piso à tabela: sem ele, w-full nunca transborda o wrapper e
           o overflow-x-auto seria inerte — 10 colunas espremidas no mobile. */}
-      <table className="w-full min-w-[34rem] text-sm group-data-[modo=caber]/standings:min-w-0 group-data-[modo=caber]/standings:text-xs">
+      <table className="w-full min-w-[34rem] text-sm group-data-[modo=caber]/standings:min-w-0 group-data-[modo=caber]/standings:text-xs group-data-[compacto=true]/standings:min-w-0">
         <caption className="sr-only">
           {`Classificação por ${rotuloLado.toLowerCase()}: posição, pontos e estatísticas`}
         </caption>
@@ -124,11 +145,11 @@ export function StandingsTable({
                 <th
                   key={c.chave}
                   scope="col"
-                  className={
+                  className={`${
                     c.chave === "nome"
                       ? "px-3 py-2 text-left font-semibold"
                       : "px-2 py-2 text-center font-semibold group-data-[modo=caber]/standings:px-1"
-                  }
+                  }${c.prioritaria ? "" : ` ${OCULTA_COMPACTO}`}`}
                 >
                   {/* abbr (tooltip no hover) escondida do leitor de tela; o
                       sr-only anuncia o título completo da coluna. */}
@@ -142,7 +163,7 @@ export function StandingsTable({
             {temForma ? (
               <th
                 scope="col"
-                className="px-2 py-2 text-center font-semibold group-data-[modo=caber]/standings:hidden"
+                className={`px-2 py-2 text-center font-semibold ${OCULTA_COMPACTO}`}
               >
                 <abbr title="Forma (últimos 5)" className="no-underline" aria-hidden="true">
                   Forma
@@ -154,124 +175,40 @@ export function StandingsTable({
         </thead>
         <tbody>
           {linhas.map((linha) => {
-            // 1º lugar é CONQUISTA: linha tingida de dourado + troféu. Empates
-            // podem repetir posicao===1 — o destaque vale para toda linha líder.
-            // `ocultarCampeao` (combinada do split) suprime o destaque: o título
-            // da divisão sai da grande final, não desta tabela.
-            const ehLider = !ocultarCampeao && linha.posicao === 1
-            // Zonas da pirâmide (posicionais). O ouro do líder tem prioridade
-            // sobre qualquer faixa de zona (a pos. 1 mora numa zona de acesso/
-            // playoff). Por isso o `tom` de zona só pinta quando NÃO é líder.
-            const ehAcesso = posAcesso.has(linha.posicao)
-            const ehRebaixamento = posRebaixamento.has(linha.posicao)
-            // Zona de CHAVE (playoff). Cor escolhida: GOLD/âmbar TRACEJADO — 3ª
-            // cor distinta de primary (acesso direto), destructive (queda direta)
-            // e accent (hover/sorteio). O ouro do líder usa faixa SÓLIDA + troféu
-            // + texto gold-ink; a zona de chave usa borda TRACEJADA + tom mais
-            // sutil (gold/8 < gold/12 do líder) e mantém o TEXTO padrão (foreground),
-            // distinguindo as duas leituras de ouro sem criar token novo.
-            // Contraste AA: o texto continua foreground (alto contraste) nos dois
-            // temas; gold só pinta stripe/borda/tom de fundo — a mesma família do
-            // líder, que já valida AA em Dracula (dark) e Canarinho (light).
-            const ehPlayoff =
-              posPlayoffAcesso.has(linha.posicao) ||
-              posPlayoffRebaixamento.has(linha.posicao)
-            // Faixa lateral SÓLIDA (acesso/queda diretos). Playoff usa borda
-            // tracejada (abaixo), não esta faixa — leitura visual distinta.
-            const faixa = ehRebaixamento
-              ? "before:bg-destructive/70"
-              : ehAcesso
-                ? "before:bg-primary/70"
-                : ""
-            const tom =
-              !ehLider && ehRebaixamento
-                ? "bg-destructive/10 hover:bg-destructive/14"
-                : !ehLider && ehAcesso
-                  ? "bg-primary/8 hover:bg-primary/12"
-                  : !ehLider && ehPlayoff
-                    ? "bg-gold/8 hover:bg-gold/12"
-                    : ""
-            const temFaixa = faixa !== ""
-            // Borda esquerda TRACEJADA dourada = marca da zona de chave (só quando
-            // não há faixa sólida; partição garante que nunca coexistem).
-            const ehPlayoffMarcado = ehPlayoff && !temFaixa
+            const estilo = derivarEstiloLinha(linha, pos, ocultarCampeao)
+            const promedioValor = promedioPorParticipante?.get(
+              linha.participanteId,
+            )
+            const formaItens = formaPorParticipante?.get(linha.participanteId)
+            // Com a expansão ligada, a linha é uma folha client (disclosure no
+            // mobile). Sem ela, `<tr>` RSC pura — os consumidores crus não pagam
+            // client nem `<button>` por linha.
+            if (expansivel) {
+              return (
+                <StandingsRow
+                  key={linha.participanteId}
+                  linha={linha}
+                  estilo={estilo}
+                  temPromedio={temPromedio}
+                  promedioValor={promedioValor}
+                  hrefCompetidorBase={hrefCompetidorBase}
+                  temForma={temForma}
+                  formaItens={formaItens}
+                  colSpanN={colSpanN}
+                />
+              )
+            }
             return (
-              <tr
-                key={linha.participanteId}
-                className={`border-b last:border-b-0 even:bg-muted/30 motion-safe:transition-colors hover:bg-accent/50 ${ehLider ? "bg-gold/12 hover:bg-gold/16" : tom}`}
-              >
-                <td
-                  className={`px-2 py-2 text-center font-display font-bold tabular-nums group-data-[modo=caber]/standings:px-1 ${
-                    temFaixa
-                      ? `relative before:absolute before:inset-y-0 before:left-0 before:w-1 ${faixa}`
-                      : ehPlayoffMarcado
-                        ? "border-l-2 border-dashed border-gold/70"
-                        : ""
-                  }`}
-                >
-                  <span
-                    className={`inline-flex items-center justify-center gap-1 ${
-                      ehLider ? "rounded-md px-1 text-gold-ink" : ""
-                    }`}
-                  >
-                    {ehLider ? (
-                      <Trophy className="size-3.5 text-gold-ink" aria-hidden="true" />
-                    ) : null}
-                    {linha.posicao}º
-                  </span>
-                </td>
-                {temPromedio ? (
-                  <td className="px-2 py-2 text-center font-semibold tabular-nums group-data-[modo=caber]/standings:px-1">
-                    {fmtPromedio(promedioPorParticipante.get(linha.participanteId) ?? 0)}
-                  </td>
-                ) : null}
-                <td className="px-3 py-2 text-left min-w-0">
-                  <span className="flex min-w-0 items-center gap-2 whitespace-nowrap group-data-[modo=caber]/standings:whitespace-normal">
-                    {linha.escudoUrl ? (
-                      <TeamCrest
-                        nome={linha.nome}
-                        escudoUrl={linha.escudoUrl}
-                        size={24}
-                      />
-                    ) : (
-                      <UserAvatar
-                        nome={linha.nome}
-                        avatarUrl={linha.avatarUrl}
-                        size={24}
-                      />
-                    )}
-                    {hrefCompetidorBase ? (
-                      <Link
-                        href={`${hrefCompetidorBase}/${linha.participanteId}`}
-                        // Sem prefetch: a pirâmide renderiza ~40 links por vez;
-                        // o prefetch no viewport dispararia ~40 renders RSC de
-                        // getCompetitorProfile de uma vez (N+1 → 503). A navegação
-                        // por clique segue intacta. Ver change add-liga-prefetch-fix.
-                        prefetch={false}
-                        className="rounded underline-offset-2 hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                      >
-                        {linha.nome}
-                      </Link>
-                    ) : (
-                      linha.nome
-                    )}
-                  </span>
-                </td>
-                <td className="px-2 py-2 text-center font-semibold tabular-nums group-data-[modo=caber]/standings:px-1">
-                  {linha.pontos}
-                </td>
-                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.jogos}</td>
-                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.vitorias}</td>
-                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.empates}</td>
-                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.derrotas}</td>
-                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.golsPro}</td>
-                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.golsContra}</td>
-                <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.saldo}</td>
-                {temForma ? (
-                  <td className="px-2 py-2 text-center whitespace-nowrap group-data-[modo=caber]/standings:hidden">
-                    <FormaBadges itens={formaPorParticipante.get(linha.participanteId) ?? []} />
-                  </td>
-                ) : null}
+              <tr key={linha.participanteId} className={classesLinha(estilo)}>
+                <LinhaCelulas
+                  linha={linha}
+                  estilo={estilo}
+                  temPromedio={temPromedio}
+                  promedioValor={promedioValor}
+                  hrefCompetidorBase={hrefCompetidorBase}
+                  temForma={temForma}
+                  formaItens={formaItens}
+                />
               </tr>
             )
           })}
@@ -280,7 +217,7 @@ export function StandingsTable({
       </div>
       {temZonas || temPromedio ? (
         <ul className="flex list-none flex-wrap gap-x-4 gap-y-1 px-0.5 text-xs text-muted-foreground">
-          {posAcesso.size > 0 ? (
+          {pos.posAcesso.size > 0 ? (
             <li className="flex items-center gap-1.5">
               <span
                 aria-hidden="true"
@@ -289,7 +226,7 @@ export function StandingsTable({
               Acesso (sobe)
             </li>
           ) : null}
-          {posRebaixamento.size > 0 ? (
+          {pos.posRebaixamento.size > 0 ? (
             <li className="flex items-center gap-1.5">
               <span
                 aria-hidden="true"

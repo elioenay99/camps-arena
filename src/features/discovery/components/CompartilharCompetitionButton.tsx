@@ -41,7 +41,7 @@ export function CompartilharCompetitionButton({
       type="button"
       size="sm"
       variant="outline"
-      className="min-h-10 rounded-full px-4"
+      className="min-h-11 rounded-full px-4"
       disabled={pendente}
       onClick={aoClicar}
     >

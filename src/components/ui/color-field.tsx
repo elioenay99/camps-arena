@@ -50,7 +50,8 @@ export function ColorField({
           aria-label={`${label}: seletor de cor`}
           value={swatch}
           onChange={(e) => onChange(e.target.value.toLowerCase())}
-          className="border-input h-9 w-10 shrink-0 cursor-pointer rounded-md border bg-transparent p-1"
+          // Alvo de toque ≥44px no mobile (swatch era 36px); compacto em md+.
+          className="border-input h-11 w-11 shrink-0 cursor-pointer rounded-md border bg-transparent p-1 md:h-9 md:w-10"
         />
         <input
           id={id}
@@ -65,7 +66,7 @@ export function ColorField({
           aria-describedby={describedBy}
           onChange={(e) => onChange(e.target.value)}
           className={cn(
-            "border-input focus-visible:ring-ring h-9 w-full rounded-md border bg-transparent px-3 font-mono text-sm uppercase outline-none focus-visible:ring-2",
+            "border-input focus-visible:ring-ring h-11 w-full rounded-md border bg-transparent px-3 font-mono text-sm uppercase outline-none focus-visible:ring-2 md:h-9",
             !valido && "border-destructive focus-visible:ring-destructive",
           )}
         />
@@ -73,7 +74,7 @@ export function ColorField({
           <button
             type="button"
             onClick={() => onChange("")}
-            className="text-muted-foreground hover:text-foreground shrink-0 text-xs underline-offset-2 hover:underline"
+            className="text-muted-foreground hover:text-foreground inline-flex min-h-11 shrink-0 items-center text-xs underline-offset-2 hover:underline md:min-h-0"
           >
             limpar
           </button>

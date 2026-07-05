@@ -138,7 +138,7 @@ function CartaoConvite({
             <Button
               type="button"
               size="sm"
-              className="min-h-10 px-4"
+              className="min-h-11 px-4"
               onClick={copiar}
             >
               Copiar link
@@ -147,7 +147,7 @@ function CartaoConvite({
               type="button"
               size="sm"
               variant="outline"
-              className="min-h-10 px-4"
+              className="min-h-11 px-4"
               disabled={pendente}
               onClick={gerar}
             >
@@ -157,7 +157,7 @@ function CartaoConvite({
               type="button"
               size="sm"
               variant="outline"
-              className="min-h-10 px-4"
+              className="min-h-11 px-4"
               disabled={pendente}
               onClick={revogar}
             >
@@ -170,7 +170,7 @@ function CartaoConvite({
           <Button
             type="button"
             size="sm"
-            className="min-h-10 px-4"
+            className="min-h-11 px-4"
             disabled={pendente}
             onClick={gerar}
           >

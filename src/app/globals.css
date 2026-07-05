@@ -128,7 +128,11 @@
   --muted-foreground: #abafd0;
   --accent: #44475a;
   --accent-foreground: #f8f8f2;
-  --destructive: #ff5555;
+  /* Clareado de #ff5555 (4.08 sobre card, falhava AA como TEXTO) para AA (~5.6:1).
+     Não há bg-destructive SÓLIDO no app (só text-destructive + tints /10-85), então
+     o clareamento não regride fundo; badges de fundo destrutivo usam foreground
+     adaptativo. change add-classificacao-a11y-responsiva. */
+  --destructive: #ff8888;
   --border: #f8f8f21a;
   --input: #f8f8f226;
   --ring: #bd93f9;
@@ -153,7 +157,9 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    /* Contorno de foco global com contraste ≥3:1 (WCAG 1.4.11): cor cheia do
+       ring em vez de /50 (~2.5:1). change add-classificacao-a11y-responsiva. */
+    @apply border-border outline-ring;
   }
   body {
     @apply bg-background text-foreground;

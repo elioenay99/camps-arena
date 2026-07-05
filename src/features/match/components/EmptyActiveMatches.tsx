@@ -3,6 +3,7 @@ import { Plus, Swords, Trophy } from "lucide-react"
 
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 
 interface EmptyActiveMatchesProps {
   /** Usuário não organiza nem participa de nenhum torneio (via `getMeusTorneios`). */
@@ -88,7 +89,11 @@ export function EmptyActiveMatches({
           </Button>
           <Link
             href="/dashboard/torneios"
-            className={buttonVariants({ variant: "link", size: "sm" })}
+            className={cn(
+              buttonVariants({ variant: "link", size: "sm" }),
+              // Alvo de toque ≥44px no mobile; compacto em md+.
+              "min-h-11 md:min-h-0",
+            )}
           >
             Ver meus torneios
           </Link>

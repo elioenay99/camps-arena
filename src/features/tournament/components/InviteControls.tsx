@@ -16,8 +16,8 @@ export function CopyInviteLinkButton({ url }: { url: string }) {
     <Button
       type="button"
       size="sm"
-      // Alvo de toque de 40px no mobile, alinhado às ações irmãs na mesma linha.
-      className="min-h-10 px-4"
+      // Alvo de toque de 44px no mobile, alinhado às ações irmãs na mesma linha.
+      className="min-h-11 px-4"
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(url)
@@ -48,8 +48,8 @@ export function RegenerateInviteButton({
       size="sm"
       variant={temConvite ? "outline" : "default"}
       // Ação irreversível (gera novo link e invalida o anterior): alvo de
-      // toque de 40px no mobile, com padding extra para o dedo.
-      className="min-h-10 px-4"
+      // toque de 44px no mobile, com padding extra para o dedo.
+      className="min-h-11 px-4"
       disabled={pendente}
       onClick={() =>
         startTransition(async () => {

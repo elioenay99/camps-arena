@@ -140,7 +140,7 @@ function VisualizacaoTorneio({
                   A classificação aparece depois da primeira partida encerrada.
                 </EstadoVazio>
               ) : (
-                <StandingsTable linhas={g.linhas} />
+                <StandingsTable linhas={g.linhas} expansivel />
               )}
             </div>
           ))}

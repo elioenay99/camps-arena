@@ -86,7 +86,7 @@ describe("StandingsTable (smoke)", () => {
     expect(queryByText("Forma nos últimos jogos")).toBeNull()
   })
 
-  it("com formaPorParticipante renderiza a coluna Forma com aria-label (oculta no 'caber')", () => {
+  it("com formaPorParticipante renderiza a coluna Forma com aria-label (oculta no compacto)", () => {
     const forma = new Map([
       ["p1", [{ resultado: "V" as const, wo: false, rodada: 1 }]],
     ])
@@ -95,10 +95,44 @@ describe("StandingsTable (smoke)", () => {
     )
     // Badge com rótulo acessível (não só cor).
     expect(getByLabelText("Vitória")).toBeInTheDocument()
-    // Coluna oculta no modo compacto para preservar o encaixe mobile.
+    // Coluna oculta no estado compacto (mobile) para preservar o encaixe.
     const th = [...container.querySelectorAll("th")].find((e) =>
       e.textContent?.includes("Forma"),
     )
-    expect(th?.className).toContain("group-data-[modo=caber]/standings:hidden")
+    expect(th?.className).toContain("group-data-[compacto=true]/standings:hidden")
+  })
+
+  it("o NOME é o cabeçalho da linha (th scope=row) — associa as células à linha", () => {
+    const { container } = render(<StandingsTable linhas={[linha]} />)
+    const th = container.querySelector('tbody th[scope="row"]')
+    expect(th).not.toBeNull()
+    expect(th?.textContent).toContain("Time Um")
+  })
+
+  it("anuncia a zona por linha em sr-only (rebaixamento), sem depender da cor", () => {
+    const { container } = render(
+      <StandingsTable
+        linhas={[linha]}
+        zonas={{ acesso: [], rebaixamento: [1] }}
+      />,
+    )
+    const th = container.querySelector('tbody th[scope="row"]')!
+    const srOnly = [...th.querySelectorAll("span.sr-only")].map((e) =>
+      e.textContent,
+    )
+    expect(srOnly).toContain("Zona de rebaixamento")
+  })
+
+  it("sem zonas não anuncia zona, mas mantém o th scope=row", () => {
+    const { container } = render(<StandingsTable linhas={[linha]} />)
+    const th = container.querySelector('tbody th[scope="row"]')!
+    expect(th.querySelector("span.sr-only")).toBeNull()
+  })
+
+  it("expansivel=false NÃO renderiza gatilho de expansão por linha (permanece cru)", () => {
+    const { container } = render(<StandingsTable linhas={[linha]} />)
+    expect(
+      container.querySelector('tbody button[aria-expanded]'),
+    ).toBeNull()
   })
 })

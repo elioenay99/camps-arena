@@ -267,7 +267,7 @@ export function AddMemberSearch({
       <div>
         <Button
           type="button"
-          className="min-h-10 w-full px-4 sm:w-auto"
+          className="min-h-11 w-full px-4 sm:w-auto"
           disabled={!selecionado || enviando}
           onClick={adicionar}
         >
