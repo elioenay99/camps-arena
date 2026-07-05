@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 import { env } from "@/lib/env"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { UserAvatar } from "@/features/profile/components/UserAvatar"
@@ -96,10 +98,17 @@ export function VagasSection({
                           avatarUrl={vaga.tecnico.avatar}
                           size={16}
                         />
-                        <span className="truncate">
+                        {/* Nome linka o perfil GLOBAL do técnico (change
+                            add-tecnicos-historico): a carreira dele nas ligas
+                            visíveis (vazia se só avulso). prefetch off (rota RSC). */}
+                        <Link
+                          href={`/dashboard/ligas/tecnico/${vaga.tecnico.id}`}
+                          prefetch={false}
+                          className="truncate underline-offset-2 hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        >
                           {`téc. ${vaga.tecnico.nome?.trim() || "Sem nome"}`}
                           {souTecnico ? " (você)" : ""}
-                        </span>
+                        </Link>
                       </span>
                     ) : (
                       <span className="text-muted-foreground truncate text-xs">

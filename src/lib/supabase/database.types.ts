@@ -377,6 +377,88 @@ export interface Database {
           },
         ]
       }
+      coach_tenures: {
+        Row: {
+          id: string
+          slot_id: string
+          competitor_id: string
+          tournament_id: string
+          season_id: string | null
+          division_season_id: string | null
+          user_id: string | null
+          nome: string | null
+          rodada_inicio: number | null
+          rodada_fim: number | null
+          aberta_em: string
+          encerrada_em: string | null
+        }
+        Insert: {
+          id?: string
+          slot_id: string
+          competitor_id: string
+          tournament_id: string
+          season_id?: string | null
+          division_season_id?: string | null
+          user_id?: string | null
+          nome?: string | null
+          rodada_inicio?: number | null
+          rodada_fim?: number | null
+          aberta_em?: string
+          encerrada_em?: string | null
+        }
+        Update: {
+          id?: string
+          slot_id?: string
+          competitor_id?: string
+          tournament_id?: string
+          season_id?: string | null
+          division_season_id?: string | null
+          user_id?: string | null
+          nome?: string | null
+          rodada_inicio?: number | null
+          rodada_fim?: number | null
+          aberta_em?: string
+          encerrada_em?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coach_tenures_slot_id_fkey"
+            columns: ["slot_id"]
+            referencedRelation: "tournament_slots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coach_tenures_competitor_id_fkey"
+            columns: ["competitor_id"]
+            referencedRelation: "league_competitors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coach_tenures_tournament_id_fkey"
+            columns: ["tournament_id"]
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coach_tenures_season_id_fkey"
+            columns: ["season_id"]
+            referencedRelation: "league_seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coach_tenures_division_season_id_fkey"
+            columns: ["division_season_id"]
+            referencedRelation: "league_division_seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coach_tenures_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       match_goals: {
         Row: {
           id: string
@@ -1562,6 +1644,10 @@ export interface Database {
       registrar_conquistas_temporada: {
         Args: { p_season_id: string; p_premios?: Json }
         Returns: number
+      }
+      fn_rodada_corrente: {
+        Args: { p_tournament_id: string }
+        Returns: number | null
       }
       rejeitar_proposta_placar: {
         Args: { p_proposal_id: string; p_motivo: string }

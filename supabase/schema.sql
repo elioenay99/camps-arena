@@ -5404,3 +5404,222 @@ grant  execute on function public.registrar_conquistas_temporada(uuid, jsonb) to
 -- =====================================================================
 -- Fim — CONQUISTAS / HALL DA FAMA
 -- =====================================================================
+
+-- =====================================================================
+-- HISTÓRICO DE TÉCNICOS (coach_tenures) — change add-tecnicos-historico
+-- =====================================================================
+-- tournament_slots.user_id é o ÚNICO ponto de verdade de "quem comanda a vaga";
+-- todo caminho de escrita passa por ele (materialização / aceitar_convite_vaga /
+-- expulsar / desistir). Um trigger AFTER INSERT OR UPDATE OF user_id captura 100%
+-- das transições — inclusive múltiplas trocas na mesma temporada — sem instrumentar
+-- cada action. A tenure com encerrada_em IS NULL É o técnico VIGENTE (resolve o
+-- troféu na rodada final sem materialização extra). Escopo LIGA-only (gate
+-- competitor_id). RLS SELECT-only + REVOKE explícito de escrita (writer = o trigger
+-- SECURITY DEFINER). O bloco vem ao FINAL do schema porque referencia league_*,
+-- tournaments, users e matches, todos definidos acima.
+
+create table if not exists public.coach_tenures (
+  id                 uuid primary key default gen_random_uuid(),
+  slot_id            uuid not null references public.tournament_slots (id) on delete cascade,
+  competitor_id      uuid not null references public.league_competitors (id) on delete cascade,
+  tournament_id      uuid not null references public.tournaments (id) on delete cascade,
+  season_id          uuid references public.league_seasons (id) on delete cascade,
+  division_season_id uuid references public.league_division_seasons (id) on delete cascade,
+  -- Técnico é conta global (user_id) OU rótulo local sem conta (nome). on delete
+  -- set null preserva o histórico ao apagar a conta.
+  user_id            uuid references public.users (id) on delete set null,
+  nome               text,
+  rodada_inicio      smallint,        -- null = desde o início da temporada
+  rodada_fim         smallint,        -- rodada de fechamento (exibição; não é vigência)
+  aberta_em          timestamptz not null default now(),
+  encerrada_em       timestamptz,     -- NULL = tenure VIGENTE (marcador autoritativo)
+  -- "NO MÁXIMO um preenchido": (user_id NULL, nome NULL) = técnico removido/
+  -- anonimizado, surge só por cascade de exclusão de conta (user_id on delete set
+  -- null). Sem o relaxamento, apagar conta com tenure abortaria por violar o CHECK.
+  -- O trigger e o backfill sempre gravam exatamente UM preenchido.
+  constraint coach_tenure_user_ou_nome check (user_id is null or nome is null)
+);
+
+-- Uma única tenure VIGENTE por vaga+usuário (defesa extra contra duplicata).
+create unique index if not exists coach_tenures_slot_aberta_uk
+  on public.coach_tenures (slot_id, coalesce(user_id, '00000000-0000-0000-0000-000000000000'::uuid))
+  where encerrada_em is null;
+create index if not exists coach_tenures_user_idx
+  on public.coach_tenures (user_id) where user_id is not null;
+create index if not exists coach_tenures_competitor_idx
+  on public.coach_tenures (competitor_id);
+create index if not exists coach_tenures_season_idx
+  on public.coach_tenures (season_id) where season_id is not null;
+
+alter table public.coach_tenures enable row level security;
+
+-- RLS SELECT-only (ESPELHA conquistas_select via league_competitors). SEM policy
+-- nem grant de escrita: o único writer é a função de trigger SECURITY DEFINER.
+drop policy if exists coach_tenures_select on public.coach_tenures;
+create policy coach_tenures_select on public.coach_tenures
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1
+        from public.league_competitors lc
+        join public.league_competitions c on c.id = lc.competition_id
+       where lc.id = competitor_id
+         and (
+           c.status = 'ativa'
+           or c.created_by = auth.uid()
+           or public.pode_ver_bastidores_competition(c.id)
+         )
+    )
+  );
+
+grant select on public.coach_tenures to anon, authenticated;
+-- Defesa em profundidade (lição conquistas): o Supabase AUTO-CONCEDE escrita aos
+-- roles de API → REVOKE explícito fecha o modelo "zero grant de escrita".
+revoke insert, update, delete, truncate, references, trigger
+  on public.coach_tenures from anon, authenticated;
+
+-- Rodada corrente do torneio (espelha getTournamentClassificacao:736). Interno.
+create or replace function public.fn_rodada_corrente(p_tournament_id uuid)
+returns smallint
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select min(rodada)::smallint
+    from public.matches
+   where tournament_id = p_tournament_id
+     and status <> 'encerrada'
+     and rodada is not null;
+$$;
+
+revoke execute on function public.fn_rodada_corrente(uuid) from public, anon, authenticated;
+
+-- Resolve (season_id, division_season_id) do torneio da divisão (anual +
+-- Apertura/Clausura, portadores do standing). playoff/barragem/final → (null,null).
+create or replace function public.fn_resolver_season_divisao(p_tournament_id uuid)
+returns table (season_id uuid, division_season_id uuid)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select ds.season_id, ds.id
+    from public.league_division_seasons ds
+   where p_tournament_id in (ds.tournament_id, ds.tournament_id_clausura)
+   limit 1;
+$$;
+
+revoke execute on function public.fn_resolver_season_divisao(uuid) from public, anon, authenticated;
+
+-- Função de trigger — WRITER ÚNICO das tenures. SEM `raise` (um erro reverteria a
+-- atribuição do técnico). Gate de escopo: só LIGA (competitor_id).
+create or replace function public.fn_registrar_coach_tenure()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_rodada    smallint;
+  v_season    uuid;
+  v_divseason uuid;
+begin
+  if new.competitor_id is null then
+    return null;
+  end if;
+
+  if tg_op = 'INSERT' then
+    select r.season_id, r.division_season_id
+      into v_season, v_divseason
+      from public.fn_resolver_season_divisao(new.tournament_id) r;
+
+    if new.user_id is not null then
+      insert into public.coach_tenures
+        (slot_id, competitor_id, tournament_id, season_id, division_season_id,
+         user_id, rodada_inicio)
+      values
+        (new.id, new.competitor_id, new.tournament_id, v_season, v_divseason,
+         new.user_id, null);
+    elsif new.team_id is null and new.rotulo is not null then
+      insert into public.coach_tenures
+        (slot_id, competitor_id, tournament_id, season_id, division_season_id,
+         nome, rodada_inicio)
+      values
+        (new.id, new.competitor_id, new.tournament_id, v_season, v_divseason,
+         new.rotulo, null);
+    end if;
+    return null;
+  end if;
+
+  if old.user_id is not distinct from new.user_id then
+    return null;
+  end if;
+
+  -- Rodada EFETIVA da troca: rodada ativa, ou a ÚLTIMA (janela fim-de-temporada,
+  -- todas encerradas antes de status='encerrado') — nunca NULL num torneio com
+  -- partidas. Fronteira (spec + impl idênticos): fecha o que saiu e abre o que
+  -- entrou EM v_rodada (rodada da troca = fronteira compartilhada).
+  v_rodada := public.fn_rodada_corrente(new.tournament_id);
+  if v_rodada is null then
+    select max(m.rodada)::smallint into v_rodada
+      from public.matches m
+     where m.tournament_id = new.tournament_id and m.rodada is not null;
+  end if;
+
+  if old.user_id is not null then
+    update public.coach_tenures
+       set rodada_fim = v_rodada, encerrada_em = now()
+     where slot_id = new.id
+       and user_id = old.user_id
+       and encerrada_em is null;
+  end if;
+
+  if new.user_id is not null then
+    select r.season_id, r.division_season_id
+      into v_season, v_divseason
+      from public.fn_resolver_season_divisao(new.tournament_id) r;
+    insert into public.coach_tenures
+      (slot_id, competitor_id, tournament_id, season_id, division_season_id,
+       user_id, rodada_inicio, aberta_em)
+    values
+      (new.id, new.competitor_id, new.tournament_id, v_season, v_divseason,
+       new.user_id, v_rodada, now());
+  end if;
+
+  return null;
+end;
+$$;
+
+revoke execute on function public.fn_registrar_coach_tenure() from public, anon, authenticated;
+
+drop trigger if exists tournament_slots_registrar_coach_tenure on public.tournament_slots;
+create trigger tournament_slots_registrar_coach_tenure
+  after insert or update of user_id on public.tournament_slots
+  for each row execute function public.fn_registrar_coach_tenure();
+
+-- Backfill (idempotente por NOT EXISTS): 1 tenure VIGENTE por vaga de liga a
+-- partir do técnico ATUAL. Temporadas encerradas ganham só o técnico FINAL.
+insert into public.coach_tenures
+  (slot_id, competitor_id, tournament_id, season_id, division_season_id,
+   user_id, nome, rodada_inicio)
+select ts.id, ts.competitor_id, ts.tournament_id,
+       r.season_id, r.division_season_id,
+       ts.user_id,
+       case when ts.user_id is null and ts.team_id is null then ts.rotulo end,
+       null
+  from public.tournament_slots ts
+  left join lateral public.fn_resolver_season_divisao(ts.tournament_id) r on true
+ where ts.competitor_id is not null
+   and (
+        ts.user_id is not null
+        or (ts.team_id is null and ts.rotulo is not null)
+   )
+   and not exists (
+     select 1 from public.coach_tenures ct
+      where ct.slot_id = ts.id and ct.encerrada_em is null
+   );
+
+-- =====================================================================
+-- Fim — HISTÓRICO DE TÉCNICOS (coach_tenures)
+-- =====================================================================
