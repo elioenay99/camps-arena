@@ -71,8 +71,8 @@ function SemTorneios() {
       <div className="flex max-w-sm flex-col gap-1.5">
         <h2 className="font-display text-xl font-bold">Seu primeiro torneio</h2>
         <p className="text-muted-foreground text-sm">
-          Crie uma liga, mata-mata ou fase de grupos — ou peça um link de convite
-          a quem organiza e entre em campo.
+          Crie um torneio de pontos corridos, mata-mata ou fase de grupos — ou
+          peça um link de convite a quem organiza e entre em campo.
         </p>
       </div>
       <Button asChild className="rounded-full">

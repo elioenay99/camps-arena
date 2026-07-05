@@ -56,7 +56,7 @@ export function IniciarTorneioButton({
           onClick={() =>
             startTransition(async () => {
               const r = await iniciarTorneio(tournamentId, liberarTudo)
-              if (r.ok) toast.success("Liga iniciada! Tabela gerada.")
+              if (r.ok) toast.success("Torneio iniciado! Tabela gerada.")
               else toast.error(r.error)
             })
           }

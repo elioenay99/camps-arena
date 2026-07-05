@@ -126,14 +126,14 @@ export const createTournamentSchema = z
   .refine(
     (d) => d.formato !== "liga" || d.porNome || d.clubes.length <= LIGA_MAX_PARTICIPANTES,
     {
-      error: `A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} clubes.`,
+      error: `O torneio aceita no máximo ${LIGA_MAX_PARTICIPANTES} clubes.`,
       path: ["clubes"],
     }
   )
   .refine(
     (d) => d.formato !== "liga" || !d.porNome || d.nomes.length <= LIGA_MAX_PARTICIPANTES,
     {
-      error: `A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} competidores.`,
+      error: `O torneio aceita no máximo ${LIGA_MAX_PARTICIPANTES} competidores.`,
       path: ["nomes"],
     }
   )

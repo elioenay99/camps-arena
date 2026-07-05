@@ -401,22 +401,22 @@ describe("TorneioPage — link 'Equipe' por tipo de torneio (must_fix divisão)"
   })
 })
 
-describe("TorneioPage — link 'Ver liga' da divisão (add-liga-visao-leitura)", () => {
+describe("TorneioPage — link 'Ver pirâmide' da divisão (add-liga-visao-leitura)", () => {
   const LIGA_MAE = "22222222-2222-4222-8222-222222222222"
   const SEASON = "44444444-4444-4444-8444-444444444444"
 
-  it("divisão com season resolvida: link 'Ver liga' aponta para a temporada", async () => {
+  it("divisão com season resolvida: link 'Ver pirâmide' aponta para a temporada", async () => {
     montarCenario({
       torneio: { formato: "liga", status: "ativo" },
       ligaDoTorneio: LIGA_MAE,
       divisionSeasonId: SEASON,
     })
     await renderPage()
-    const verLiga = screen.getByRole("link", { name: /ver liga/i })
-    expect(verLiga).toHaveAttribute("href", `/dashboard/ligas/${SEASON}`)
+    const verPiramide = screen.getByRole("link", { name: /ver pirâmide/i })
+    expect(verPiramide).toHaveAttribute("href", `/dashboard/ligas/${SEASON}`)
   })
 
-  it("LEITOR (não-gestor) de uma divisão também vê o 'Ver liga'", async () => {
+  it("LEITOR (não-gestor) de uma divisão também vê o 'Ver pirâmide'", async () => {
     montarCenario({
       user: { id: "leitor-1" },
       torneio: { formato: "liga", status: "ativo" },
@@ -424,16 +424,16 @@ describe("TorneioPage — link 'Ver liga' da divisão (add-liga-visao-leitura)",
       divisionSeasonId: SEASON,
     })
     await renderPage()
-    expect(screen.getByRole("link", { name: /ver liga/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /ver pirâmide/i })).toHaveAttribute(
       "href",
       `/dashboard/ligas/${SEASON}`
     )
   })
 
-  it("torneio AVULSO (não-divisão): sem link 'Ver liga'", async () => {
+  it("torneio AVULSO (não-divisão): sem link 'Ver pirâmide'", async () => {
     montarCenario({ torneio: { formato: "liga", status: "ativo" } })
     await renderPage()
-    expect(screen.queryByRole("link", { name: /ver liga/i })).toBeNull()
+    expect(screen.queryByRole("link", { name: /ver pirâmide/i })).toBeNull()
   })
 })
 

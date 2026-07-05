@@ -62,8 +62,8 @@ export default async function NovaPartidaPage() {
             <div className="grid gap-4 text-center">
               <p className="text-muted-foreground text-sm">
                 Você ainda não tem um torneio avulso aberto. Partidas manuais
-                só existem em torneios avulsos (em liga, a tabela é gerada ao
-                iniciar) — crie um para continuar.
+                só existem em torneios avulsos (em pontos corridos, a tabela é
+                gerada ao iniciar) — crie um para continuar.
               </p>
               <Button asChild>
                 <Link href="/dashboard/torneios/novo">Criar torneio</Link>

@@ -372,7 +372,7 @@ export async function iniciarTorneio(
     if (participantes.length > LIGA_MAX_PARTICIPANTES) {
       return {
         ok: false,
-        error: `A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} participantes.`,
+        error: `O torneio aceita no máximo ${LIGA_MAX_PARTICIPANTES} participantes.`,
       }
     }
 

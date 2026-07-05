@@ -36,7 +36,7 @@ import { NavLinks, type NavLink } from "@/features/nav/components/NavLinks"
 const LINKS: NavLink[] = [
   { href: "/dashboard", rotulo: "Painel", exato: true },
   { href: "/dashboard/torneios", rotulo: "Torneios" },
-  { href: "/dashboard/ligas", rotulo: "Ligas" },
+  { href: "/dashboard/ligas", rotulo: "Pirâmides" },
 ]
 
 afterEach(cleanup)

@@ -66,8 +66,8 @@ function VitrineVazia() {
       <div className="flex max-w-sm flex-col gap-1.5">
         <h2 className="font-display text-xl font-bold">Nenhuma competição pública ainda</h2>
         <p className="text-muted-foreground text-sm">
-          Quando um organizador listar uma liga ou torneio na vitrine, ele aparece
-          aqui para todo mundo descobrir.
+          Quando um organizador listar uma pirâmide ou torneio na vitrine, ele
+          aparece aqui para todo mundo descobrir.
         </p>
       </div>
     </Card>
@@ -96,7 +96,7 @@ export default async function ExplorarPage() {
       <header className="flex flex-col gap-1">
         <h1 className="font-display text-3xl font-bold tracking-tight">Explorar</h1>
         <p className="text-muted-foreground text-sm">
-          Ligas e torneios públicos da comunidade.
+          Pirâmides e torneios públicos da comunidade.
         </p>
       </header>
 

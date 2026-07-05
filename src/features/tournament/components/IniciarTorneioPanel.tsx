@@ -12,8 +12,9 @@ import {
 import type { TournamentStatus } from "@/lib/supabase/database.types"
 
 /**
- * Painel "Iniciar torneio" — RSC puro, renderizado SÓ para o dono de liga em
- * rascunho (gate na página). A prévia usa o MESMO motor da geração (fonte
+ * Painel "Iniciar torneio" — RSC puro, renderizado SÓ para o dono do torneio de
+ * pontos corridos em rascunho (gate na página). A prévia usa o MESMO motor da
+ * geração (fonte
  * única): o que o dono vê é o que a action insere.
  */
 export function IniciarTorneioPanel({
@@ -34,7 +35,7 @@ export function IniciarTorneioPanel({
   return (
     <PainelInicioShell
       Icon={ListOrdered}
-      formatoLabel="Liga"
+      formatoLabel="Pontos corridos"
       qtdClubes={qtdParticipantes}
       chips={idaEVolta ? ["ida e volta"] : []}
       status={status}
@@ -45,11 +46,11 @@ export function IniciarTorneioPanel({
         </PreviaBox>
       ) : participantesSuficientes ? (
         <p className="text-destructive text-sm" role="status">
-          {`A liga aceita no máximo ${LIGA_MAX_PARTICIPANTES} clubes. Crie o torneio novamente com menos clubes.`}
+          {`O torneio aceita no máximo ${LIGA_MAX_PARTICIPANTES} clubes. Crie o torneio novamente com menos clubes.`}
         </p>
       ) : (
         <p className="text-muted-foreground text-sm" role="status">
-          A liga precisa de pelo menos 2 clubes.
+          É preciso pelo menos 2 clubes.
         </p>
       )}
 

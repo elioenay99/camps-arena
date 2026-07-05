@@ -15,7 +15,7 @@ export const FORMATO_META: Record<
     Icon: Swords,
   },
   liga: {
-    label: "Liga",
+    label: "Pontos corridos",
     desc: "Todos contra todos, com tabela",
     Icon: ListOrdered,
   },

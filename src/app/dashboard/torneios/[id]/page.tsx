@@ -764,10 +764,10 @@ export default async function TorneioPage({
             </div>
           </div>
         </div>
-        {/* Cabeçalho: "Ver liga" (navegação para a pirâmide-mãe) disponível a
-            QUALQUER visitante de uma divisão — é como o jogador chega à liga
-            (add-liga-visao-leitura). Ações de GESTÃO (Cores, Nova partida) só a
-            quem gere. */}
+        {/* Cabeçalho: "Ver pirâmide" (navegação para a pirâmide-mãe) disponível
+            a QUALQUER visitante de uma divisão — é como o jogador chega à
+            pirâmide (add-liga-visao-leitura). Ações de GESTÃO (Cores, Nova
+            partida) só a quem gere. */}
         {ligaSeasonId || gerir ? (
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {ligaSeasonId ? (
@@ -777,14 +777,14 @@ export default async function TorneioPage({
                 variant="ghost"
                 className="text-muted-foreground rounded-full"
               >
-                {/* Sem prefetch no back-link "Ver liga" e nos botões de gestão
+                {/* Sem prefetch no back-link "Ver pirâmide" e nos botões de gestão
                     (Cores/Equipe): rotas RSC caras (a pirâmide-mãe e as telas de
                     gestão) que somariam à rajada do header/listas — a borda da
                     Vercel descarta o excesso (503). O clique navega. Ver change
                     add-header-prefetch-hardening. */}
                 <Link href={`/dashboard/ligas/${ligaSeasonId}`} prefetch={false}>
                   <Layers aria-hidden="true" />
-                  Ver liga
+                  Ver pirâmide
                 </Link>
               </Button>
             ) : null}
