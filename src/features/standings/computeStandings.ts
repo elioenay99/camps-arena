@@ -276,6 +276,48 @@ function ehElegivel(
 }
 
 /**
+ * Pontos somados por `eu` nas partidas ENTRE `eu` e `rival`, com as regras do
+ * torneio — EXTRAÇÃO da closure `pontosConfronto` (usada no desempate de 2), para
+ * que o motor E os insights (confronto direto histórico) compartilhem a MESMA
+ * fonte de verdade. Filtra por `ehElegivel` internamente (idempotente: o motor
+ * passa `elegiveis`, mas isolar o filtro deixa a função correta para qualquer
+ * consumidor). Behavior-idêntica à lógica anterior.
+ */
+export function pontosDoConfronto(
+  eu: string,
+  rival: string,
+  partidas: PartidaClassificavel[],
+  regras: RegrasPontuacao
+): number {
+  let pontos = 0
+  for (const p of partidas) {
+    if (!ehElegivel(p)) continue
+    const direto =
+      (p.participante_1 === eu && p.participante_2 === rival) ||
+      (p.participante_1 === rival && p.participante_2 === eu)
+    if (!direto) continue
+    // Duplo W.O. entre os dois: DERROTA para ambos — o 0x0 contaria como empate
+    // e contradiria a dupla derrota (nenhum venceu o confronto).
+    if (p.woDuplo) {
+      pontos += regras.derrota
+      continue
+    }
+    // W.O. entre os dois: vitória/derrota pelo vencedor explícito — o 0x0
+    // contaria como empate e contradiria a vitória nos pontos.
+    if (p.woVencedor != null) {
+      pontos += p.woVencedor === eu ? regras.vitoria : regras.derrota
+      continue
+    }
+    const meuPlacar = p.participante_1 === eu ? p.placar_1 : p.placar_2
+    const placarRival = p.participante_1 === eu ? p.placar_2 : p.placar_1
+    if (meuPlacar > placarRival) pontos += regras.vitoria
+    else if (meuPlacar < placarRival) pontos += regras.derrota
+    else pontos += regras.empate
+  }
+  return pontos
+}
+
+/**
  * Calcula a classificação de um torneio de pontos corridos. Função PURA — sem
  * IO — para ser exaustivamente testável; o Tier 2 liga fetch → motor → render.
  *
@@ -340,34 +382,10 @@ export function computeStandings(
   }
 
   // 4) Confronto direto: pontos somados nas partidas elegíveis ENTRE os dois,
-  //    com as MESMAS regras do torneio. Só para grupos de exatamente 2.
-  const pontosConfronto = (eu: string, rival: string) => {
-    let pontos = 0
-    for (const p of elegiveis) {
-      const direto =
-        (p.participante_1 === eu && p.participante_2 === rival) ||
-        (p.participante_1 === rival && p.participante_2 === eu)
-      if (!direto) continue
-      // Duplo W.O. entre os dois: DERROTA para ambos — o 0x0 contaria como empate
-      // e contradiria a dupla derrota (nenhum venceu o confronto).
-      if (p.woDuplo) {
-        pontos += regras.derrota
-        continue
-      }
-      // W.O. entre os dois: vitória/derrota pelo vencedor explícito — o 0x0
-      // contaria como empate e contradiria a vitória nos pontos.
-      if (p.woVencedor != null) {
-        pontos += p.woVencedor === eu ? regras.vitoria : regras.derrota
-        continue
-      }
-      const meuPlacar = p.participante_1 === eu ? p.placar_1 : p.placar_2
-      const placarRival = p.participante_1 === eu ? p.placar_2 : p.placar_1
-      if (meuPlacar > placarRival) pontos += regras.vitoria
-      else if (meuPlacar < placarRival) pontos += regras.derrota
-      else pontos += regras.empate
-    }
-    return pontos
-  }
+  //    com as MESMAS regras do torneio. Só para grupos de exatamente 2. Delega à
+  //    função pura exportada `pontosDoConfronto` (fonte única com os insights).
+  const pontosConfronto = (eu: string, rival: string) =>
+    pontosDoConfronto(eu, rival, elegiveis, regras)
 
   // 5) Resolve cada grupo em "clusters" de indistinguíveis (dividem posição).
   //    `confrontoDireto2` (cbf/inglês): só 2 empatados se resolvem por confronto

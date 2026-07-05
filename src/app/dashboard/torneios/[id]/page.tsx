@@ -54,6 +54,7 @@ import { getPropostasPendentes } from "@/features/match/data/getPropostasPendent
 import { getSolicitacoesWO } from "@/features/match/data/getSolicitacoesWO";
 import { ClassificacaoResponsiva } from "@/features/standings/components/ClassificacaoResponsiva";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
+import { DestaquesClassificacao } from "@/features/standings/components/DestaquesClassificacao";
 import {
   getTournamentClassificacao,
   resolverCoresTorneio,
@@ -136,8 +137,13 @@ export default async function TorneioPage({
     grupos,
     rodadasLiberacao,
     proximaRodadaOculta,
+    insights,
   } = classificacao;
   const titulo = torneio.titulo.trim() || "Torneio";
+
+  // Nome por id do lado (insumo do bloco de destaques). Chaveado igual à forma
+  // (slot no competitivo, participante no avulso) — o mesmo id do motor.
+  const nomePorId = new Map(linhas.map((l) => [l.participanteId, l.nome] as const));
 
   // Capacidades da EQUIPE (change add-equipe-campeonato): derivadas de uma vez
   // (1 hop cada, em paralelo) da fonte única no banco. `gerir` (estrutura/ciclo:
@@ -452,7 +458,16 @@ export default async function TorneioPage({
               A classificação aparece depois da primeira partida encerrada.
             </EstadoVazioSecao>
           ) : (
-            <StandingsTable linhas={linhas} />
+            <div className="flex flex-col gap-6">
+              <StandingsTable
+                linhas={linhas}
+                formaPorParticipante={insights.formaPorParticipante}
+              />
+              <DestaquesClassificacao
+                destaques={insights.destaques}
+                nomePorId={nomePorId}
+              />
+            </div>
           )}
         </SecaoTorneio>
       ) : null}

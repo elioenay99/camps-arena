@@ -3,7 +3,9 @@ import { Trophy } from "lucide-react"
 
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { UserAvatar } from "@/features/profile/components/UserAvatar"
+import { FormaBadges } from "@/features/standings/components/FormaBadges"
 import type { LinhaComNome } from "@/features/standings/data/getTournamentClassificacao"
+import type { ItemForma } from "@/features/standings/insights"
 
 const COLUNAS_BASE = [
   { chave: "pos", rotulo: "Pos", titulo: "Posição" },
@@ -37,6 +39,7 @@ export function StandingsTable({
   rotuloLado = "Participante",
   zonas,
   promedioPorParticipante,
+  formaPorParticipante,
   hrefCompetidorBase,
   ocultarCampeao = false,
 }: {
@@ -54,6 +57,12 @@ export function StandingsTable({
    * explica que o corte segue o promédio. Ausente = sem coluna (default).
    */
   promedioPorParticipante?: Map<string, number>
+  /**
+   * Forma (últimos 5 V/E/D) por `participanteId` (change add-insights-classificacao).
+   * Quando presente, adiciona a coluna "Forma" (badges) — oculta no modo "caber"
+   * para não estourar o mobile. Ausente = sem coluna (comportamento legado).
+   */
+  formaPorParticipante?: Map<string, ItemForma[]>
   /**
    * Base do link do nome (ex.: `/dashboard/ligas/competidor`). Quando presente, o
    * nome vira um `Link` para `${hrefCompetidorBase}/${participanteId}`. Ausente =
@@ -94,6 +103,9 @@ export function StandingsTable({
       ]
     : COLUNAS_BASE
   const fmtPromedio = (v: number) => v.toFixed(3)
+  // Coluna "Forma" (últimos 5): última coluna, OCULTA no modo "caber" (compacto)
+  // para preservar o encaixe mobile — badges custam largura.
+  const temForma = formaPorParticipante !== undefined
   return (
     <div className="flex flex-col gap-2">
       <div className="overflow-x-auto rounded-lg border">
@@ -127,6 +139,17 @@ export function StandingsTable({
                 </th>
               )
             })}
+            {temForma ? (
+              <th
+                scope="col"
+                className="px-2 py-2 text-center font-semibold group-data-[modo=caber]/standings:hidden"
+              >
+                <abbr title="Forma (últimos 5)" className="no-underline" aria-hidden="true">
+                  Forma
+                </abbr>
+                <span className="sr-only">Forma nos últimos jogos</span>
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -244,6 +267,11 @@ export function StandingsTable({
                 <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.golsPro}</td>
                 <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.golsContra}</td>
                 <td className="px-2 py-2 text-center tabular-nums group-data-[modo=caber]/standings:px-1">{linha.saldo}</td>
+                {temForma ? (
+                  <td className="px-2 py-2 text-center whitespace-nowrap group-data-[modo=caber]/standings:hidden">
+                    <FormaBadges itens={formaPorParticipante.get(linha.participanteId) ?? []} />
+                  </td>
+                ) : null}
               </tr>
             )
           })}

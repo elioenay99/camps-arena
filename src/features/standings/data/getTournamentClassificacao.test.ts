@@ -204,6 +204,34 @@ describe("getTournamentClassificacao", () => {
     ])
   })
 
+  it("computa insights (forma + destaques) da MESMA query", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: TORNEIO,
+      partidas: [
+        partidaEncerrada(ana, beto, 3, 0),
+        partidaEncerrada(ana, beto, 2, 1),
+      ],
+    })
+
+    const r = await getTournamentClassificacao(TORNEIO.id)
+
+    // Forma chaveada pelo id do lado (avulso = participante).
+    expect(r?.insights.formaPorParticipante.get("u1")?.map((i) => i.resultado)).toEqual([
+      "V",
+      "V",
+    ])
+    expect(r?.insights.formaPorParticipante.get("u2")?.map((i) => i.resultado)).toEqual([
+      "D",
+      "D",
+    ])
+    // Destaques derivados: melhor ataque = Ana (5 gols), goleada 3x0.
+    expect(r?.insights.destaques.melhorAtaque?.participanteId).toBe("u1")
+    expect(r?.insights.destaques.maiorGoleada?.diferenca).toBe(3)
+    expect(r?.insights.destaques.mediaGolsPorJogo).toBe(3) // (3 + 3) / 2
+  })
+
   it("partida não encerrada não pontua (motor filtra)", async () => {
     const ana = { id: "u1", nome: "Ana" }
     const beto = { id: "u2", nome: "Beto" }

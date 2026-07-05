@@ -80,4 +80,25 @@ describe("StandingsTable (smoke)", () => {
     expect(container.querySelector("a")).toBeNull()
     expect(container.textContent).toContain("Time Um")
   })
+
+  it("sem formaPorParticipante NÃO renderiza a coluna Forma (legado)", () => {
+    const { queryByText } = render(<StandingsTable linhas={[linha]} />)
+    expect(queryByText("Forma nos últimos jogos")).toBeNull()
+  })
+
+  it("com formaPorParticipante renderiza a coluna Forma com aria-label (oculta no 'caber')", () => {
+    const forma = new Map([
+      ["p1", [{ resultado: "V" as const, wo: false, rodada: 1 }]],
+    ])
+    const { container, getByLabelText } = render(
+      <StandingsTable linhas={[linha]} formaPorParticipante={forma} />,
+    )
+    // Badge com rótulo acessível (não só cor).
+    expect(getByLabelText("Vitória")).toBeInTheDocument()
+    // Coluna oculta no modo compacto para preservar o encaixe mobile.
+    const th = [...container.querySelectorAll("th")].find((e) =>
+      e.textContent?.includes("Forma"),
+    )
+    expect(th?.className).toContain("group-data-[modo=caber]/standings:hidden")
+  })
 })

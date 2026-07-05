@@ -8,6 +8,7 @@ import {
 import { getDivisionClassificacaoCombinada } from "@/features/league/data/getDivisionClassificacaoCombinada"
 import { faseDeGruposIncompleta } from "@/features/groups/montarFaseGruposPiramide"
 import type { TiebreakerPreset } from "@/features/standings/computeStandings"
+import type { InsightsClassificacao } from "@/features/standings/insights"
 import type { TournamentStatus } from "@/lib/supabase/database.types"
 
 /** Subconjunto da divisão que o helper precisa (cada caller injeta o `ciclo`). */
@@ -34,6 +35,15 @@ export interface LinhasBaseDivisao {
   encerradaParaFluxo: boolean
   /** Status do torneio da APERTURA (= `tournament_id`) — gate de render da página. */
   statusApertura: TournamentStatus
+  /**
+   * Insights (change add-insights-classificacao) chaveados pelo SLOT (o mesmo
+   * lado canônico da `linhasBase`), para o remap slot→competidor do
+   * `getDivisionStandings`. NÃO-SPLIT: os insights do torneio da divisão. SPLIT:
+   * `null` — insights de liga no ciclo split ficam FORA do MVP (unir os dois
+   * turnos exigiria estender o combinado a devolver as partidas; não se paga
+   * aqui). Consumidores só renderizam o bloco quando não-null.
+   */
+  insightsPorSlot: InsightsClassificacao | null
 }
 
 /**
@@ -78,6 +88,8 @@ export async function carregarLinhasBaseDivisao(
       encerradaParaFluxo:
         combinada.aperturaEncerrado && combinada.clausuraEncerrado,
       statusApertura: combinada.aperturaStatus,
+      // SPLIT: insights de liga fora do MVP (o combinado não devolve partidas).
+      insightsPorSlot: null,
     }
   }
 
@@ -112,5 +124,14 @@ export async function carregarLinhasBaseDivisao(
     }
   }
 
-  return { linhasBase, encerradaParaFluxo, statusApertura }
+  // NÃO-SPLIT: os insights do torneio da divisão (chaveados por slot), da MESMA
+  // query de `getTournamentClassificacao` — zero viagem nova. EXCEÇÃO
+  // `grupos_mata_mata`: a tabela EXIBIDA é a da fase de grupos (`linhasFaseGrupos`),
+  // mas os insights vêm da classificação GERAL + TODAS as partidas (inclui o
+  // mata-mata) — forma/destaques ficariam inconsistentes com a tabela. Suprime
+  // (null), como no split; as páginas já guardam com `standings.insights?`.
+  const insightsPorSlot =
+    div.formato === "grupos_mata_mata" ? null : classificacao.insights
+
+  return { linhasBase, encerradaParaFluxo, statusApertura, insightsPorSlot }
 }

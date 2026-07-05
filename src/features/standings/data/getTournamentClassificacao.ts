@@ -10,6 +10,12 @@ import {
   type LinhaClassificacao,
   type TiebreakerPreset,
 } from "@/features/standings/computeStandings"
+import {
+  calcularForma,
+  calcularDestaques,
+  type InsightsClassificacao,
+  type PartidaCronologica,
+} from "@/features/standings/insights"
 import { rankearAgregadoGrupos } from "@/features/groups/agregadoGrupos"
 import type {
   MatchStatus,
@@ -195,6 +201,14 @@ export interface ClassificacaoTorneio {
   /** Menor rodada ainda NÃO totalmente liberada (insumo dos botões de cadência).
    * null = não há rodada oculta (tudo liberado, ou avulso). */
   proximaRodadaOculta: number | null
+  /**
+   * Insights derivados das MESMAS partidas (change add-insights-classificacao):
+   * forma (últimos 5) por participante + destaques do torneio. Chaveado pelo id
+   * do lado (slot no competitivo, participante no avulso). Zero query extra — as
+   * colunas de ordenação (rodada/created_at/id) já são selecionadas. A divisão
+   * consome via `carregarLinhasBaseDivisao` (re-chaveando slot→competidor).
+   */
+  insights: InsightsClassificacao
 }
 
 interface ParticipanteEmbed {
@@ -473,6 +487,26 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     avatarUrl: competitivo ? null : (avatares.get(linha.participanteId) ?? null),
   }))
 
+  // Insights (change add-insights-classificacao): forma + destaques da MESMA
+  // query. `PartidaCronologica` = as linhas do motor + a chave de ordenação
+  // (rodada/created_at/id). Chaveado pelo id do lado conforme o formato.
+  const partidasCrono: PartidaCronologica[] = linhasPartidas.map((p) => ({
+    participante_1: ladoCru1(p),
+    participante_2: ladoCru2(p),
+    placar_1: p.placar_1,
+    placar_2: p.placar_2,
+    status: p.status,
+    woVencedor: woVencedor(p),
+    woDuplo: woDuplo(p),
+    rodada: p.rodada,
+    criadaEm: p.created_at,
+    id: p.id,
+  }))
+  const insights: InsightsClassificacao = {
+    formaPorParticipante: calcularForma(partidasCrono),
+    destaques: calcularDestaques(linhas, partidasCrono),
+  }
+
   // Projeção `clubes`: recurso do AVULSO (re-chavear partidas avulsas por
   // time_1/time_2 produz a classificação de clubes daquele formato). No
   // COMPETITIVO o lado JÁ É o clube — `linhas` é a classificação de clubes;
@@ -736,6 +770,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     rodadaAtiva,
     rodadasLiberacao,
     proximaRodadaOculta,
+    insights,
   }
 })
 

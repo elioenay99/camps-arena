@@ -7,6 +7,10 @@ import {
   type LinhaReal,
 } from "@/features/league/promedios"
 import { carregarLinhasBaseDivisao } from "@/features/league/data/carregarLinhasBaseDivisao"
+import {
+  rechavearInsights,
+  type InsightsClassificacao,
+} from "@/features/standings/insights"
 import { getSeasonBoundaries } from "@/features/league/data/getSeasonBoundaries"
 import type {
   LeagueBoundaryMode,
@@ -63,6 +67,12 @@ export interface DivisaoStandings {
    * divisões `posicao` (comportamento legado).
    */
   promedios?: Map<string, number>
+  /**
+   * Insights (change add-insights-classificacao) já re-chaveados slot→competidor.
+   * `null` no ciclo SPLIT (fora do MVP) — a página só renderiza o bloco quando
+   * presente.
+   */
+  insights: InsightsClassificacao | null
 }
 
 /** Empurra `[de, ate]` (1-based, clampado a [1, total]) em `destino`. */
@@ -297,6 +307,15 @@ export async function getDivisionStandings(
       competitorPorSlot.get(linha.participanteId) ?? linha.participanteId,
   }))
 
+  // Insights (change add-insights-classificacao): re-chaveia slot→competidor com
+  // o MESMO mapa das linhas. `null` no split (fora do MVP).
+  const insights: InsightsClassificacao | null = base.insightsPorSlot
+    ? rechavearInsights(
+        base.insightsPorSlot,
+        (slot) => competitorPorSlot.get(slot) ?? slot
+      )
+    : null
+
   // `derivarZonas` devolve as zonas em ORDINAIS (top-N/bottom-N). Em divisões
   // 'posicao' o ordinal É a posição real. Em 'promedios' (Fase 4) o ordinal é o
   // RANK de promedio — traduzimos cada rank de volta à POSIÇÃO REAL do competidor
@@ -305,7 +324,7 @@ export async function getDivisionStandings(
 
   if (divisao.ranking_base !== "promedios") {
     return { linhas, status: base.statusApertura,
-    encerradaParaFluxo: base.encerradaParaFluxo, zonas: zonasRank }
+    encerradaParaFluxo: base.encerradaParaFluxo, zonas: zonasRank, insights }
   }
 
   const linhasReais: LinhaReal[] = linhas.map((l) => ({
@@ -324,7 +343,7 @@ export async function getDivisionStandings(
     // Falha ao computar o promedio: degrada para as zonas por posição (sem
     // coluna), preservando a renderização da tabela.
     return { linhas, status: base.statusApertura,
-    encerradaParaFluxo: base.encerradaParaFluxo, zonas: zonasRank }
+    encerradaParaFluxo: base.encerradaParaFluxo, zonas: zonasRank, insights }
   }
 
   // rank de promedio → posição real (para traduzir as zonas ordinais).
@@ -350,5 +369,6 @@ export async function getDivisionStandings(
     encerradaParaFluxo: base.encerradaParaFluxo,
     zonas,
     promedios: corte.promedio,
+    insights,
   }
 }

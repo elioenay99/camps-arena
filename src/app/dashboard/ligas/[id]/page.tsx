@@ -42,6 +42,7 @@ import {
 import { BracketView } from "@/features/knockout/components/BracketView"
 import { ClassificacaoResponsiva } from "@/features/standings/components/ClassificacaoResponsiva"
 import { StandingsTable } from "@/features/standings/components/StandingsTable"
+import { DestaquesClassificacao } from "@/features/standings/components/DestaquesClassificacao"
 import { createClient } from "@/lib/supabase/server"
 
 export async function generateMetadata({
@@ -579,9 +580,20 @@ function DivisaoCard({
             rotuloLado={divisao.porNome ? "Competidor" : "Clube"}
             zonas={standings.zonas}
             promedioPorParticipante={standings.promedios}
+            formaPorParticipante={standings.insights?.formaPorParticipante}
             hrefCompetidorBase="/dashboard/ligas/competidor"
             ocultarCampeao={ehSplit}
           />
+          {/* Destaques (change add-insights-classificacao): só quando há insights
+              (null no ciclo split, fora do MVP). */}
+          {standings.insights ? (
+            <DestaquesClassificacao
+              destaques={standings.insights.destaques}
+              nomePorId={
+                new Map(standings.linhas.map((l) => [l.participanteId, l.nome]))
+              }
+            />
+          ) : null}
           {/* Grande final: só no split, com o estado já resolvido no servidor.
               `podeGerir` esconde o botão "Montar" ao leitor (bracket preservado). */}
           {ehSplit && grandeFinal ? (

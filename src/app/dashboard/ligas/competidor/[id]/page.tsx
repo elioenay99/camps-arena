@@ -8,8 +8,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { getCompetitorProfile } from "@/features/league/data/getCompetitorProfile"
 import { getArtilheirosDoCompetidor } from "@/features/league/data/getArtilheirosDoCompetidor"
+import { getCompetidorInsights } from "@/features/league/data/getCompetidorInsights"
+import { getRivaisDoCompetidor } from "@/features/league/data/getRivaisDoCompetidor"
 import { createClient } from "@/lib/supabase/server"
 import { CompetidorHero } from "@/features/league/components/competidor/CompetidorHero"
+import { CompetidorForma } from "@/features/league/components/competidor/CompetidorForma"
+import { ConfrontoDiretoPanel } from "@/features/league/components/competidor/ConfrontoDiretoPanel"
 import { CompetidorAgregados } from "@/features/league/components/competidor/CompetidorAgregados"
 import { CompetidorArtilheiros } from "@/features/league/components/competidor/CompetidorArtilheiros"
 import { CompetidorConquistas } from "@/features/league/components/competidor/CompetidorConquistas"
@@ -53,9 +57,13 @@ export default async function CompetidorPage({
   // Artilheiros da carreira (change add-artilharia): mesmo competitor_id do
   // perfil. Degrada para `[]` (a carreira é secundária) — RLS filtra visibilidade.
   const supabase = await createClient()
-  const artilheiros = await getArtilheirosDoCompetidor(supabase, {
-    competitorId: id,
-  })
+  // Artilheiros + insights (forma/destaques) + rivais do picker de confronto, em
+  // paralelo. Todos degradam sozinhos (secundários); a RLS filtra a visibilidade.
+  const [artilheiros, insights, rivais] = await Promise.all([
+    getArtilheirosDoCompetidor(supabase, { competitorId: id }),
+    getCompetidorInsights(supabase, { competitorId: id }),
+    getRivaisDoCompetidor(supabase, { competitorId: id }),
+  ])
 
   const semTemporadas = perfil.historico.length === 0
 
@@ -86,6 +94,18 @@ export default async function CompetidorPage({
       </div>
 
       <CompetidorHero perfil={perfil} />
+
+      {/* Forma + destaques de carreira e painel de confronto (change
+          add-insights-classificacao). Derivam das PARTIDAS, não das temporadas
+          consolidadas — aparecem mesmo sem temporada encerrada. Cada um se
+          auto-oculta quando não há dado (sem jogo / sem rival). */}
+      <CompetidorForma insights={insights} />
+      <ConfrontoDiretoPanel
+        competitorId={perfil.id}
+        competitorNome={perfil.nome}
+        competitorEscudoUrl={perfil.escudoUrl}
+        rivais={rivais}
+      />
 
       {/* Artilheiros com temporada encerrada moram junto dos agregados (abaixo).
           Caso-borda: gols numa temporada em andamento, sem nenhuma encerrada — a
