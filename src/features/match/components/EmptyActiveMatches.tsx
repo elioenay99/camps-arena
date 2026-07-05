@@ -1,15 +1,56 @@
 import Link from "next/link"
-import { Plus, Swords } from "lucide-react"
+import { Plus, Swords, Trophy } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+
+interface EmptyActiveMatchesProps {
+  /** Usuário não organiza nem participa de nenhum torneio (via `getMeusTorneios`). */
+  semTorneios: boolean
+  /** Usuário tem ao menos um torneio avulso aberto (via `getOwnTournaments`). */
+  temAvulsoAberto: boolean
+}
 
 /**
  * Estado vazio convidativo do painel: ícone com glow, copy respirável e CTAs
- * reais (criar partida / torneio). Layout em flex-column simples — evita o
- * colapso de largura do grid do CardHeader (a descrição vinha espremida).
+ * reais. Ramifica em 3 estados conforme o contexto do usuário para garantir que
+ * o primeiro clique SEMPRE leve a valor — "Nova partida" (que exige um torneio
+ * avulso aberto) só aparece quando esse destino não é um beco.
  */
-export function EmptyActiveMatches() {
+export function EmptyActiveMatches({
+  semTorneios,
+  temAvulsoAberto,
+}: EmptyActiveMatchesProps) {
+  // Precedência determinística. Invariante: (semTorneios && temAvulsoAberto) é
+  // impossível — `organizo` (que zera semTorneios) já inclui o avulso aberto.
+  if (semTorneios) {
+    return (
+      <Card className="elevate animate-rise flex flex-col items-center gap-5 px-6 py-14 text-center">
+        <span
+          aria-hidden="true"
+          className="glow-primary flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary"
+        >
+          <Trophy className="size-7" />
+        </span>
+        <div className="flex max-w-sm flex-col gap-1.5">
+          <h2 className="font-display text-xl font-bold">
+            Bem-vindo ao Goliseu
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Monte seu primeiro campeonato e chame a galera — leva cerca de 1
+            minuto. A partir daí, os placares e a classificação rolam sozinhos.
+          </p>
+        </div>
+        <Button asChild className="rounded-full">
+          <Link href="/dashboard/torneios/novo">
+            <Plus aria-hidden="true" />
+            Criar meu primeiro campeonato — leva 1 minuto
+          </Link>
+        </Button>
+      </Card>
+    )
+  }
+
   return (
     <Card className="elevate animate-rise flex flex-col items-center gap-5 px-6 py-14 text-center">
       <span
@@ -25,17 +66,34 @@ export function EmptyActiveMatches() {
           para o lançamento de placar ao vivo.
         </p>
       </div>
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <Button asChild className="rounded-full">
-          <Link href="/dashboard/partidas/nova">
-            <Plus aria-hidden="true" />
-            Nova partida
+      {temAvulsoAberto ? (
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <Button asChild className="rounded-full">
+            <Link href="/dashboard/partidas/nova">
+              <Plus aria-hidden="true" />
+              Nova partida
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="rounded-full">
+            <Link href="/dashboard/torneios/novo">Criar torneio</Link>
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-2">
+          <Button asChild className="rounded-full">
+            <Link href="/dashboard/torneios/novo">
+              <Plus aria-hidden="true" />
+              Criar torneio
+            </Link>
+          </Button>
+          <Link
+            href="/dashboard/torneios"
+            className={buttonVariants({ variant: "link", size: "sm" })}
+          >
+            Ver meus torneios
           </Link>
-        </Button>
-        <Button asChild variant="outline" className="rounded-full">
-          <Link href="/dashboard/torneios/novo">Criar torneio</Link>
-        </Button>
-      </div>
+        </div>
+      )}
     </Card>
   )
 }
