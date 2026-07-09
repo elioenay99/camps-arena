@@ -15,6 +15,8 @@ export type MatchScoreModalConnectedProps = Omit<
   MatchScoreModalProps,
   "onSave" | "onSelecionarClube" | "onEnviarProposta" | "carregarSugestoes"
 > & {
+  // `autoresIniciais` (preload EDITÁVEL das superfícies REPLACE) já é serializável
+  // e flui direto do `...props` para o modal apresentacional.
   /**
    * Habilita a busca/troca de clube de cada lado. Só faz sentido no AVULSO (o
    * clube é cosmético por partida). No COMPETITIVO o clube vem do torneio (a

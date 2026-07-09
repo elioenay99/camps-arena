@@ -464,24 +464,27 @@ export interface Database {
           id: string
           match_id: string
           lado: number
-          jogador: string
+          jogador: string | null
           gols: number
+          contra: boolean
           created_at: string
         }
         Insert: {
           id?: string
           match_id: string
           lado: number
-          jogador: string
+          jogador?: string | null
           gols?: number
+          contra?: boolean
           created_at?: string
         }
         Update: {
           id?: string
           match_id?: string
           lado?: number
-          jogador?: string
+          jogador?: string | null
           gols?: number
+          contra?: boolean
           created_at?: string
         }
         Relationships: [
@@ -1640,6 +1643,15 @@ export interface Database {
       aprovar_proposta_placar: {
         Args: { p_proposal_id: string }
         Returns: string
+      }
+      registrar_autores_lado: {
+        Args: {
+          p_match_id: string
+          p_lado: number
+          p_autores: Json
+          p_modo: string
+        }
+        Returns: number
       }
       registrar_conquistas_temporada: {
         Args: { p_season_id: string; p_premios?: Json }

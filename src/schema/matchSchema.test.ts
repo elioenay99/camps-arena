@@ -7,6 +7,7 @@ import {
   createMatchSchema,
   PLACAR_MAX,
   proporPlacarSchema,
+  registrarAutoresLadoSchema,
   updateMatchScoreSchema,
 } from "@/schema/matchSchema"
 
@@ -241,22 +242,156 @@ describe("autores dos gols (updateMatchScoreSchema + proporPlacarSchema)", () =>
       }).success
     ).toBe(false)
   })
+
+  it("aceita gol contra sem jogador (fecha a conta do lado)", () => {
+    const r = updateMatchScoreSchema.safeParse({
+      ...base,
+      placar_1: 4,
+      placar_2: 0,
+      autores: [
+        { lado: 1, jogador: "Vini", gols: 3 },
+        { lado: 1, gols: 1, contra: true },
+      ],
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it("rejeita gol NORMAL sem jogador", () => {
+    const r = updateMatchScoreSchema.safeParse({
+      ...base,
+      placar_1: 1,
+      autores: [{ lado: 1, gols: 1, contra: false }],
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("rejeita gol contra NOMEADO acima de 60 caracteres", () => {
+    const r = updateMatchScoreSchema.safeParse({
+      ...base,
+      placar_1: 1,
+      autores: [{ lado: 1, jogador: "a".repeat(61), gols: 1, contra: true }],
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("o teto do lado conta gols normais E gols contra", () => {
+    const r = updateMatchScoreSchema.safeParse({
+      ...base,
+      placar_1: 1,
+      placar_2: 0,
+      autores: [
+        { lado: 1, jogador: "Vini", gols: 1 },
+        { lado: 1, gols: 1, contra: true },
+      ],
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it("um Endrick normal e um Endrick contra no mesmo lado NÃO são duplicata", () => {
+    const r = updateMatchScoreSchema.safeParse({
+      ...base,
+      placar_1: 3,
+      placar_2: 0,
+      autores: [
+        { lado: 1, jogador: "Endrick", gols: 2, contra: false },
+        { lado: 1, jogador: "Endrick", gols: 1, contra: true },
+      ],
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it("dois gols contra anônimos no mesmo lado são duplicata", () => {
+    const r = updateMatchScoreSchema.safeParse({
+      ...base,
+      placar_1: 2,
+      placar_2: 0,
+      autores: [
+        { lado: 1, gols: 1, contra: true },
+        { lado: 1, gols: 1, contra: true },
+      ],
+    })
+    expect(r.success).toBe(false)
+  })
+})
+
+describe("registrarAutoresLadoSchema", () => {
+  const MID = "11111111-1111-4111-8111-111111111111"
+
+  it("aceita append/replace com autores válidos", () => {
+    expect(
+      registrarAutoresLadoSchema.safeParse({
+        matchId: MID,
+        lado: 1,
+        autores: [{ jogador: "Vini", gols: 2 }],
+        modo: "append",
+      }).success
+    ).toBe(true)
+    expect(
+      registrarAutoresLadoSchema.safeParse({
+        matchId: MID,
+        lado: 2,
+        autores: [{ gols: 1, contra: true }],
+        modo: "replace",
+      }).success
+    ).toBe(true)
+  })
+
+  it("aceita lista vazia (replace esvazia o lado)", () => {
+    expect(
+      registrarAutoresLadoSchema.safeParse({
+        matchId: MID,
+        lado: 1,
+        autores: [],
+        modo: "replace",
+      }).success
+    ).toBe(true)
+  })
+
+  it("rejeita modo fora de {append, replace}", () => {
+    expect(
+      registrarAutoresLadoSchema.safeParse({
+        matchId: MID,
+        lado: 1,
+        autores: [{ jogador: "X", gols: 1 }],
+        modo: "sobrescrever",
+      }).success
+    ).toBe(false)
+  })
+
+  it("rejeita gol normal sem jogador; aceita gol contra sem jogador", () => {
+    expect(
+      registrarAutoresLadoSchema.safeParse({
+        matchId: MID,
+        lado: 1,
+        autores: [{ gols: 1, contra: false }],
+        modo: "append",
+      }).success
+    ).toBe(false)
+    expect(
+      registrarAutoresLadoSchema.safeParse({
+        matchId: MID,
+        lado: 1,
+        autores: [{ gols: 1, contra: true }],
+        modo: "append",
+      }).success
+    ).toBe(true)
+  })
 })
 
 describe("agregarAutores (robustez do fluxo direto vs índice único do banco)", () => {
   it("colapsa nomes que só diferem em caixa/espaço numa linha só, somando os gols", () => {
     const r = agregarAutores([
-      { lado: 1, jogador: "Endrick", gols: 1 },
-      { lado: 1, jogador: "  endrick ", gols: 2 },
+      { lado: 1, jogador: "Endrick", gols: 1, contra: false },
+      { lado: 1, jogador: "  endrick ", gols: 2, contra: false },
     ])
     expect(r).toHaveLength(1)
-    expect(r[0]).toEqual({ lado: 1, jogador: "Endrick", gols: 3 })
+    expect(r[0]).toEqual({ lado: 1, jogador: "Endrick", gols: 3, contra: false })
   })
 
   it("mantém o mesmo nome em lados diferentes como linhas distintas", () => {
     const r = agregarAutores([
-      { lado: 1, jogador: "Silva", gols: 1 },
-      { lado: 2, jogador: "Silva", gols: 1 },
+      { lado: 1, jogador: "Silva", gols: 1, contra: false },
+      { lado: 2, jogador: "Silva", gols: 1, contra: false },
     ])
     expect(r).toHaveLength(2)
     expect(r.map((a) => a.lado).sort()).toEqual([1, 2])
@@ -264,17 +399,38 @@ describe("agregarAutores (robustez do fluxo direto vs índice único do banco)",
 
   it("preserva a primeira grafia vista e não repete chaves", () => {
     const r = agregarAutores([
-      { lado: 2, jogador: "Raphinha", gols: 1 },
-      { lado: 2, jogador: "RAPHINHA", gols: 1 },
-      { lado: 2, jogador: "raphinha", gols: 1 },
+      { lado: 2, jogador: "Raphinha", gols: 1, contra: false },
+      { lado: 2, jogador: "RAPHINHA", gols: 1, contra: false },
+      { lado: 2, jogador: "raphinha", gols: 1, contra: false },
     ])
     expect(r).toHaveLength(1)
-    expect(r[0]).toEqual({ lado: 2, jogador: "Raphinha", gols: 3 })
+    expect(r[0]).toEqual({ lado: 2, jogador: "Raphinha", gols: 3, contra: false })
   })
 
-  it("chaveAutor espelha lower(btrim()) do índice único", () => {
-    expect(chaveAutor(1, "  Neymar Jr ")).toBe(chaveAutor(1, "neymar jr"))
-    expect(chaveAutor(1, "Neymar")).not.toBe(chaveAutor(2, "Neymar"))
+  it("gol normal e gol contra do mesmo nome no mesmo lado são buckets distintos", () => {
+    const r = agregarAutores([
+      { lado: 1, jogador: "Endrick", gols: 2, contra: false },
+      { lado: 1, jogador: "Endrick", gols: 1, contra: true },
+    ])
+    expect(r).toHaveLength(2)
+    expect(r.find((a) => a.contra)).toEqual({ lado: 1, jogador: "Endrick", gols: 1, contra: true })
+    expect(r.find((a) => !a.contra)).toEqual({ lado: 1, jogador: "Endrick", gols: 2, contra: false })
+  })
+
+  it("dois gols contra anônimos no mesmo lado somam numa linha (jogador undefined)", () => {
+    const r = agregarAutores([
+      { lado: 2, jogador: "", gols: 1, contra: true },
+      { lado: 2, gols: 1, contra: true },
+    ])
+    expect(r).toHaveLength(1)
+    expect(r[0]).toEqual({ lado: 2, jogador: undefined, gols: 2, contra: true })
+  })
+
+  it("chaveAutor espelha lower(btrim()) do índice único e separa por contra", () => {
+    expect(chaveAutor(1, "  Neymar Jr ", false)).toBe(chaveAutor(1, "neymar jr", false))
+    expect(chaveAutor(1, "Neymar", false)).not.toBe(chaveAutor(2, "Neymar", false))
+    expect(chaveAutor(1, "Neymar", false)).not.toBe(chaveAutor(1, "Neymar", true))
+    expect(chaveAutor(1, undefined, true)).toBe(chaveAutor(1, "", true))
   })
 
   it("lista vazia agrega para vazia", () => {

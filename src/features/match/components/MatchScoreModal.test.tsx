@@ -283,7 +283,7 @@ describe("MatchScoreModal — captura de autores de gols (add-artilharia)", () =
         matchId: "m1",
         placar_1: 2,
         placar_2: 0,
-        autores: [{ lado: 1, jogador: "Endrick", gols: 2 }],
+        autores: [{ lado: 1, jogador: "Endrick", gols: 2, contra: false }],
       })
     })
   })
@@ -350,7 +350,7 @@ describe("MatchScoreModal — captura de autores de gols (add-artilharia)", () =
         placar_1: 1,
         placar_2: 0,
         foto: file,
-        autores: [{ lado: 1, jogador: "Vini", gols: 1 }],
+        autores: [{ lado: 1, jogador: "Vini", gols: 1, contra: false }],
       })
     })
   })

@@ -42,6 +42,9 @@ interface Cenario {
   /** Erro simulado do delete/insert de match_goals (autores). */
   goalsDeleteError?: { message: string } | null
   goalsInsertError?: { message: string } | null
+  /** Somatórios atuais de match_goals por lado (poda de órfãos R1). */
+  goalsSums?: { lado: number; gols: number }[]
+  goalsSumsError?: { message: string } | null
 }
 
 /**
@@ -56,7 +59,9 @@ function montarClient(c: Cenario) {
   const writeEqSpy = vi.fn()
   const proposalEqSpy = vi.fn()
   const goalsDeleteSpy = vi.fn()
+  const goalsDeleteInSpy = vi.fn()
   const goalsInsertSpy = vi.fn()
+  const goalsSumsEqSpy = vi.fn()
   const client = {
     auth: {
       getUser: vi
@@ -81,14 +86,26 @@ function montarClient(c: Cenario) {
         }
         return { select: vi.fn(() => builder) }
       }
-      // Autores dos gols (add-artilharia): delete-then-insert por match_id.
-      //   delete().eq("match_id", …)  e  insert([...])
+      // Autores dos gols (add-artilharia-colaborativa): delete-then-insert
+      // POR-LADO. delete().eq("match_id", …).in("lado", [...])  e  insert([...]).
+      // A poda de órfãos (R1) lê os somatórios: select("lado, gols").eq("match_id",…).
       if (tabela === "match_goals") {
         return {
+          select: vi.fn(() => ({
+            eq: vi.fn((coluna: string, valor: unknown) => {
+              goalsSumsEqSpy(coluna, valor)
+              return Promise.resolve({ data: c.goalsSums ?? [], error: c.goalsSumsError ?? null })
+            }),
+          })),
           delete: vi.fn(() => ({
             eq: vi.fn((coluna: string, valor: unknown) => {
               goalsDeleteSpy(coluna, valor)
-              return Promise.resolve({ error: c.goalsDeleteError ?? null })
+              return {
+                in: vi.fn((colLado: string, lados: unknown) => {
+                  goalsDeleteInSpy(colLado, lados)
+                  return Promise.resolve({ error: c.goalsDeleteError ?? null })
+                }),
+              }
             }),
           })),
           insert: vi.fn((rows: unknown) => {
@@ -130,7 +147,9 @@ function montarClient(c: Cenario) {
     writeEqSpy,
     proposalEqSpy,
     goalsDeleteSpy,
+    goalsDeleteInSpy,
     goalsInsertSpy,
+    goalsSumsEqSpy,
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
   return client
@@ -253,7 +272,7 @@ describe("updateMatchScore", () => {
     expect(client.goalsInsertSpy).not.toHaveBeenCalled()
   })
 
-  it("com autores substitui os gols da partida (delete-then-insert por match_id)", async () => {
+  it("com autores enviado reescreve os DOIS lados (superfície REPLACE)", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
@@ -262,21 +281,64 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore({
       ...entradaValida,
       autores: [
-        { lado: 1, jogador: "Endrick", gols: 2 },
-        { lado: 1, jogador: "Vini", gols: 1 },
-        { lado: 2, jogador: "João", gols: 1 },
+        { lado: 1, jogador: "Endrick", gols: 2, contra: false },
+        { lado: 1, jogador: "Vini", gols: 1, contra: false },
+        { lado: 2, jogador: "João", gols: 1, contra: false },
       ],
     })
     expect(r.ok).toBe(true)
     expect(client.goalsDeleteSpy).toHaveBeenCalledWith("match_id", UUID)
+    // Modal REPLACE (preload dos dois lados) → delete SEMPRE dos dois lados.
+    expect(client.goalsDeleteInSpy).toHaveBeenCalledWith("lado", [1, 2])
     expect(client.goalsInsertSpy).toHaveBeenCalledWith([
-      { match_id: UUID, lado: 1, jogador: "Endrick", gols: 2 },
-      { match_id: UUID, lado: 1, jogador: "Vini", gols: 1 },
-      { match_id: UUID, lado: 2, jogador: "João", gols: 1 },
+      { match_id: UUID, lado: 1, jogador: "Endrick", gols: 2, contra: false },
+      { match_id: UUID, lado: 1, jogador: "Vini", gols: 1, contra: false },
+      { match_id: UUID, lado: 2, jogador: "João", gols: 1, contra: false },
     ])
   })
 
-  it("com autores vazio LIMPA os gols (delete sem insert)", async () => {
+  it("autores de UM lado ESVAZIA o lado oposto (replace dos dois; lado vazio apaga)", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+    })
+    const r = await updateMatchScore({
+      ...entradaValida,
+      autores: [{ lado: 1, jogador: "Endrick", gols: 2, contra: false }],
+    })
+    expect(r.ok).toBe(true)
+    // Os DOIS lados são governados (o modal mostra ambos via preload); o lado 2
+    // veio VAZIO no payload → apagado (delete [1,2], insert só o lado 1).
+    expect(client.goalsDeleteInSpy).toHaveBeenCalledWith("lado", [1, 2])
+    expect(client.goalsInsertSpy).toHaveBeenCalledWith([
+      { match_id: UUID, lado: 1, jogador: "Endrick", gols: 2, contra: false },
+    ])
+  })
+
+  it("grava o gol contra (contra=true, jogador null quando anônimo)", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+    })
+    const r = await updateMatchScore({
+      matchId: UUID,
+      placar_1: 3,
+      placar_2: 0,
+      autores: [
+        { lado: 1, jogador: "Vini", gols: 2, contra: false },
+        { lado: 1, gols: 1, contra: true },
+      ],
+    })
+    expect(r.ok).toBe(true)
+    expect(client.goalsInsertSpy).toHaveBeenCalledWith([
+      { match_id: UUID, lado: 1, jogador: "Vini", gols: 2, contra: false },
+      { match_id: UUID, lado: 1, jogador: null, gols: 1, contra: true },
+    ])
+  })
+
+  it("com autores vazio (tocado) ESVAZIA os dois lados (replace)", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
@@ -284,8 +346,67 @@ describe("updateMatchScore", () => {
     })
     const r = await updateMatchScore({ ...entradaValida, autores: [] })
     expect(r.ok).toBe(true)
-    expect(client.goalsDeleteSpy).toHaveBeenCalledWith("match_id", UUID)
+    // `[]` enviado = o organizador limpou a captura (viu o estado pelo preload) →
+    // delete dos dois lados, sem reinsert.
+    expect(client.goalsDeleteInSpy).toHaveBeenCalledWith("lado", [1, 2])
     expect(client.goalsInsertSpy).not.toHaveBeenCalled()
+  })
+
+  it("sem autores (campo ausente) NÃO toca match_goals — só a poda R1 checa somas", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(true)
+    // Campo ausente = preserva; nenhum delete de autores (a poda R1 não deleta
+    // porque não há somas configuradas).
+    expect(client.goalsDeleteSpy).not.toHaveBeenCalled()
+    expect(client.goalsInsertSpy).not.toHaveBeenCalled()
+  })
+
+  it("R1: reduzir o placar abaixo da soma de um lado omitido PODA os gols órfãos", async () => {
+    // Placar novo 1×2 (sem autores); o lado 1 já tem 3 gols gravados (> 1) → poda.
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+      goalsSums: [
+        { lado: 1, gols: 2 },
+        { lado: 1, gols: 1 },
+        { lado: 2, gols: 2 },
+      ],
+    })
+    const r = await updateMatchScore({ matchId: UUID, placar_1: 1, placar_2: 2 })
+    expect(r.ok).toBe(true)
+    // Sem autores, mas a poda de órfãos deleta o lado 1 (soma 3 > placar 1); o lado
+    // 2 (soma 2 = placar 2) fica intocado.
+    expect(client.goalsDeleteInSpy).toHaveBeenCalledWith("lado", [1])
+  })
+
+  it("R1: sem redução de placar não poda nada", async () => {
+    const client = montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+      goalsSums: [{ lado: 1, gols: 3 }, { lado: 2, gols: 1 }],
+    })
+    const r = await updateMatchScore(entradaValida) // 3×1, soma casa
+    expect(r.ok).toBe(true)
+    expect(client.goalsDeleteInSpy).not.toHaveBeenCalled()
+  })
+
+  it("R1: erro ao LER os somatórios NÃO é engolido (retorna erro, não ok silencioso)", async () => {
+    montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      writeData: [{ id: UUID }],
+      goalsSumsError: { message: "io" },
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/ajustar os autores/i)
   })
 
   it("rejeita autores excedendo o placar (Zod), sem tocar no banco", async () => {
@@ -294,7 +415,7 @@ describe("updateMatchScore", () => {
       matchId: UUID,
       placar_1: 1,
       placar_2: 0,
-      autores: [{ lado: 1, jogador: "Endrick", gols: 2 }],
+      autores: [{ lado: 1, jogador: "Endrick", gols: 2, contra: false }],
     })
     expect(r.ok).toBe(false)
     expect(client.updateSpy).not.toHaveBeenCalled()
@@ -310,7 +431,7 @@ describe("updateMatchScore", () => {
     })
     const r = await updateMatchScore({
       ...entradaValida,
-      autores: [{ lado: 1, jogador: "Endrick", gols: 2 }],
+      autores: [{ lado: 1, jogador: "Endrick", gols: 2, contra: false }],
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toMatch(/autores dos gols/i)
@@ -331,8 +452,8 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore({
       ...entradaValida,
       autores: [
-        { lado: 1, jogador: "İrfan", gols: 1 },
-        { lado: 1, jogador: "irfan", gols: 1 },
+        { lado: 1, jogador: "İrfan", gols: 1, contra: false },
+        { lado: 1, jogador: "irfan", gols: 1, contra: false },
       ],
     })
     expect(r.ok).toBe(false)

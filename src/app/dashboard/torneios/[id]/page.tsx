@@ -47,6 +47,7 @@ import { ListarVitrineToggle } from "@/features/discovery/components/ListarVitri
 import { LiberarRodadasButtons } from "@/features/match/components/LiberarRodadasButtons";
 import { confrontosTextoDaRodada } from "@/features/match/confrontosTextoDaRodada";
 import { MatchHistoryList } from "@/features/match/components/MatchHistoryList";
+import { getGolsCrusPorPartida } from "@/features/match/data/getMatchGoals";
 import { OpenMatchesList } from "@/features/match/components/OpenMatchesList";
 import { PropostasPendentes } from "@/features/match/components/PropostasPendentes";
 import { ResponderWoButtons } from "@/features/match/components/WoButtons";
@@ -360,6 +361,18 @@ export default async function TorneioPage({
     ? await getArtilharia(supabase, { tournamentIds: [id] })
     : [];
 
+  // Gols crus por partida (add-artilharia-colaborativa): batelado (sem N+1) —
+  // alimenta o detalhe "N contra", o badge "faltam N", o editor pós-encerramento
+  // (técnico/organizador) E o preload EDITÁVEL do modal direto do organizador nas
+  // partidas ABERTAS/reabertas. Uma consulta cobre abertas + encerradas. Só no
+  // competitivo (o avulso não tem editor colaborativo). `null` = erro de IO.
+  const golsPorPartida = ehGerado
+    ? await getGolsCrusPorPartida(supabase, [
+        ...partidasAbertas.map((p) => p.id),
+        ...partidasEncerradas.map((p) => p.id),
+      ])
+    : undefined;
+
   // ----------------------------------------------------------------------------
   // Composição das ABAS (change add-torneio-abas-passador). Os dados e TODOS os
   // gates já estão resolvidos acima — aqui só montamos os NÓS por aba. As abas
@@ -577,6 +590,7 @@ export default async function TorneioPage({
             convocacao={{ userId: user.id, titulo, tournamentId: id }}
             rodadaAtiva={rodadaAtiva}
             tournamentId={id}
+            golsPorPartida={golsPorPartida}
           />
         </SecaoTorneio>
       ) : null}
@@ -586,6 +600,9 @@ export default async function TorneioPage({
           <MatchHistoryList
             partidas={partidasEncerradas}
             mostrarReabrir={podeArbitrarPartidas}
+            userId={user.id}
+            podeArbitrar={podeArbitrarPartidas}
+            golsPorPartida={golsPorPartida}
           />
         </SecaoTorneio>
       ) : null}

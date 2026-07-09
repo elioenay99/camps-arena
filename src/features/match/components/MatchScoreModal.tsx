@@ -97,6 +97,14 @@ export interface MatchScoreModalProps {
    */
   carregarSugestoes?: (vagaId: string) => Promise<string[]>
   /**
+   * Preload EDITÁVEL dos autores já gravados (superfícies REPLACE: lançamento
+   * direto do organizador e console do organizador). Agrupado por lado E por
+   * `contra`. A captura abre com essas linhas — reabrir + re-lançar SEM tocar
+   * preserva (o writer é delete-then-insert por-lado). NÃO usar na superfície
+   * APPEND ("Meus artilheiros"), que reenviaria o preload e DOBRARIA na RPC.
+   */
+  autoresIniciais?: AutorInicial[]
+  /**
    * Se fornecido, habilita escolher/trocar o clube de cada lado (1 ou 2).
    * Sem isso, o clube é apenas exibido (quando presente).
    */
@@ -118,10 +126,20 @@ export interface MatchScoreModalProps {
   }) => Promise<void> | void
 }
 
-/** Linha da captura de autores por lado (nome livre + contagem de gols). */
+/** Linha da captura de autores por lado (nome livre + contagem de gols + contra). */
 interface AutorLinha {
   jogador: string
   gols: number
+  /** Gol contra: conta pro placar do lado, FORA do ranking; nome opcional. */
+  contra: boolean
+}
+
+/** Autor pré-carregado (preload editável das superfícies REPLACE). */
+export interface AutorInicial {
+  lado: 1 | 2
+  jogador: string | null
+  gols: number
+  contra: boolean
 }
 
 function primeiroNome(nome: string) {
@@ -325,7 +343,8 @@ function AutoresLado({
     onChange(autores.map((a, idx) => (idx === i ? { ...a, ...patch } : a)))
   const removerLinha = (i: number) =>
     onChange(autores.filter((_, idx) => idx !== i))
-  const adicionar = () => onChange([...autores, { jogador: "", gols: 1 }])
+  const adicionar = () =>
+    onChange([...autores, { jogador: "", gols: 1, contra: false }])
 
   return (
     <div className="flex flex-col gap-2">
@@ -340,64 +359,81 @@ function AutoresLado({
 
       {autores.length > 0 ? (
         <ul className="flex list-none flex-col gap-2 p-0">
-          {autores.map((linha, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <input
-                type="text"
-                list={listId}
-                value={linha.jogador}
-                onChange={(e) => atualizarLinha(i, { jogador: e.target.value })}
-                placeholder="Nome do autor"
-                aria-label={`Autor ${i + 1} de ${nomeLado}`}
-                maxLength={60}
-                className="border-input bg-background h-11 min-w-0 flex-1 rounded-md border px-3 text-sm md:h-9"
-              />
-              <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  aria-label={`Diminuir gols de ${linha.jogador.trim() || `autor ${i + 1}`}`}
-                  aria-disabled={linha.gols <= 1}
-                  className="size-11 aria-disabled:opacity-50 md:size-9"
-                  onClick={() =>
-                    linha.gols > 1 && atualizarLinha(i, { gols: linha.gols - 1 })
-                  }
-                >
-                  <Minus aria-hidden="true" />
-                </Button>
-                <span
-                  className="min-w-6 text-center text-sm font-semibold tabular-nums"
-                  aria-hidden="true"
-                >
-                  {linha.gols}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  aria-label={`Aumentar gols de ${linha.jogador.trim() || `autor ${i + 1}`}`}
-                  aria-disabled={linha.gols >= 99}
-                  className="size-11 aria-disabled:opacity-50 md:size-9"
-                  onClick={() =>
-                    linha.gols < 99 && atualizarLinha(i, { gols: linha.gols + 1 })
-                  }
-                >
-                  <Plus aria-hidden="true" />
-                </Button>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={`Remover ${linha.jogador.trim() || `autor ${i + 1}`}`}
-                className="text-muted-foreground size-11 md:size-9"
-                onClick={() => removerLinha(i)}
-              >
-                <X aria-hidden="true" />
-              </Button>
-            </li>
-          ))}
+          {autores.map((linha, i) => {
+            const rotulo =
+              linha.jogador.trim() || (linha.contra ? "gol contra" : `autor ${i + 1}`)
+            return (
+              <li key={i} className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    list={linha.contra ? undefined : listId}
+                    value={linha.jogador}
+                    onChange={(e) => atualizarLinha(i, { jogador: e.target.value })}
+                    placeholder={
+                      linha.contra ? "Gol contra (nome opcional)" : "Nome do autor"
+                    }
+                    aria-label={`Autor ${i + 1} de ${nomeLado}`}
+                    maxLength={60}
+                    className="border-input bg-background h-11 min-w-0 flex-1 rounded-md border px-3 text-sm md:h-9"
+                  />
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label={`Diminuir gols de ${rotulo}`}
+                      aria-disabled={linha.gols <= 1}
+                      className="size-11 aria-disabled:opacity-50 md:size-9"
+                      onClick={() =>
+                        linha.gols > 1 && atualizarLinha(i, { gols: linha.gols - 1 })
+                      }
+                    >
+                      <Minus aria-hidden="true" />
+                    </Button>
+                    <span
+                      className="min-w-6 text-center text-sm font-semibold tabular-nums"
+                      aria-hidden="true"
+                    >
+                      {linha.gols}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label={`Aumentar gols de ${rotulo}`}
+                      aria-disabled={linha.gols >= 99}
+                      className="size-11 aria-disabled:opacity-50 md:size-9"
+                      onClick={() =>
+                        linha.gols < 99 && atualizarLinha(i, { gols: linha.gols + 1 })
+                      }
+                    >
+                      <Plus aria-hidden="true" />
+                    </Button>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Remover ${rotulo}`}
+                    className="text-muted-foreground size-11 md:size-9"
+                    onClick={() => removerLinha(i)}
+                  >
+                    <X aria-hidden="true" />
+                  </Button>
+                </div>
+                <label className="text-muted-foreground flex items-center gap-1.5 self-start text-xs">
+                  <input
+                    type="checkbox"
+                    checked={linha.contra}
+                    onChange={(e) => atualizarLinha(i, { contra: e.target.checked })}
+                    className="size-4"
+                  />
+                  Gol contra (fora do ranking)
+                </label>
+              </li>
+            )
+          })}
         </ul>
       ) : null}
 
@@ -444,6 +480,7 @@ export function MatchScoreModal({
   vagaId1,
   vagaId2,
   carregarSugestoes,
+  autoresIniciais,
 }: MatchScoreModalProps) {
   const [open, setOpen] = React.useState(false)
   const [placar1, setPlacar1] = React.useState(placarInicial1)
@@ -490,6 +527,16 @@ export function MatchScoreModal({
     else setAutores2(proximo)
   }
 
+  // Preload editável (superfícies REPLACE): as linhas já gravadas de um lado,
+  // preservando `contra` e a grafia. O anônimo (jogador null) vira "".
+  const preloadDoLado = React.useCallback(
+    (lado: 1 | 2): AutorLinha[] =>
+      (autoresIniciais ?? [])
+        .filter((a) => a.lado === lado)
+        .map((a) => ({ jogador: a.jogador ?? "", gols: a.gols, contra: a.contra })),
+    [autoresIniciais]
+  )
+
   // Ressincroniza o estado otimista ao (re)abrir o modal — no handler, sem efeito.
   function handleOpenChange(proximo: boolean) {
     // Não fecha enquanto a Server Action está em voo (evita perder o resultado).
@@ -498,8 +545,11 @@ export function MatchScoreModal({
       setPlacar1(placarInicial1)
       setPlacar2(placarInicial2)
       setFoto(null)
-      setAutores1([])
-      setAutores2([])
+      // Preload editável: a captura reflete o estado atual (nunca abre vazia
+      // sobre gols gravados). `autoresTocado=false` → `undefined` no save
+      // (preserva); tocar governa a lista COMPLETA daquele lado.
+      setAutores1(preloadDoLado(1))
+      setAutores2(preloadDoLado(2))
       setAutoresTocado(false)
     }
     setOpen(proximo)
@@ -518,9 +568,20 @@ export function MatchScoreModal({
     let autores: AutorGolInput[] | undefined
     if (autoresTocado) {
       const combinado: AutorGolInput[] = [
-        ...autores1.map((a) => ({ lado: 1 as const, jogador: a.jogador.trim(), gols: a.gols })),
-        ...autores2.map((a) => ({ lado: 2 as const, jogador: a.jogador.trim(), gols: a.gols })),
-      ].filter((a) => a.jogador !== "")
+        ...autores1.map((a) => ({
+          lado: 1 as const,
+          jogador: a.jogador.trim(),
+          gols: a.gols,
+          contra: a.contra,
+        })),
+        ...autores2.map((a) => ({
+          lado: 2 as const,
+          jogador: a.jogador.trim(),
+          gols: a.gols,
+          contra: a.contra,
+        })),
+        // Gol normal precisa de nome; o gol contra pode ser anônimo (mantido).
+      ].filter((a) => a.contra || a.jogador !== "")
       // Aviso duro (o inline já mostra o excesso): a soma por lado não pode passar
       // do placar — o backend/Zod rejeitaria com a mesma regra.
       const soma1 = combinado.filter((a) => a.lado === 1).reduce((s, a) => s + a.gols, 0)

@@ -191,20 +191,28 @@ export async function updateMatchScore(
     }
   }
 
-  // Autores dos gols (artilharia): quando o campo é informado, SUBSTITUI os gols
-  // desta partida (delete-then-insert por match_id) — a mesma autorização do
-  // placar já passou acima e a RLS de match_goals espelha essa autorização. O
-  // campo AUSENTE não toca os gols (retrocompat); `[]` limpa. O Zod já garantiu
-  // soma por lado ≤ placar e sem duplicata. Não-transacional entre chamadas
-  // (aceitável no MVP): o placar já foi salvo; falha aqui retorna erro claro para
-  // não deixar placar e gols em estados divergentes silenciosamente. Agregamos por
-  // (lado, nome normalizado) antes do INSERT para casar com o índice único do banco
-  // — nomes que só diferem em caixa/espaço somam numa linha só, sem violar o unique.
+  // Autores dos gols (artilharia): o modal de lançamento DIRETO do organizador é
+  // uma superfície REPLACE — ele PRÉ-CARREGA os autores atuais dos DOIS lados
+  // (`autoresIniciais`) e, quando o organizador MEXE na captura, submete a lista
+  // COMPLETA. Por isso, quando `autores` é ENVIADO (mesmo `[]`), tratamos como
+  // REPLACE dos DOIS lados: cada lado é reescrito exatamente com o que veio; um
+  // lado enviado VAZIO ESVAZIA aquele lado (o organizador vê o estado atual pelo
+  // preload, então limpar é intencional e efetivo). Distinção load-bearing:
+  //   * `autores` AUSENTE (`undefined`) → PRESERVA TUDO (retrocompat: reabrir +
+  //     re-lançar sem tocar na captura não apaga a artilharia colaborativa).
+  //   * `autores` ENVIADO (array, incl. `[]`) → REPLACE dos dois lados.
+  // A mesma autorização do placar já passou acima e a RLS de match_goals a espelha.
+  // O Zod garantiu soma por lado ≤ placar (contando contra) e sem duplicata.
+  // Não-transacional (MVP): o placar já foi salvo; falha aqui retorna erro claro.
+  // Agregamos por (lado, contra, nome normalizado) antes do INSERT para casar com
+  // os índices parciais — buckets que só diferem em caixa/espaço (ou dois contras
+  // anônimos) somam numa linha só, sem violar o unique.
   if (autores !== undefined) {
     const { error: delError } = await supabase
       .from("match_goals")
       .delete()
       .eq("match_id", matchId)
+      .in("lado", [1, 2])
     if (delError) {
       return { ok: false, error: "Placar salvo, mas não foi possível registrar os autores dos gols." }
     }
@@ -214,8 +222,10 @@ export async function updateMatchScore(
         autoresAgg.map((a) => ({
           match_id: matchId,
           lado: a.lado,
-          jogador: a.jogador,
+          // Gol contra anônimo → jogador null; normal sempre tem nome.
+          jogador: a.jogador ?? null,
           gols: a.gols,
+          contra: a.contra,
         }))
       )
       if (insError) {
@@ -224,10 +234,52 @@ export async function updateMatchScore(
     }
   }
 
+  // Invariante soma(match_goals de um lado) ≤ placar[lado] SEMPRE (add-artilharia-
+  // colaborativa, R1): se o placar foi REDUZIDO abaixo da soma já gravada de um
+  // lado E os autores daquele lado NÃO vieram no payload (delete por-lado só toca
+  // os lados presentes), os gols antigos ficariam ÓRFÃOS acima do novo teto e
+  // seriam materializados na FOTO durável do hall da fama (corrupção irreversível).
+  // Poda o lado inteiro (força a re-atribuição sob o novo placar). O lado governado
+  // pelo `autores` já foi reescrito ≤ placar (Zod), então nunca cai aqui.
+  const { data: somas, error: somasErr } = await supabase
+    .from("match_goals")
+    .select("lado, gols")
+    .eq("match_id", matchId)
+  if (somasErr) {
+    // Não engolir: sem os somatórios não dá para garantir a invariante — um erro
+    // silencioso deixaria gols órfãos acima do teto (corrupção do hall da fama).
+    return {
+      ok: false,
+      error: "Placar salvo, mas não foi possível ajustar os autores dos gols ao novo placar.",
+    }
+  }
+  if (somas && somas.length > 0) {
+    const somaLado: Record<number, number> = {}
+    for (const g of somas) somaLado[g.lado] = (somaLado[g.lado] ?? 0) + g.gols
+    const placarLado: Record<number, number> = { 1: placar_1, 2: placar_2 }
+    const ladosOrfaos = [1, 2].filter((l) => (somaLado[l] ?? 0) > placarLado[l])
+    if (ladosOrfaos.length > 0) {
+      const { error: podaErr } = await supabase
+        .from("match_goals")
+        .delete()
+        .eq("match_id", matchId)
+        .in("lado", ladosOrfaos)
+      if (podaErr) {
+        return {
+          ok: false,
+          error: "Placar salvo, mas não foi possível ajustar os autores dos gols ao novo placar.",
+        }
+      }
+    }
+  }
+
   // A página do torneio também exibe placar ao vivo (partidas em aberto,
-  // classificação) — revalidar as DUAS rotas.
+  // classificação) — revalidar as DUAS rotas. A artilharia também renderiza na
+  // pirâmide e no perfil do competidor (sob /dashboard/ligas) — revalida a
+  // subárvore inteira (layout), já que a action não resolve a liga/competidor.
   revalidatePath("/dashboard")
   revalidatePath(`/dashboard/torneios/${match.tournament_id}`)
+  revalidatePath("/dashboard/ligas", "layout")
 
   // Notifica os demais jogadores da partida (o helper remove o caller → sobra o
   // adversário). Corpo genérico de propósito: sem nomes/placar (evita PII e

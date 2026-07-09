@@ -329,7 +329,35 @@ describe("proporPlacar", () => {
     expect(r).toEqual({ ok: true })
     expect(c.proposalsInsertSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        autores: [{ lado: 1, jogador: "Vini", gols: 2 }],
+        // add-artilharia-colaborativa: o jsonb autores da proposta carrega `contra`.
+        autores: [{ lado: 1, jogador: "Vini", gols: 2, contra: false }],
+      })
+    )
+  })
+
+  it("guarda o gol contra no jsonb autores da proposta", async () => {
+    const c = montarClient({
+      user: { id: TECNICO },
+      match: partidaLiberada(),
+      anterior: null,
+      torneio: { created_by: DONO, titulo: "Copa" },
+    })
+    const fd = fdProposta({ placar_1: 3, placar_2: 0 })
+    fd.set(
+      "autores",
+      JSON.stringify([
+        { lado: 1, jogador: "Vini", gols: 2 },
+        { lado: 1, gols: 1, contra: true },
+      ])
+    )
+    const r = await proporPlacar(fd)
+    expect(r).toEqual({ ok: true })
+    expect(c.proposalsInsertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autores: [
+          { lado: 1, jogador: "Vini", gols: 2, contra: false },
+          { lado: 1, gols: 1, contra: true },
+        ],
       })
     )
   })

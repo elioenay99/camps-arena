@@ -93,6 +93,22 @@ describe("getArtilheirosDoCompetidor", () => {
     ])
   })
 
+  it("gol contra NÃO conta na carreira (nem o anônimo); o normal segue contando", async () => {
+    const { client } = mockClient({
+      tournament_slots: { data: [{ id: "slotA" }] },
+      matches: { data: [{ id: "m1", vaga_1: "slotA", vaga_2: "slotX" }] },
+      match_goals: {
+        data: [
+          { match_id: "m1", lado: 1, jogador: "Endrick", gols: 2, contra: false },
+          { match_id: "m1", lado: 1, jogador: "Zagueiro X", gols: 1, contra: true },
+          { match_id: "m1", lado: 1, jogador: null, gols: 1, contra: true },
+        ],
+      },
+    })
+    const r = await getArtilheirosDoCompetidor(client, { competitorId: CID })
+    expect(r).toEqual([{ jogador: "Endrick", gols: 2 }])
+  })
+
   it("retorna [] quando o competidor não tem vagas", async () => {
     const { client } = mockClient({ tournament_slots: { data: [] } })
     expect(await getArtilheirosDoCompetidor(client, { competitorId: CID })).toEqual([])

@@ -112,6 +112,37 @@ describe("getArtilharia", () => {
     ])
   })
 
+  it("gol contra (contra=true) NÃO entra no ranking; o normal segue contando", async () => {
+    const { client } = mockClient({
+      matches: { data: [{ id: "m1", vaga_1: "slotA", vaga_2: "slotB" }] },
+      tournament_slots: {
+        data: [
+          { id: "slotA", competitor_id: "cAtaias", rotulo: "Ataias", team: null },
+          { id: "slotB", competitor_id: "cJoao", rotulo: "João", team: null },
+        ],
+      },
+      match_goals: {
+        data: [
+          { match_id: "m1", lado: 1, jogador: "Vini", gols: 2, contra: false },
+          // Gol contra NOMEADO do lado 1: fica FORA do ranking.
+          { match_id: "m1", lado: 1, jogador: "Zagueiro X", gols: 1, contra: true },
+          // Gol contra ANÔNIMO (jogador null) do lado 2: também fora, sem crash.
+          { match_id: "m1", lado: 2, jogador: null, gols: 1, contra: true },
+        ],
+      },
+    })
+    const r = await getArtilharia(client, { tournamentIds: [T] })
+    expect(r).toEqual([
+      {
+        competitorId: "cAtaias",
+        competitorNome: "Ataias",
+        jogador: "Vini",
+        gols: 2,
+        escudoUrl: null,
+      },
+    ])
+  })
+
   it("retorna [] quando não há partidas visíveis", async () => {
     const { client } = mockClient({ matches: { data: [] } })
     expect(await getArtilharia(client, { tournamentIds: [T] })).toEqual([])

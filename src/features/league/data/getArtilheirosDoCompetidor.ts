@@ -82,13 +82,18 @@ export async function golsPorNomeDoCompetidor(
   const matchIds = matches.map((m) => m.id)
   const { data: goals, error: goalsErr } = await supabase
     .from("match_goals")
-    .select("match_id, lado, jogador, gols")
+    .select("match_id, lado, jogador, gols, contra")
     .in("match_id", matchIds)
   if (goalsErr || !goals) return []
 
-  // Só os gols do LADO do competidor em cada partida (o adversário não conta).
+  // Só os gols NORMAIS do LADO do competidor em cada partida (o adversário não
+  // conta; o gol contra fica FORA da carreira e do autocomplete — ponto único de
+  // filtro `contra = false` que carreira + `getScorerSuggestions` herdam). O
+  // filtro de `contra` precede o `.trim()` — o gol contra pode ter `jogador` nulo.
   return agregarPorNome(
-    goals.filter((g) => ladoPorMatch.get(g.match_id) === g.lado)
+    goals
+      .filter((g) => !g.contra && ladoPorMatch.get(g.match_id) === g.lado)
+      .map((g) => ({ jogador: g.jogador ?? "", gols: g.gols }))
   )
 }
 

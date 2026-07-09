@@ -9,6 +9,10 @@ import {
   SolicitarWoButton,
 } from "@/features/match/components/WoButtons"
 import { RoundPager } from "@/features/match/components/RoundPager"
+import {
+  autoresIniciaisDaPartida,
+  type GolCru,
+} from "@/features/match/data/getMatchGoals"
 import type {
   PartidaAberta,
   TecnicoDoLado,
@@ -70,6 +74,7 @@ export function OpenMatchesList({
   convocacao,
   rodadaAtiva = null,
   tournamentId,
+  golsPorPartida,
 }: {
   partidas: PartidaAberta[]
   mostrarEncerrar?: boolean
@@ -77,6 +82,10 @@ export function OpenMatchesList({
   convocacao?: { userId: string; titulo: string; tournamentId: string }
   rodadaAtiva?: number | null
   tournamentId?: string
+  /** Gols crus por partida (batelado) — preload EDITÁVEL do modal direto do
+   * organizador (partida REABERTA já tem match_goals). `null` = erro de IO
+   * (não pré-carrega, para não abrir vazio sobre gols que podem existir). */
+  golsPorPartida?: Map<string, GolCru[]> | null
 }) {
   const atalhoDe = (p: PartidaAberta) => {
     if (!convocacao) return null
@@ -214,6 +223,10 @@ export function OpenMatchesList({
               // Vagas (competitivo) → habilitam a captura de autores + autocomplete.
               vagaId1={p.vagaId_1 ?? null}
               vagaId2={p.vagaId_2 ?? null}
+              // Preload EDITÁVEL: os autores JÁ gravados (partida reaberta) — a
+              // captura nunca abre vazia sobre gols existentes. Como o modal é
+              // REPLACE, esvaziar um lado no editor passa a APAGAR (intencional).
+              autoresIniciais={autoresIniciaisDaPartida(golsPorPartida?.get(p.id))}
               permitirEscolherClube={false}
               modoPlacar="direto"
               trigger={

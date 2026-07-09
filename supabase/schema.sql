@@ -4932,6 +4932,7 @@ declare
   v_p2      integer;
   v_tid     uuid;
   v_autores jsonb;
+  v_merged  jsonb;
   v_linhas  integer;
 begin
   if v_uid is null then
@@ -4960,45 +4961,91 @@ begin
     raise exception 'PARTIDA_INDISPONIVEL';
   end if;
 
-  -- Materializa os autores propostos em match_goals ATOMICAMENTE (add-artilharia).
-  -- `autores` é jsonb LIVRE e a policy de INSERT da proposta NÃO valida o conteúdo,
-  -- logo esta RPC é o writer AUTORITATIVO e endurece tudo aqui:
-  --  * Só mexe em match_goals quando a proposta traz autores como ARRAY. `null` =
-  --    "não informado" → PRESERVA os gols já registrados (alinha com updateMatchScore);
-  --    `[]` = "limpar explicitamente" → delete sem reinsert.
-  --  * Guardas de tipo (jsonb_typeof) ANTES dos casts: elemento malformado
-  --    (lado/gols não-numérico, jogador não-string) é IGNORADO, jamais lança 22P02 e
-  --    trava a aprovação inteira.
-  --  * Agrega por (lado, nome normalizado) coincidindo com o índice único funcional
-  --    (defende contra autores duplicados forjados: soma em vez de violar o unique).
-  --  * Descarta (clampa) o lado cuja SOMA de gols exceda o placar daquele lado, para
-  --    que autores forjados não inflem o ranking sem quebrar a aprovação legítima —
-  --    numa proposta legítima o Zod já garante soma≤placar, então nunca dispara.
+  -- Materializa os autores propostos em match_goals ATOMICAMENTE. Writer
+  -- AUTORITATIVO (a policy de INSERT da proposta NÃO valida `autores`):
+  --  * null = "não informado" → PRESERVA todos os gols (não apaga nada).
+  --  * Escrita POR-LADO (add-artilharia-colaborativa): o delete/insert só toca os
+  --    LADOS GOVERNADOS pela proposta (os que têm item VÁLIDO dentro do teto). Um
+  --    lado AUSENTE do payload — ex.: a artilharia colaborativa do adversário, que
+  --    não está nesta proposta — fica INTOCADO. `[]` (nenhum lado governado) não
+  --    apaga nada.
+  --  * Guardas de tipo ANTES dos casts + RANGE checado no NUMERIC antes do `::int`:
+  --    `2.5` é truncado; `1e20`/lado gigante forjado cai no `else null` (nunca
+  --    lança 22P02 nem 22003). Elemento malformado é IGNORADO, jamais aborta.
+  --  * `contra` (add-artilharia-colaborativa): gol contra conta pro placar do lado
+  --    mas fica FORA do ranking; o nome é opcional (nullif p/ anônimo).
+  --  * Agrega por (lado, contra, nome normalizado) — coincide com os índices
+  --    parciais (normal vs contra) e absorve duplicata forjada (soma).
+  --  * Um lado cuja SOMA (normais + contra) exceda o placar NÃO é governado (fora
+  --    do conjunto) → nem apaga nem infla o lado (defesa contra payload forjado).
   if v_autores is not null and jsonb_typeof(v_autores) = 'array' then
-    delete from public.match_goals where match_id = v_match;
-    insert into public.match_goals (match_id, lado, jogador, gols)
-    select v_match, g.lado, g.jogador, g.gols
+    -- Conjunto final (só lados dentro do teto) numa variável, para derivar os
+    -- lados governados (do delete) do MESMO conjunto do insert.
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'lado', g.lado, 'contra', g.contra, 'jogador', g.jogador, 'gols', g.gols)),
+             '[]'::jsonb)
+      into v_merged
       from (
         select x.lado,
+               x.contra,
                min(x.jogador)                             as jogador,
                sum(x.gols)                                as gols,
                sum(sum(x.gols)) over (partition by x.lado) as total_lado
           from (
-            select (e->>'lado')::smallint  as lado,
-                   btrim(e->>'jogador')    as jogador,
-                   (e->>'gols')::int       as gols
+            -- CASE aninhado (guard de tipo no WHEN externo; range no interno):
+            -- garante que o `::numeric` só roda em número (Postgres não garante
+            -- short-circuit de AND num WHEN para evitar erro — nested é à prova).
+            select case when jsonb_typeof(e->'lado') = 'number'
+                        then case when (e->>'lado')::numeric in (1, 2)
+                                  then floor((e->>'lado')::numeric)::int end
+                        end                                                 as lado,
+                   case when jsonb_typeof(e->'contra') = 'boolean'
+                        then (e->>'contra')::boolean else false end         as contra,
+                   case when jsonb_typeof(e->'jogador') = 'string'
+                        then nullif(btrim(e->>'jogador'), '') else null end  as jogador,
+                   case when jsonb_typeof(e->'gols') = 'number'
+                        then case when (e->>'gols')::numeric >= 1
+                                   and (e->>'gols')::numeric < 100
+                                  then floor((e->>'gols')::numeric)::int end
+                        end                                                 as gols
               from jsonb_array_elements(v_autores) e
-             where jsonb_typeof(e->'lado')    = 'number'
-               and jsonb_typeof(e->'gols')    = 'number'
-               and jsonb_typeof(e->'jogador') = 'string'
           ) x
          where x.lado in (1, 2)
-           and char_length(x.jogador) between 1 and 60
            and x.gols between 1 and 99
-         group by x.lado, lower(x.jogador)
+           and (
+             (x.jogador is not null and char_length(x.jogador) between 1 and 60)
+             or (x.jogador is null and x.contra = true)
+           )
+         group by x.lado, x.contra, lower(coalesce(x.jogador, ''))
       ) g
      where g.total_lado <= case g.lado when 1 then v_p1 else v_p2 end;
+
+    -- Delete só dos lados GOVERNADOS (presentes no conjunto final); o oposto fica.
+    delete from public.match_goals
+     where match_id = v_match
+       and lado in (select distinct (e->>'lado')::int
+                      from jsonb_array_elements(v_merged) e);
+
+    insert into public.match_goals (match_id, lado, jogador, gols, contra)
+    select v_match,
+           (e->>'lado')::smallint,
+           nullif(e->>'jogador', ''),
+           (e->>'gols')::int,
+           (e->>'contra')::boolean
+      from jsonb_array_elements(v_merged) e;
   end if;
+
+  -- Invariante soma(match_goals de um lado) ≤ placar[lado] SEMPRE (add-artilharia-
+  -- colaborativa, R1): se a aprovação REDUZ o placar de um lado abaixo da soma já
+  -- gravada daquele lado E a proposta NÃO governa esse lado (autores nulos ou de só
+  -- outro lado), os gols antigos ficariam ÓRFÃOS acima do novo teto → materializados
+  -- na FOTO durável do hall da fama (corrupção irreversível). Poda o lado inteiro.
+  -- O lado governado já foi reescrito ≤ placar (teto), então nunca cai aqui.
+  delete from public.match_goals g
+   where g.match_id = v_match
+     and (case g.lado when 1 then v_p1 else v_p2 end) <
+         (select sum(g2.gols) from public.match_goals g2
+           where g2.match_id = v_match and g2.lado = g.lado);
 
   update public.match_score_proposals
      set status = 'aprovada', resolvido_em = now(), resolvido_por = v_uid
@@ -5083,20 +5130,46 @@ create table if not exists public.match_goals (
   id         uuid primary key default gen_random_uuid(),
   match_id   uuid not null references public.matches (id) on delete cascade,
   lado       smallint not null check (lado in (1, 2)),
-  jogador    text not null,                        -- nome livre (guardado com btrim)
+  jogador    text,                                 -- nome livre (btrim); NULLABLE (só o gol contra admite nulo)
   gols       int not null default 1 check (gols between 1 and 99),
+  contra     boolean not null default false,       -- gol contra: conta pro placar do lado, FORA do ranking
   created_at timestamptz not null default now(),
-  constraint match_goals_jogador_tam
-    check (char_length(btrim(jogador)) between 1 and 60)
+  constraint match_goals_jogador_valido
+    check (
+      (jogador is not null and char_length(btrim(jogador)) between 1 and 60)
+      or (jogador is null and contra = true)
+    )
 );
+-- Retrocompat (aplicação repetida sobre uma instância antiga da change
+-- add-artilharia): a coluna/CHECK/nullability podem não existir quando a tabela
+-- já existe do `create if not exists` acima. Idempotente.
+alter table public.match_goals
+  add column if not exists contra boolean not null default false;
+alter table public.match_goals alter column jogador drop not null;
+alter table public.match_goals drop constraint if exists match_goals_jogador_tam;
+alter table public.match_goals drop constraint if exists match_goals_jogador_valido;
+alter table public.match_goals add constraint match_goals_jogador_valido check (
+  (jogador is not null and char_length(btrim(jogador)) between 1 and 60)
+  or (jogador is null and contra = true)
+);
+
+comment on column public.match_goals.contra is
+  'true = gol contra (conta pro placar do lado, fora do ranking; jogador opcional).';
 
 create index if not exists match_goals_match_idx
   on public.match_goals (match_id);
--- Um autor por (partida, lado), case-insensitive: "Endrick"/"endrick" na mesma
--- partida/lado colidem (contagem fica em `gols`). Índice funcional (constraint
--- inline não aceita expressão).
+-- Unicidade em DOIS índices parciais disjuntos por `contra` (add-artilharia-
+-- colaborativa): normal → um autor por (partida, lado), case-insensitive, nome
+-- sempre presente; contra → um por (partida, lado, nome), com o anônimo
+-- (null/vazio) colapsando numa ÚNICA linha de tally via coalesce(...,''). Os
+-- predicados disjuntos permitem que normal e contra do mesmo nome coexistam.
+drop index if exists public.match_goals_unico;
 create unique index if not exists match_goals_unico
-  on public.match_goals (match_id, lado, lower(btrim(jogador)));
+  on public.match_goals (match_id, lado, lower(btrim(jogador)))
+  where contra = false;
+create unique index if not exists match_goals_contra_unico
+  on public.match_goals (match_id, lado, lower(btrim(coalesce(jogador, ''))))
+  where contra = true;
 
 alter table public.match_goals enable row level security;
 
@@ -5180,6 +5253,213 @@ grant insert, delete on public.match_goals to authenticated;
 
 -- =====================================================================
 -- Fim — ARTILHARIA
+-- =====================================================================
+
+-- =====================================================================
+-- ARTILHARIA COLABORATIVA (add-artilharia-colaborativa)
+-- Edição colaborativa POR-LADO da artilharia que CONTINUA após a validação,
+-- via RPC SECURITY DEFINER escopada a UM lado + MODO explícito (append/replace),
+-- e o trigger que limpa os gols no W.O. atomicamente.
+-- =====================================================================
+
+-- RPC registrar_autores_lado — edição colaborativa POR-LADO. Escopada a UM lado
+-- (delete/insert filtrado por `lado = p_lado`; NUNCA toca o oposto). O MODO é
+-- EXPLÍCITO (p_modo), NÃO inferido pelo papel — evita o footgun dual-role (quem é
+-- árbitro E técnico do mesmo lado, usando o editor append, mandaria o DELTA mas
+-- cairia no ramo replace e APAGARIA os gols salvos):
+--   * p_modo = 'append'  → base = EXISTENTE; soma o incoming (nunca reduz/remove).
+--                          Autoriza: técnico-do-lado OU árbitro.
+--   * p_modo = 'replace' → base = VAZIA; o incoming é a lista COMPLETA do lado
+--                          (substitui). Autoriza: SOMENTE árbitro.
+-- Teto: soma de TODOS os buckets do lado (normais + contra) <= placar[lado].
+-- Funciona com a partida ENCERRADA (a policy de INSERT exige status<>'encerrada';
+-- esta RPC definer ignora RLS). NÃO altera status/placar.
+create or replace function public.registrar_autores_lado(
+  p_match_id uuid,
+  p_lado     smallint,
+  p_autores  jsonb,
+  p_modo     text
+)
+returns integer               -- total de gols atribuídos ao lado após a operação
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid       uuid := auth.uid();
+  v_tid       uuid;
+  v_vaga      uuid;
+  v_placar    integer;
+  v_slot_user uuid;
+  v_arbitro   boolean;
+  v_tecnico   boolean;
+  v_existing  jsonb;
+  v_input     jsonb;
+  v_merged    jsonb;
+  v_total     integer;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+  if p_lado not in (1, 2) then
+    raise exception 'LADO_INVALIDO';
+  end if;
+  if p_modo is null or p_modo not in ('append', 'replace') then
+    raise exception 'MODO_INVALIDO';
+  end if;
+
+  -- Carrega o match e o lado com lock (serializa escritas concorrentes do lado).
+  select m.tournament_id,
+         case p_lado when 1 then m.vaga_1 else m.vaga_2 end,
+         case p_lado when 1 then m.placar_1 else m.placar_2 end
+    into v_tid, v_vaga, v_placar
+    from public.matches m
+   where m.id = p_match_id
+   for update;
+
+  if not found then
+    raise exception 'PARTIDA_INVALIDA';
+  end if;
+  -- Escopo competitivo: o lado precisa de vaga (avulso não passa por aqui).
+  if v_vaga is null then
+    raise exception 'LADO_SEM_VAGA';
+  end if;
+
+  select s.user_id into v_slot_user
+    from public.tournament_slots s
+   where s.id = v_vaga;
+
+  v_arbitro := public.pode_arbitrar_torneio(v_tid);
+  v_tecnico := (v_slot_user is not null and v_slot_user = v_uid);
+  -- Autorização por MODO (não por papel): replace é exclusivo do árbitro.
+  if p_modo = 'replace' then
+    if not v_arbitro then
+      raise exception 'NAO_AUTORIZADO';
+    end if;
+  else -- 'append'
+    if not (v_arbitro or v_tecnico) then
+      raise exception 'NAO_AUTORIZADO';
+    end if;
+  end if;
+
+  -- Base do merge: replace parte do VAZIO; append parte do EXISTENTE. Concatenar
+  -- existente ∪ incoming e re-agregar por bucket SOMA os gols (append nunca reduz,
+  -- pois o existente entra sempre no merge).
+  select coalesce(
+           jsonb_agg(jsonb_build_object(
+             'jogador', g.jogador, 'gols', g.gols, 'contra', g.contra)),
+           '[]'::jsonb)
+    into v_existing
+    from public.match_goals g
+   where g.match_id = p_match_id and g.lado = p_lado;
+
+  v_input := case p_modo
+               when 'replace' then coalesce(p_autores, '[]'::jsonb)
+               else v_existing || coalesce(p_autores, '[]'::jsonb)
+             end;
+  if jsonb_typeof(v_input) <> 'array' then
+    v_input := '[]'::jsonb;
+  end if;
+
+  -- Parse endurecido + agregação por (contra, nome normalizado). Item malformado
+  -- é IGNORADO (guardas jsonb_typeof antes dos casts; nunca lança 22P02). `gols`:
+  -- o RANGE é checado no NUMERIC (arbitrary precision, nunca estoura) ANTES do
+  -- `::int` — um `2.5` é truncado por floor; um `1e20` (que passa o num-guard mas
+  -- estouraria `::int` com 22003) cai no `else null` e é ignorado, NUNCA aborta a
+  -- chamada. O resultado vira jsonb numa variável (re-entrante: sem tabela
+  -- temporária que colidiria numa 2ª chamada na mesma transação).
+  select
+    coalesce(jsonb_agg(jsonb_build_object(
+      'jogador', a2.jogador, 'gols', a2.gols, 'contra', a2.contra)), '[]'::jsonb),
+    coalesce(sum(a2.gols), 0)
+    into v_merged, v_total
+    from (
+      select a.contra,
+             min(a.jogador) as jogador,          -- grafia estável (null p/ anônimo)
+             sum(a.gols)    as gols
+        from (
+          select
+            case when jsonb_typeof(e->'contra') = 'boolean'
+                 then (e->>'contra')::boolean else false end                 as contra,
+            case when jsonb_typeof(e->'jogador') = 'string'
+                 then nullif(btrim(e->>'jogador'), '') else null end         as jogador,
+            case when jsonb_typeof(e->'gols') = 'number'
+                 then case when (e->>'gols')::numeric >= 1
+                            and (e->>'gols')::numeric < 100
+                           then floor((e->>'gols')::numeric)::int end
+                 end                                                         as gols
+            from jsonb_array_elements(v_input) e
+        ) a
+       where a.gols between 1 and 99
+         and (
+           (a.jogador is not null and char_length(a.jogador) between 1 and 60)
+           or (a.jogador is null and a.contra = true)
+         )
+       group by a.contra, lower(coalesce(a.jogador, ''))
+    ) a2;
+
+  if v_total > v_placar then
+    raise exception 'TETO_LADO';
+  end if;
+
+  -- Delete-then-insert do LADO (nunca do lado oposto).
+  delete from public.match_goals
+   where match_id = p_match_id and lado = p_lado;
+
+  insert into public.match_goals (match_id, lado, jogador, gols, contra)
+  select p_match_id, p_lado,
+         nullif(e->>'jogador', ''),   -- json null → null (gol contra anônimo)
+         (e->>'gols')::int,
+         (e->>'contra')::boolean
+    from jsonb_array_elements(v_merged) e;
+
+  return v_total;
+end;
+$$;
+
+revoke execute on function public.registrar_autores_lado(uuid, smallint, jsonb, text)
+  from public, anon;
+grant execute on function public.registrar_autores_lado(uuid, smallint, jsonb, text)
+  to authenticated;
+
+-- Trigger: W.O./0×0 limpa os match_goals ATOMICAMENTE no encerramento. Um W.O.
+-- força 0×0, mas os match_goals antigos (de um placar anterior, antes de uma
+-- reabertura) sobreviveriam e poluiriam ranking/carreira (que não filtram por
+-- `wo`). Em vez de deletes app-layer espalhados por 4 caminhos (simples/duplo/
+-- órfão/aceite), com janela de corrida — UM trigger AFTER UPDATE deleta os gols
+-- no MESMO passo do UPDATE que grava o W.O. e encerra. SECURITY DEFINER: ignora a
+-- policy de DELETE de match_goals (que exigiria status<>'encerrada'). Só dispara
+-- quando a partida PASSA a wo=true + status='encerrada' (o encerramento NORMAL,
+-- wo=false, PRESERVA os gols — cerne da feature). Roda DEPOIS do lock BEFORE
+-- matches_lock_lifecycle (que só barra W.O. em encerrada→encerrada; um W.O. novo
+-- é aberta→encerrada e passa). Não altera matches (só deleta em match_goals).
+create or replace function public.limpar_gols_no_wo()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  delete from public.match_goals where match_id = new.id;
+  return null;  -- AFTER trigger: retorno é ignorado
+end;
+$$;
+
+-- Trigger-only: sem superfície de RPC (revoga EXECUTE de todos os papéis).
+revoke execute on function public.limpar_gols_no_wo() from public, anon, authenticated;
+
+drop trigger if exists matches_limpar_gols_wo on public.matches;
+create trigger matches_limpar_gols_wo
+  after update on public.matches
+  for each row
+  when (
+    new.wo = true and new.status = 'encerrada'
+    and (old.wo is distinct from new.wo or old.status is distinct from new.status)
+  )
+  execute function public.limpar_gols_no_wo();
+
+-- =====================================================================
+-- Fim — ARTILHARIA COLABORATIVA
 -- =====================================================================
 
 -- =====================================================================
@@ -5323,7 +5603,10 @@ begin
 
   -- (c) Artilheiro por divisão — de match_goals (autoritativo). Um por divisão: o
   --     par (competidor, nome normalizado) com mais gols nos torneios da divisão
-  --     (apertura + clausura + grande final, quando existirem).
+  --     (apertura + clausura + grande final, quando existirem). SÓ gols NORMAIS
+  --     (and g.contra = false) — gol contra nunca vira artilheiro do hall da fama
+  --     (add-artilharia-colaborativa; sem o filtro, um gol contra ou o anônimo
+  --     `jogador` null cravaria um artilheiro fictício/nulo na FOTO durável).
   insert into public.conquistas
     (competitor_id, tipo, escopo, ref_id, ref_rotulo, nivel, valor_num, jogador)
   select r.competitor_id, 'artilheiro', 'temporada', p_season_id, v_rotulo,
@@ -5340,7 +5623,7 @@ begin
         from public.league_division_seasons ds
         join public.matches m
           on m.tournament_id in (ds.tournament_id, ds.tournament_id_clausura, ds.final_tournament_id)
-        join public.match_goals g on g.match_id = m.id
+        join public.match_goals g on g.match_id = m.id and g.contra = false
         join public.tournament_slots s
           on s.id = case g.lado when 1 then m.vaga_1 else m.vaga_2 end
        where ds.season_id = p_season_id

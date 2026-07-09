@@ -83,6 +83,9 @@ vi.mock("@/features/match/data/getSolicitacoesWO", () => ({
 vi.mock("@/features/match/data/getPropostasPendentes", () => ({
   getPropostasPendentes: vi.fn(async () => []),
 }))
+vi.mock("@/features/match/data/getMatchGoals", () => ({
+  getGolsCrusPorPartida: vi.fn(async () => new Map()),
+}))
 vi.mock("@/features/match/components/PropostasPendentes", () => ({
   PropostasPendentes: () => null,
 }))
