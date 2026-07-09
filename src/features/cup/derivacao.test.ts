@@ -85,10 +85,15 @@ function origemClubes(
     posicao_final: posicoes?.[i] ?? i + 1,
     rank: i + 1,
     origem_season_id: seasonId,
+    // Origem-DIVISÃO por-clube carrega o competidor de origem (elo da herança).
+    competitor_id: `comp-${id}`,
   }))
 }
 
-/** Origem por rótulos (modo por nome). */
+/**
+ * Origem por rótulos (modo por nome). Ainda pode ter competitor_id (um competidor
+ * de divisão por-NOME tem competitor_id), mas a entry por-nome NÃO deve herdá-lo.
+ */
 function origemRotulos(rotulos: string[], seasonId = "season-r"): OrigemClassificacao[] {
   return rotulos.map((r, i) => ({
     team_id: null,
@@ -96,6 +101,7 @@ function origemRotulos(rotulos: string[], seasonId = "season-r"): OrigemClassifi
     posicao_final: i + 1,
     rank: i + 1,
     origem_season_id: seasonId,
+    competitor_id: `comp-${r}`,
   }))
 }
 
@@ -374,6 +380,65 @@ describe("derivarPool — manuais como âncora", () => {
     // pela identidade da âncora).
     expect(rotulos).toEqual(["  FLAMENGO ", "Vasco"])
     expect(pool.entradas.filter((e) => e.manual)).toHaveLength(1)
+  })
+})
+
+/* -------------------------------------------------------------------------- */
+/* derivarPool — competitor_id (herança de técnico: add-copa-tecnico-heranca)   */
+/* -------------------------------------------------------------------------- */
+
+/** Origem-COPA por-clube: team_id presente, mas competitor_id NULL (a RPC
+ *  classificacao_final_copa não expõe competidor). */
+function origemCopaClubes(ids: string[], seasonId = "season-c"): OrigemClassificacao[] {
+  return ids.map((id, i) => ({
+    team_id: id,
+    rotulo: null,
+    posicao_final: i + 1,
+    rank: i + 1,
+    origem_season_id: seasonId,
+    competitor_id: null,
+  }))
+}
+
+describe("derivarPool — competitor_id (elo da herança de técnico)", () => {
+  it("entry POR-CLUBE de origem-divisão carrega o competitor_id de origem", () => {
+    const liga = origemClubes(["team-01", "team-02"])
+    const regras = [regraDivisao({ id: "r1", competition: "p1", nivel: 1, inicio: 1, fim: 2 })]
+    const pool = derivarPool(regras, lerOrigemDe({ "div:p1:1": liga }), semManuais, semExclusoes)
+
+    expect(pool.entradas.map((e) => e.competitor_id)).toEqual(["comp-team-01", "comp-team-02"])
+  })
+
+  it("entry POR-NOME de divisão (mesmo com competitor_id na origem) fica com competitor_id null", () => {
+    // A regra de herança é `team_id` presente — NÃO "a origem trouxe competitor_id".
+    const origem = origemRotulos(["Flamengo", "Vasco"])
+    const regras = [regraDivisao({ id: "r1", competition: "p1", nivel: 1, inicio: 1, fim: 2 })]
+    const pool = derivarPool(regras, lerOrigemDe({ "div:p1:1": origem }), semManuais, semExclusoes)
+
+    expect(pool.entradas.every((e) => e.rotulo != null)).toBe(true)
+    expect(pool.entradas.every((e) => e.competitor_id === null)).toBe(true)
+  })
+
+  it("entry de origem-COPA fica com competitor_id null (copa não expõe competidor)", () => {
+    const copa = origemCopaClubes(["team-05", "team-06"])
+    const regras = [regraCopa({ id: "rc", cupId: "c1", inicio: 1, fim: 2 })]
+    const pool = derivarPool(regras, lerOrigemDe({ "cup:c1": copa }), semManuais, semExclusoes)
+
+    expect(pool.entradas.map((e) => e.team_id)).toEqual(["team-05", "team-06"])
+    expect(pool.entradas.every((e) => e.competitor_id === null)).toBe(true)
+  })
+
+  it("âncora manual fica com competitor_id null (manual = sem técnico)", () => {
+    const liga = origemClubes(["team-01", "team-02"])
+    const manuais: AncoraManual[] = [{ team_id: "team-09", rotulo: null }]
+    const regras = [regraDivisao({ id: "r1", competition: "p1", nivel: 1, inicio: 1, fim: 1 })]
+    const pool = derivarPool(regras, lerOrigemDe({ "div:p1:1": liga }), manuais, semExclusoes)
+
+    const manual = pool.entradas.find((e) => e.manual)
+    expect(manual?.team_id).toBe("team-09")
+    expect(manual?.competitor_id).toBeNull()
+    // O derivado por-clube segue com competitor_id.
+    expect(pool.entradas.find((e) => !e.manual)?.competitor_id).toBe("comp-team-01")
   })
 })
 

@@ -1426,6 +1426,7 @@ export interface Database {
           cup_season_id: string
           team_id: string | null
           rotulo: string | null
+          competitor_id: string | null
           origem_rule_id: string | null
           origem_season_id: string | null
           origem_descricao: string | null
@@ -1440,6 +1441,7 @@ export interface Database {
           cup_season_id: string
           team_id?: string | null
           rotulo?: string | null
+          competitor_id?: string | null
           origem_rule_id?: string | null
           origem_season_id?: string | null
           origem_descricao?: string | null
@@ -1454,6 +1456,7 @@ export interface Database {
           cup_season_id?: string
           team_id?: string | null
           rotulo?: string | null
+          competitor_id?: string | null
           origem_rule_id?: string | null
           origem_season_id?: string | null
           origem_descricao?: string | null
@@ -1490,6 +1493,13 @@ export interface Database {
             columns: ["slot_id"]
             isOneToOne: false
             referencedRelation: "tournament_slots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_entries_competitor_id_fkey"
+            columns: ["competitor_id"]
+            isOneToOne: false
+            referencedRelation: "league_competitors"
             referencedColumns: ["id"]
           },
         ]
@@ -1719,6 +1729,7 @@ export interface Database {
           posicao_final: number
           rank: number
           origem_season_id: string
+          competitor_id: string
         }[]
       }
       classificacao_final_copa: {

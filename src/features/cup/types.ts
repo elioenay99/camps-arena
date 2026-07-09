@@ -63,6 +63,13 @@ export interface OrigemClassificacao {
   rank: number
   /** A season/edição encerrada efetivamente consumida (rastreabilidade). */
   origem_season_id: string
+  /**
+   * league_competitor de origem (add-copa-tecnico-heranca). Presente na origem
+   * DIVISÃO (`classificacao_final_divisao`); `null` na origem COPA
+   * (`classificacao_final_copa` não expõe competidor). A derivação só o propaga
+   * para a entry POR-CLUBE (a regra de herança é `team_id` presente).
+   */
+  competitor_id: string | null
 }
 
 /**
@@ -86,6 +93,13 @@ export interface EntradaPool {
   team_id: string | null
   /** Rótulo alocado (XOR `team_id`). */
   rotulo: string | null
+  /**
+   * league_competitor de origem (add-copa-tecnico-heranca): preenchido SÓ na
+   * entry POR-CLUBE (`team_id` presente) vinda de origem-DIVISÃO; `null` para
+   * por-nome/rótulo (mesmo de divisão), origem-copa e âncora manual. É o elo que
+   * faz `montar_copa` herdar o técnico do competidor.
+   */
+  competitor_id: string | null
   /** Seed sequencial 1-based na ordem final do pool. */
   seed: number
   /** Regra que originou esta entrada (NULL em âncora manual). */

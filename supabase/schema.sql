@@ -4080,17 +4080,24 @@ create index if not exists cup_seasons_previous_idx
 
 -- ---------- Tabela: cup_entries (participante de uma edicao) ----------
 -- Identidade do participante: team_id = clube (modo clube) XOR rotulo (modo por
--- nome) — espelha league_competitors (schema.sql:1960) e tournament_slots, mas
--- SEM competitor_id (participante de copa NAO e league_competitor). slot_id liga
--- a vaga concreta no tournaments da edicao (NULL ate montar; RESTRICT). origem_*
--- rastreia de onde a vaga veio. posicao_final NULL ate o encerramento (D11).
--- manual=true marca ancoras (ajuste do dono; preservadas na re-derivacao — D5).
--- Vaga vazia = AUSENCIA de linha (o CHECK XOR proibe placeholder — D5).
+-- nome) — espelha league_competitors (schema.sql:1960) e tournament_slots. slot_id
+-- liga a vaga concreta no tournaments da edicao (NULL ate montar; RESTRICT).
+-- origem_* rastreia de onde a vaga veio. competitor_id (add-copa-tecnico-heranca)
+-- guarda a PROVENIENCIA DE LIGA: o league_competitor do qual o participante
+-- POR-CLUBE (team_id) se classificou de uma DIVISAO — o elo que faz a copa herdar
+-- o tecnico (holder_user_id) como os torneios derivados de liga. NULL para
+-- por-nome/rotulo (mesmo de divisao), origem-copa e manual. posicao_final NULL ate
+-- o encerramento (D11). manual=true marca ancoras (ajuste do dono; preservadas na
+-- re-derivacao — D5). Vaga vazia = AUSENCIA de linha (o CHECK XOR proibe placeholder — D5).
 create table if not exists public.cup_entries (
   id              uuid primary key default gen_random_uuid(),
   cup_season_id   uuid not null references public.cup_seasons (id) on delete cascade,
   team_id         uuid references public.teams (id) on delete restrict,
   rotulo          text,
+  -- Proveniencia de liga (add-copa-tecnico-heranca): league_competitor de origem
+  -- quando o participante POR-CLUBE veio de uma DIVISAO. NULL para por-nome/origem-
+  -- copa/manual. SET NULL: apagar o competidor nao apaga a entry ja derivada.
+  competitor_id   uuid references public.league_competitors (id) on delete set null,
   -- Regra que derivou esta entry (NULL em entry manual). SET NULL: apagar a regra
   -- nao apaga a entry ja derivada (preserva a edicao montada).
   origem_rule_id  uuid references public.cup_qualification_rules (id) on delete set null,
@@ -4131,6 +4138,9 @@ create unique index if not exists cup_entries_slot_unico
   on public.cup_entries (slot_id) where slot_id is not null;
 create index if not exists cup_entries_team_idx
   on public.cup_entries (team_id) where team_id is not null;
+-- Proveniencia de liga (add-copa-tecnico-heranca): indexa so onde nao-nulo.
+create index if not exists cup_entries_competitor_idx
+  on public.cup_entries (competitor_id) where competitor_id is not null;
 
 -- ---------- Tabela: cup_season_exclusions (exclusoes persistentes da re-derivacao) ----------
 -- O dono removeu uma entry derivada -> registramos a IDENTIDADE excluida aqui
@@ -4190,8 +4200,15 @@ grant execute on function public.eh_dono_cup(uuid) to anon, authenticated;
 --   (3) NIVEL_INEXISTENTE: o nivel sumiu da temporada consumida (piramide encolheu).
 -- Retorna a lista ordenada por (posicao_final asc, competitor_id asc) com RANK
 -- CONTIGUO 1..n (row_number) — a faixa da regra indexa esse rank, nao o valor cru.
--- Inclui origem_season_id (a league_seasons consumida) para rastreabilidade.
-create or replace function public.classificacao_final_divisao(
+-- Inclui origem_season_id (a league_seasons consumida) para rastreabilidade e
+-- competitor_id (add-copa-tecnico-heranca): o league_competitor de origem, que a
+-- derivacao propaga para a cup_entry POR-CLUBE (elo da heranca de tecnico na copa).
+-- DDL: DROP + CREATE (nao create-or-replace) — adicionar competitor_id ao returns
+-- table MUDA o tipo de retorno (42P13). O DROP apaga os privilegios, entao os
+-- grants sao RE-EMITIDOS logo abaixo (senao o SECURITY DEFINER reverte a EXECUTE
+-- publico e vaza a classificacao ao anon).
+drop function if exists public.classificacao_final_divisao(uuid, integer);
+create function public.classificacao_final_divisao(
   p_competition_id uuid,
   p_nivel          integer
 )
@@ -4200,7 +4217,8 @@ returns table (
   rotulo           text,
   posicao_final    integer,
   rank             integer,
-  origem_season_id uuid
+  origem_season_id uuid,
+  competitor_id    uuid
 )
 language plpgsql
 stable
@@ -4260,7 +4278,8 @@ begin
            (row_number() over (
               order by lde.posicao_final asc, lde.competitor_id asc
            ))::integer as rank,
-           v_season as origem_season_id
+           v_season as origem_season_id,
+           lcomp.id
       from public.league_division_entries lde
       join public.league_competitors lcomp on lcomp.id = lde.competitor_id
      where lde.division_season_id = v_div
@@ -4269,6 +4288,8 @@ begin
 end;
 $$;
 
+-- RE-EMISSAO dos privilegios apos o DROP (senao o SECURITY DEFINER volta a EXECUTE
+-- publico e re-expoe a classificacao da piramide ao anon).
 revoke execute on function public.classificacao_final_divisao(uuid, integer) from public, anon;
 grant execute on function public.classificacao_final_divisao(uuid, integer) to authenticated;
 
@@ -4277,7 +4298,9 @@ grant execute on function public.classificacao_final_divisao(uuid, integer) to a
 -- da edicao 'encerrada' de maior numero (preenchido por encerrarEdicaoCopa — D11).
 -- O gate de consentimento usa cup_competitions.is_public/created_by. Em copa nao ha
 -- 'nivel' (NIVEL_INEXISTENTE nao se aplica). Retorna a mesma forma TABLE com rank
--- contiguo (campeao=rank 1, vice=rank 2, ...).
+-- contiguo (campeao=rank 1, vice=rank 2, ...). NAO expoe competitor_id: a origem-
+-- COPA nao carrega league_competitor, entao participante classificado de copa NAO
+-- herda tecnico (add-copa-tecnico-heranca — a heranca vive so na origem-DIVISAO).
 create or replace function public.classificacao_final_copa(
   p_cup_id uuid
 )
@@ -4347,13 +4370,20 @@ grant execute on function public.classificacao_final_copa(uuid) to authenticated
 
 -- ---------- RPC: montar_copa (SECURITY DEFINER) ----------
 -- Cria o UNICO tournaments da edicao e insere os tournament_slots semeados na
--- ORDEM de p_seeded_entry_ids, a partir de cup_entries (por team_id/rotulo, com
--- competitor_id e user_id NULL — participante de copa NAO e league_competitor),
--- e grava cup_entries.slot_id + cup_seasons.tournament_id + status='montada'.
+-- ORDEM de p_seeded_entry_ids, a partir de cup_entries (por team_id/rotulo), e
+-- grava cup_entries.slot_id + cup_seasons.tournament_id + status='montada'.
+-- HERANCA DE TECNICO (add-copa-tecnico-heranca): a entry POR-CLUBE que carrega
+-- competitor_id (proveniencia de DIVISAO) herda o league_competitor + o tecnico
+-- (holder_user_id), REPLICANDO montar_playoff/barragem/grande_final — inclusive a
+-- dedup v_holders_usados (mesmo tecnico repetido na edicao => 2a vaga com user_id
+-- NULL mantendo competitor_id, respeita slots_um_clube_por_tecnico). Entry sem
+-- competitor_id (por-nome/origem-copa/manual) grava competitor_id/user_id NULOS
+-- (comportamento anterior). O trigger fn_registrar_coach_tenure abre entao a tenure
+-- de copa (season NULA — fn_resolver_season_divisao nao resolve torneio de copa).
 -- Reusa de montar_playoff (schema.sql:2313) APENAS o esqueleto: posse explicita,
 -- advisory lock, sentinela/promote-first, criacao do tournaments rascunho, slots
 -- na ordem de seeding. DIFERENCAS: autoriza por created_by DIRETO (sem helper de
--- capacidade); namespace 2 do advisory lock; slots sem competitor_id/user_id.
+-- capacidade); namespace 2 do advisory lock; heranca so na entry POR-CLUBE.
 --   Pre-checks: ENTRY_DE_OUTRA_EDICAO, COPA_HETEROGENEA (por_nome da origem
 --   consumida vs por_nome da copa), COPA_LOTADA / geometria.
 create or replace function public.montar_copa(
@@ -4386,6 +4416,9 @@ declare
   v_entry          record;
   v_slot           uuid;
   v_heterogenea    boolean;
+  v_user_id        uuid;
+  v_holder         uuid;
+  v_holders_usados uuid[];
 begin
   if v_uid is null then
     raise exception 'AUTH_REQUIRED';
@@ -4524,10 +4557,14 @@ begin
          )
    where id = p_cup_season_id;
 
-  -- Slots na ORDEM de p_seeded_entry_ids (= ordem de seeding). competitor_id e
-  -- user_id NULL (participante de copa nao tem league_competitor nem tecnico).
+  -- Slots na ORDEM de p_seeded_entry_ids (= ordem de seeding). HERANCA de tecnico
+  -- so na entry POR-CLUBE com competitor_id (proveniencia de divisao): resolve o
+  -- holder_user_id e grava competitor_id + user_id, com dedup v_holders_usados
+  -- (espelha montar_playoff). Por-nome/origem-copa/manual => competitor_id/user_id
+  -- NULOS. O trigger de coach_tenures decide o resto (tenure de copa, season nula).
+  v_holders_usados := array[]::uuid[];
   foreach v_eid in array p_seeded_entry_ids loop
-    select ce.id, ce.team_id, ce.rotulo
+    select ce.id, ce.team_id, ce.rotulo, ce.competitor_id
       into v_entry
       from public.cup_entries ce
      where ce.id = v_eid;
@@ -4537,13 +4574,35 @@ begin
     end if;
 
     if v_por_nome then
-      -- (a heterogeneidade ja foi barrada acima; rotulo e NOT NULL aqui)
+      -- (a heterogeneidade ja foi barrada acima; rotulo e NOT NULL aqui). Por-nome
+      -- nunca herda: competitor_id/user_id NULOS mesmo se a entry trouxesse um.
       insert into public.tournament_slots
         (tournament_id, team_id, rotulo, user_id, competitor_id)
       values
         (v_tournament, null, v_entry.rotulo, null, null)
       returning id into v_slot;
+    elsif v_entry.competitor_id is not null then
+      -- Entry POR-CLUBE de origem-DIVISAO: herda o competidor + o tecnico-ancora.
+      select lc.holder_user_id into v_holder
+        from public.league_competitors lc
+       where lc.id = v_entry.competitor_id;
+      -- Degradacao do user_id na colisao com slots_um_clube_por_tecnico (mesmo
+      -- tecnico ja usado nesta edicao => 2a vaga sem user_id, mantendo competitor_id).
+      if v_holder is not null
+         and not (v_holder = any (v_holders_usados))
+      then
+        v_user_id := v_holder;
+        v_holders_usados := array_append(v_holders_usados, v_holder);
+      else
+        v_user_id := null;
+      end if;
+      insert into public.tournament_slots
+        (tournament_id, team_id, rotulo, user_id, competitor_id)
+      values
+        (v_tournament, v_entry.team_id, null, v_user_id, v_entry.competitor_id)
+      returning id into v_slot;
     else
+      -- Por-clube sem proveniencia de liga (origem-copa/manual): sem tecnico.
       insert into public.tournament_slots
         (tournament_id, team_id, rotulo, user_id, competitor_id)
       values

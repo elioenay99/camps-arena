@@ -653,6 +653,8 @@ export async function derivarVagasCopa(
       cup_season_id: parsedId.data,
       team_id: e.team_id,
       rotulo: e.rotulo,
+      // Elo da herança de técnico: só a entry por-clube de origem-divisão o traz.
+      competitor_id: e.competitor_id,
       origem_rule_id: e.origem_rule_id,
       origem_season_id: e.origem_season_id,
       origem_descricao: enriquecerDescricao(e.origem_descricao, e.origem_rule_id, nomesOrigem),
@@ -697,6 +699,8 @@ async function lerOrigemViaRpc(
       posicao_final: l.posicao_final,
       rank: l.rank,
       origem_season_id: l.origem_season_id,
+      // Proveniência de liga (add-copa-tecnico-heranca): só a origem-DIVISÃO expõe.
+      competitor_id: l.competitor_id,
     }))
   }
   const { data, error } = await supabase.rpc("classificacao_final_copa", {
@@ -709,6 +713,8 @@ async function lerOrigemViaRpc(
     posicao_final: l.posicao_final,
     rank: l.rank,
     origem_season_id: l.origem_season_id,
+    // Origem-COPA não carrega league_competitor → sem herança de técnico.
+    competitor_id: null,
   }))
 }
 
@@ -1029,7 +1035,8 @@ interface ConfigSnapshot {
 
 /**
  * Inicia uma edição montada: mata-mata → ordena os slots por `cup_entries.seed`
- * (canal de seeding; os slots de copa NÃO têm competitor_id) e gera a chave via
+ * (canal de seeding — independe de competitor_id; uma vaga por-clube herdada de
+ * divisão o traz, por-nome/copa/manual não) e gera a chave via
  * `semearPlayoffPorPosicao` + `gerarChaveSemeada` (sem remap). grupos_mata_mata →
  * lê qtd_grupos/classificados do `config_snapshot` e gera a fase via
  * `gerarFaseGruposSemeada` (sorteio semeado pelo id da edição). Promove
@@ -1064,8 +1071,9 @@ export async function iniciarEdicaoCopa(cupSeasonId: unknown): Promise<CupResult
   const formato = edicao.copa.formato
 
   if (formato === "mata_mata") {
-    // Slots na ORDEM de seeding: liga cup_entries.seed → slot_id. Os slots de copa
-    // têm competitor_id NULL; o canal de seeding é cup_entries.seed.
+    // Slots na ORDEM de seeding: liga cup_entries.seed → slot_id. O canal de
+    // seeding é cup_entries.seed (independe de competitor_id, que só a vaga
+    // por-clube herdada de divisão carrega).
     const { data: entries, error: entriesError } = await supabase
       .from("cup_entries")
       .select("slot_id, seed")

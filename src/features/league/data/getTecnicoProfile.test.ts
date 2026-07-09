@@ -116,6 +116,25 @@ describe("getTecnicoProfile", () => {
     expect(semFoto!.avatar).toBeNull()
   })
 
+  it("tenure de copa (season nula, aberta) não infla temporadas nem marca vigente", async () => {
+    // add-copa-tecnico-heranca: a copa gera tenure com season_id nulo, sempre
+    // aberta. NÃO deve contar temporada nem marcar o clube "· atual".
+    const rows = [
+      tenure("cA", { season_id: "s1", encerrada_em: "2026-06-01T00:00:00Z" }), // temporada encerrada
+      tenure("cA", { season_id: null, encerrada_em: null }), // tenure de copa (aberta, season nula)
+    ]
+    const perfil = await getTecnicoProfile(
+      fakeSupabase({ user: { id: "u1", nome: "Ana" }, tenures: rows }),
+      { userId: "u1" }
+    )
+    const cA = perfil!.clubes.find((c) => c.competitorId === "cA")!
+    // Só 1 temporada distinta (s1); a copa (season nula) não conta.
+    expect(cA.temporadas).toBe(1)
+    // A copa aberta NÃO marca vigente (a temporada de liga está encerrada).
+    expect(cA.vigente).toBe(false)
+    expect(perfil!.totalTemporadas).toBe(1)
+  })
+
   it("competidor por NOME (rotulo): usa o rótulo e escudo null", async () => {
     const rows = [
       tenure("cN", {

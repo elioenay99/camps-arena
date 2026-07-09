@@ -220,6 +220,28 @@ describe("getTecnicosDoCompetidor", () => {
     expect(grupos[0].passagens).toHaveLength(1)
   })
 
+  it("tenure de copa (season_id NULL, torneio não-final) é descartada como playoff/barragem", async () => {
+    // add-copa-tecnico-heranca: a vaga de copa herda competitor_id e abre tenure
+    // season nula. Na timeline por-temporada do clube ela recebe o mesmo tratamento
+    // das de playoff/barragem — não vira "temporada fantasma".
+    const rows = [
+      row({
+        user_id: "uA",
+        tecnico: { id: "uA", nome: "Ana" },
+        season_id: "s2",
+        season: { numero: 2 },
+        tournament_id: "tReg",
+      }),
+      row({ user_id: "uA", tecnico: { id: "uA", nome: "Ana" }, season_id: null, tournament_id: "tCopa" }),
+    ]
+    const grupos = await getTecnicosDoCompetidor(fakeSupabase(rows, { divs: [] }), {
+      competitorId: "c1",
+    })
+    expect(grupos).toHaveLength(1)
+    expect(grupos[0].numero).toBe(2)
+    expect(grupos[0].passagens).toHaveLength(1)
+  })
+
   it("erro de IO ⇒ [] (degrada sem quebrar)", async () => {
     expect(await getTecnicosDoCompetidor(fakeSupabase(null, { erro: true }), { competitorId: "c1" })).toEqual([])
   })

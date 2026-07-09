@@ -154,6 +154,31 @@ describe("getTecnicoCampanha", () => {
     })
   })
 
+  it("jogo de COPA (tenure aberta, rodada nula) entra na campanha, sob o clube de liga", async () => {
+    // add-copa-tecnico-heranca: a vaga de copa herda competitor_id + user_id e abre
+    // tenure totalmente aberta (rodada_inicio/fim nulos). partidaNaJanela credita a
+    // partida mesmo com `rodada` nula — o jogo de copa conta na carreira, na MESMA
+    // fatia do clube de liga (competitor_id compartilhado).
+    const client = mockClient({
+      tenuresTecnico: [
+        // Vaga de liga (temporada) e vaga de copa, MESMO competidor cA.
+        { slot_id: "sLiga", competitor_id: "cA", rodada_inicio: 1, rodada_fim: null },
+        { slot_id: "sCopa", competitor_id: "cA", rodada_inicio: null, rodada_fim: null },
+      ],
+      matches: [
+        match({ id: "mLiga", vaga_1: "sLiga", vaga_2: "o1", placar_1: 1, placar_2: 0, rodada: 3 }),
+        // Partida de copa (mata-mata) com rodada nula: creditada pela janela aberta.
+        match({ id: "mCopa", vaga_1: "o2", vaga_2: "sCopa", placar_1: 0, placar_2: 2, rodada: null }),
+      ],
+    })
+    const { total, porClube } = await getTecnicoCampanha(client, { userId: U })
+    expect(total.jogos).toBe(2)
+    expect(total.vitorias).toBe(2)
+    // Tudo na mesma fatia do competidor de liga.
+    expect(porClube.size).toBe(1)
+    expect(porClube.get("cA")!.jogos).toBe(2)
+  })
+
   it("degrada para vazio quando o técnico não tem tenures", async () => {
     const client = mockClient({ tenuresTecnico: [], matches: [] })
     const { total, porClube, adversarios } = await getTecnicoCampanha(client, { userId: U })

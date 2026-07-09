@@ -209,6 +209,8 @@ export function derivarPool(
       identidade: id,
       team_id: m.team_id,
       rotulo: m.rotulo,
+      // Âncora manual = SEM técnico (decisão do dono): competitor_id null.
+      competitor_id: null,
       seed: 0, // renumerado no fim
       origem_rule_id: null,
       origem_season_id: null,
@@ -295,6 +297,12 @@ export function derivarPool(
       identidade: id,
       team_id: escolhido.team_id,
       rotulo: escolhido.rotulo,
+      // Herança de técnico SÓ por-CLUBE de origem-divisão (add-copa-tecnico-heranca):
+      // a regra é `team_id` presente, NÃO "a origem devolveu competitor_id" — um
+      // competidor de divisão por-NOME também tem competitor_id, mas entra como
+      // rótulo (team_id null) e fica sem técnico. Origem-copa já vem competitor_id
+      // null de `lerOrigemViaRpc`.
+      competitor_id: escolhido.team_id != null ? escolhido.competitor_id : null,
       seed: 0, // renumerado no fim
       origem_rule_id: vaga.regra.id,
       origem_season_id: escolhido.origem_season_id,

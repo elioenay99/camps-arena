@@ -142,6 +142,24 @@ describe("getConfrontoTecnicos", () => {
     expect(r.aGolsPro).toBe(0)
   })
 
+  it("confronto de COPA (ambas as tenures abertas, rodada nula) entra no H2H", async () => {
+    // add-copa-tecnico-heranca: A e B comandam vagas de copa herdadas; a partida de
+    // copa (rodada nula) cai nas DUAS janelas abertas → conta no confronto direto.
+    const client = mockClient({
+      tenuresPorUser: {
+        [A]: [{ slot_id: "saCopa", rodada_inicio: null, rodada_fim: null }],
+        [B]: [{ slot_id: "sbCopa", rodada_inicio: null, rodada_fim: null }],
+      },
+      matches: [
+        match({ id: "mCopa", vaga_1: "saCopa", vaga_2: "sbCopa", placar_1: 2, placar_2: 1, rodada: null }),
+      ],
+    })
+    const r = await getConfrontoTecnicos(client, { userAId: A, userBId: B })
+    expect(r.jogos.map((j) => j.matchId)).toEqual(["mCopa"])
+    expect(r.aVitorias).toBe(1)
+    expect(r.aGolsPro).toBe(2)
+  })
+
   it("degrada para vazio quando B não tem tenures", async () => {
     const client = mockClient({
       tenuresPorUser: { [A]: [{ slot_id: "sa", rodada_inicio: null, rodada_fim: null }] },

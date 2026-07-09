@@ -60,8 +60,12 @@ interface JanelaAdversario {
  * clube + adversários enfrentados. Atribuição PESSOAL por JANELA DE COMANDO
  * (`coach_tenures`, predicado meio-aberto de `partidaNaJanela`), distinta da
  * herança de troféus. Escopo é AUTOMÁTICO: as tenures só existem para vagas com
- * `competitor_id` (temporada de divisão + mata-mata derivado de liga) — copa,
- * avulso e standalone não geram tenure, logo ficam de fora sem filtro extra.
+ * `competitor_id` — temporada de divisão, mata-mata derivado de liga E copa cuja
+ * vaga por-clube herdou o competidor da divisão de origem (add-copa-tecnico-
+ * heranca): esses jogos de copa ENTRAM na campanha, sob o mesmo clube de liga. A
+ * tenure de copa é totalmente aberta (rodada nula, sem troca) → `partidaNaJanela`
+ * credita a partida mesmo com `rodada` nula. Avulso, standalone e vaga de copa
+ * por-nome/origem-copa/manual não geram tenure, logo ficam de fora sem filtro extra.
  *
  * Duas queries de leitura (tenures do técnico + `matches` das vagas dele) e mais
  * duas para os adversários (tenures das vagas opostas + `users_public`). Passa

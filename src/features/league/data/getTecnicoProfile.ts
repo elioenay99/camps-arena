@@ -46,8 +46,10 @@ interface TenureComClube {
  * comandou ao longo das ligas, agregados por competidor persistente. Considera
  * SOMENTE tenures com conta (`user_id NOT NULL`) — passagens LOCAIS (vaga
  * por-nome) e o estado anonimizado (conta apagada) não compõem o perfil global
- * (decisão do dono: técnico local não vira conta agregável). A VIGÊNCIA é sempre
- * `encerrada_em IS NULL`.
+ * (decisão do dono: técnico local não vira conta agregável). A VIGÊNCIA ("· atual")
+ * é uma passagem de TEMPORADA aberta (`season_id NOT NULL AND encerrada_em IS
+ * NULL`): tenures de copa/playoff/barragem (season nula, sempre abertas) não a
+ * marcam nem inflam a contagem de temporadas (add-copa-tecnico-heranca).
  *
  * Visibilidade: a identidade vem de `users` (RLS `users_select_authenticated` =
  * qualquer logado); as tenures/competições respeitam a RLS de `coach_tenures`
@@ -106,7 +108,10 @@ export async function getTecnicoProfile(
       porClube.set(t.competitor_id, clube)
     }
     if (t.season_id) clube._seasons.add(t.season_id)
-    if (t.encerrada_em == null) clube.vigente = true
+    // Vigência ("· atual") = passagem de TEMPORADA aberta. Tenures de copa (e de
+    // playoff/barragem/grande final) têm season_id nulo e são sempre "abertas"
+    // (sem troca) — não marcam o clube como atual (add-copa-tecnico-heranca).
+    if (t.season_id != null && t.encerrada_em == null) clube.vigente = true
   }
 
   const clubes: ClubeComandado[] = [...porClube.values()]

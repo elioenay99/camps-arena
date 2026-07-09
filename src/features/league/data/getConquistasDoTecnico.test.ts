@@ -263,6 +263,23 @@ describe("getConquistasDoTecnico", () => {
     expect(grupos[0].refId).toBe("cA|sA")
   })
 
+  it("tenure de copa (season nula, torneio não-final) NÃO herda troféu de liga", async () => {
+    // add-copa-tecnico-heranca: a tenure de copa tem division/season nulos e
+    // tournament_id de copa (não é final_tournament_id de divisão nenhuma). Cruza
+    // (competitor_id, season_id) → não casa season → sem troféu falso.
+    const grupos = await getConquistasDoTecnico(
+      fakeSupabase({
+        coach_tenures: { data: [tenureFinal("cCopa", "tCopa")], error: null },
+        // Nenhuma divisão tem final_tournament_id = 'tCopa'.
+        league_division_seasons: { data: [], error: null },
+        // Mesmo que houvesse uma conquista do competidor, sem par-título não entra.
+        conquistas: { data: [conquista("cCopa", "sX", "campeao", "CopaClube")], error: null },
+      }),
+      { userId: "uCopa" }
+    )
+    expect(grupos).toEqual([])
+  })
+
   it("sem tenures vigentes ⇒ [] (sem herança)", async () => {
     const grupos = await getConquistasDoTecnico(
       fakeSupabase({ coach_tenures: { data: [], error: null } }),
