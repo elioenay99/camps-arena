@@ -9,8 +9,11 @@ import { Card, CardContent } from "@/components/ui/card"
 import { createClient } from "@/lib/supabase/server"
 import { getTecnicoProfile } from "@/features/league/data/getTecnicoProfile"
 import { getConquistasDoTecnico } from "@/features/league/data/getConquistasDoTecnico"
+import { getTecnicoCampanha } from "@/features/league/data/getTecnicoCampanha"
 import { TecnicoHero } from "@/features/league/components/tecnico/TecnicoHero"
+import { CampanhaDeSempre } from "@/features/league/components/tecnico/CampanhaDeSempre"
 import { ClubesComandados } from "@/features/league/components/tecnico/ClubesComandados"
+import { ConfrontoTecnicosPanel } from "@/features/league/components/tecnico/ConfrontoTecnicosPanel"
 import { CompetidorHallDaFama } from "@/features/league/components/competidor/CompetidorHallDaFama"
 
 export async function generateMetadata({
@@ -52,6 +55,10 @@ export default async function TecnicoPage({
   // Degrada para [] — a estante é secundária.
   const conquistas = await getConquistasDoTecnico(supabase, { userId })
 
+  // Campanha PESSOAL por janela de comando (números de sempre + fatia por clube +
+  // adversários). Degrada para vazio em erro de IO.
+  const campanha = await getTecnicoCampanha(supabase, { userId })
+
   const semHistorico = perfil.clubes.length === 0
 
   return (
@@ -92,8 +99,15 @@ export default async function TecnicoPage({
         </Card>
       ) : (
         <>
+          <CampanhaDeSempre total={campanha.total} />
+          <ClubesComandados clubes={perfil.clubes} porClube={campanha.porClube} />
+          <ConfrontoTecnicosPanel
+            userId={perfil.id}
+            nome={perfil.nome}
+            avatar={perfil.avatar}
+            adversarios={campanha.adversarios}
+          />
           <CompetidorHallDaFama temporadas={conquistas} />
-          <ClubesComandados clubes={perfil.clubes} />
         </>
       )}
     </main>

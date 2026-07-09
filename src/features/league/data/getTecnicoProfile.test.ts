@@ -18,7 +18,7 @@ interface TenureRow {
  * Supabase fake: users (select→eq→maybeSingle) + coach_tenures (select→eq→await).
  */
 function fakeSupabase(opts: {
-  user?: { id: string; nome: string | null } | null
+  user?: { id: string; nome: string | null; avatar?: string | null } | null
   userError?: boolean
   tenures?: TenureRow[] | null
   tenuresError?: boolean
@@ -101,6 +101,19 @@ describe("getTecnicoProfile", () => {
     expect(perfil!.totalTemporadas).toBe(3)
     // Clube vigente vem primeiro.
     expect(perfil!.clubes[0].competitorId).toBe("cA")
+  })
+
+  it("expõe o avatar (foto real) quando presente; null quando ausente", async () => {
+    const comFoto = await getTecnicoProfile(
+      fakeSupabase({ user: { id: "u1", nome: "Ana", avatar: "foto.png" }, tenures: [] }),
+      { userId: "u1" }
+    )
+    expect(comFoto!.avatar).toBe("foto.png")
+    const semFoto = await getTecnicoProfile(
+      fakeSupabase({ user: { id: "u1", nome: "Ana" }, tenures: [] }),
+      { userId: "u1" }
+    )
+    expect(semFoto!.avatar).toBeNull()
   })
 
   it("competidor por NOME (rotulo): usa o rótulo e escudo null", async () => {

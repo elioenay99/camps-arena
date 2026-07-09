@@ -21,6 +21,8 @@ export interface ClubeComandado {
 export interface TecnicoPerfil {
   id: string
   nome: string
+  /** Foto real do técnico (`users.avatar`, URL pública) ou null → iniciais. */
+  avatar: string | null
   clubes: ClubeComandado[]
   totalClubes: number
   /** Total de temporadas distintas comandadas (soma por clube). */
@@ -61,7 +63,7 @@ export async function getTecnicoProfile(
   // Identidade (gate de existência/visibilidade). Sem row → null → 404.
   const { data: user, error: userError } = await supabase
     .from("users")
-    .select("id, nome")
+    .select("id, nome, avatar")
     .eq("id", userId)
     .maybeSingle()
   if (userError || !user) return null
@@ -118,6 +120,7 @@ export async function getTecnicoProfile(
   return {
     id: user.id,
     nome: user.nome?.trim() || "Técnico",
+    avatar: user.avatar ?? null,
     clubes,
     totalClubes: clubes.length,
     totalTemporadas: clubes.reduce((s, c) => s + c.temporadas, 0),

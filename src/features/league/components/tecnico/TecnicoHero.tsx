@@ -12,6 +12,7 @@ export function TecnicoHero({ perfil }: { perfil: TecnicoPerfil }) {
     <header className="elevate flex flex-col gap-5 rounded-2xl border bg-card/60 p-5 sm:flex-row sm:items-start sm:gap-5">
       <UserAvatar
         nome={perfil.nome}
+        avatarUrl={perfil.avatar}
         size={72}
         className="size-16 self-start ring-1 ring-foreground/10 sm:size-[72px]"
       />

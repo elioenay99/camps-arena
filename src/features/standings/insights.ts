@@ -70,7 +70,7 @@ export function ordenarPorData(
 
 type Resultado = "V" | "E" | "D"
 
-interface ResultadoLado {
+export interface ResultadoLado {
   resultado: Resultado
   /** W.O. simples OU duplo W.O. (sem jogo real). */
   wo: boolean
@@ -82,9 +82,10 @@ interface ResultadoLado {
  * Resultado de UM lado de uma partida elegível, espelhando `aplicarPartida` na
  * ORDEM `woDuplo → woVencedor → placar`. `cleanSheet` só é `true` no ramo de
  * placar (jogo real) quando o lado não sofreu gol — inclui o 0x0 real, exclui
- * W.O. (0x0 sem jogo).
+ * W.O. (0x0 sem jogo). Exportada para reuso pela campanha do técnico
+ * (`coachStats`), que não pode reimplementar a regra de W.O.
  */
-function resultadoDoLado(p: PartidaCronoElegivel, lado: 1 | 2): ResultadoLado {
+export function resultadoDoLado(p: PartidaCronoElegivel, lado: 1 | 2): ResultadoLado {
   if (p.woDuplo) {
     return { resultado: "D", wo: true, cleanSheet: false }
   }

@@ -4,11 +4,17 @@ import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
 import { getConfrontoDireto } from "@/features/league/data/getConfrontoDireto"
+import { getConfrontoTecnicos } from "@/features/league/data/getConfrontoTecnicos"
 import type { ConfrontoDireto } from "@/features/standings/insights"
 
 const paresSchema = z.object({
   competitorAId: z.uuid(),
   competitorBId: z.uuid(),
+})
+
+const paresTecnicosSchema = z.object({
+  userAId: z.uuid(),
+  userBId: z.uuid(),
 })
 
 const VAZIO: ConfrontoDireto = {
@@ -40,4 +46,23 @@ export async function carregarConfrontoDireto(
 
   const supabase = await createClient()
   return getConfrontoDireto(supabase, parsed.data)
+}
+
+/**
+ * Server action de LEITURA (change add-perfil-tecnico-carreira): carrega o
+ * confronto direto entre dois TÉCNICOS (por `users.id`) SOB DEMANDA quando o
+ * usuário escolhe um adversário no picker do perfil do técnico. POST (não uma
+ * navegação prefetchável), mesmo padrão de `carregarConfrontoDireto`. Valida os
+ * dois uuids e rejeita auto-confronto (A==B) cedo → retorno vazio; a RLS de
+ * `matches`/`coach_tenures` (dentro de `getConfrontoTecnicos`) é a barreira.
+ */
+export async function carregarConfrontoTecnicos(
+  userAId: string,
+  userBId: string
+): Promise<ConfrontoDireto> {
+  const parsed = paresTecnicosSchema.safeParse({ userAId, userBId })
+  if (!parsed.success || parsed.data.userAId === parsed.data.userBId) return VAZIO
+
+  const supabase = await createClient()
+  return getConfrontoTecnicos(supabase, parsed.data)
 }
