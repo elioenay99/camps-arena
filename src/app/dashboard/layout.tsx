@@ -1,11 +1,9 @@
 import Link from "next/link";
 
-import { logout } from "@/actions/auth";
 import { ModeToggle } from "@/components/mode-toggle";
 import { StadiumBackdrop } from "@/components/stadium-backdrop";
-import { Button } from "@/components/ui/button";
+import { AccountMenu } from "@/features/nav/components/AccountMenu";
 import { NavLinks, type NavLink } from "@/features/nav/components/NavLinks";
-import { UserAvatar } from "@/features/profile/components/UserAvatar";
 import { getPerfil } from "@/features/profile/data/getPerfil";
 
 const LINKS: NavLink[] = [
@@ -59,30 +57,13 @@ export default async function DashboardLayout({
 
           <div className="ml-auto flex items-center gap-2">
             <ModeToggle />
-            <Link
-              href="/dashboard/conta"
-              aria-label="Sua conta"
-              prefetch={false}
-              className="flex size-11 items-center justify-center rounded-full ring-offset-background transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
-            >
-              <UserAvatar
-                nome={perfil?.nome ?? null}
-                avatarUrl={perfil?.avatar ?? null}
-                size={32}
+            {perfil && (
+              <AccountMenu
+                userId={perfil.id}
+                nome={perfil.nome ?? null}
+                avatar={perfil.avatar ?? null}
               />
-            </Link>
-            <form action={logout}>
-              {/* Sair = ação irreversível (encerra a sessão): alvo de toque de
-                  44px no mobile (a base size="sm" tem h-7), com padding extra. */}
-              <Button
-                variant="outline"
-                size="sm"
-                type="submit"
-                className="min-h-11 px-4"
-              >
-                Sair
-              </Button>
-            </form>
+            )}
           </div>
         </div>
       </header>
