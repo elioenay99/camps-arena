@@ -27,12 +27,15 @@ JÁ CONGELADO por competidor (`league_division_entries.posicao_final` e
 `destino`), NÃO de entrada do cliente: em divisão `liga` de ciclo ANUAL (sem
 Clausura — `tournament_id_clausura is null`), Campeão = posição final 1 e Vice =
 posição 2; Promovido = destino `sobe` e Rebaixado = destino `cai` (todo formato);
-Artilheiro derivado de `match_goals`. Nas divisões coroadas por CHAVE — divisão
-`liga` SPLIT (`apertura_clausura`, campeão = vencedor da grande final) e
-`grupos_mata_mata` (campeão = vencedor do mata-mata) — onde a posição final
-diverge do coroado, o Campeão/Vice NÃO SHALL sair da posição final: SHALL vir do
-resultado da chave computado autoritativamente pelo servidor, sem gerar linha
-`campeao` duplicada.
+Artilheiro derivado de `match_goals` considerando APENAS gols NORMAIS (`contra =
+false`) — gols contra NÃO SHALL contar para o Artilheiro (o join a `match_goals`
+na RPC de premiação SHALL filtrar `and g.contra = false`, de modo que nenhum gol
+contra, nem o anônimo `jogador` nulo, materialize um artilheiro fictício na FOTO
+durável do hall da fama). Nas divisões coroadas por CHAVE — divisão `liga` SPLIT
+(`apertura_clausura`, campeão = vencedor da grande final) e `grupos_mata_mata`
+(campeão = vencedor do mata-mata) — onde a posição final diverge do coroado, o
+Campeão/Vice NÃO SHALL sair da posição final: SHALL vir do resultado da chave
+computado autoritativamente pelo servidor, sem gerar linha `campeao` duplicada.
 
 #### Scenario: Campeão de divisão liga anual é o 1º colocado congelado
 - **WHEN** a temporada é encerrada e uma divisão `liga` de ciclo anual tem o competidor X em `posicao_final = 1`
@@ -53,6 +56,10 @@ resultado da chave computado autoritativamente pelo servidor, sem gerar linha
 #### Scenario: Cliente não decide os troféus estruturais
 - **WHEN** o encerramento é acionado
 - **THEN** promovido/rebaixado/artilheiro e o campeão de divisão liga vêm de dados congelados/persistidos, não de valores enviados pelo cliente
+
+#### Scenario: Gol contra não materializa artilheiro no hall da fama
+- **WHEN** uma temporada é encerrada e o maior somatório de gols de uma divisão inclui um gol contra (ou um gol contra anônimo, `jogador` nulo)
+- **THEN** o troféu Artilheiro é derivado só dos gols normais (`contra = false`), e nenhum artilheiro fictício/nulo é gravado na estante
 
 ### Requirement: Estante de troféus na página do competidor
 A página do competidor SHALL exibir uma estante (hall da fama) com os troféus
