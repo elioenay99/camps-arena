@@ -1543,6 +1543,62 @@ export interface Database {
           },
         ]
       }
+      wo_perdoes: {
+        Row: {
+          id: string
+          match_id: string
+          user_id: string
+          tournament_id: string
+          perdoado_por: string | null
+          perdoado_em: string
+        }
+        Insert: {
+          id?: string
+          match_id: string
+          user_id: string
+          tournament_id: string
+          perdoado_por?: string | null
+          perdoado_em?: string
+        }
+        Update: {
+          id?: string
+          match_id?: string
+          user_id?: string
+          tournament_id?: string
+          perdoado_por?: string | null
+          perdoado_em?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wo_perdoes_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wo_perdoes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wo_perdoes_tournament_id_fkey"
+            columns: ["tournament_id"]
+            isOneToOne: false
+            referencedRelation: "tournaments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wo_perdoes_perdoado_por_fkey"
+            columns: ["perdoado_por"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       users_public: {
@@ -1649,6 +1705,28 @@ export interface Database {
       pode_ver_bastidores_torneio: {
         Args: { p_tid: string }
         Returns: boolean
+      }
+      wo_sofridos_do_tecnico: {
+        Args: { p_tournament_id: string; p_user_id: string }
+        Returns: { match_id: string }[]
+      }
+      sequencia_disciplina_torneio: {
+        Args: { p_tournament_id: string }
+        Returns: {
+          user_id: string
+          slot_id: string
+          rodada: number | null
+          tipo: string
+          perdoado: boolean
+        }[]
+      }
+      perdoar_wo_tecnico: {
+        Args: { p_tournament_id: string; p_user_id: string }
+        Returns: number
+      }
+      expulsar_tecnico_wo: {
+        Args: { p_tournament_id: string; p_slot_id: string }
+        Returns: number
       }
       aprovar_proposta_placar: {
         Args: { p_proposal_id: string }

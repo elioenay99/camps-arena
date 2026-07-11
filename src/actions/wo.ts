@@ -5,7 +5,7 @@ import { z } from "zod"
 
 import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
 import { enviarNotificacoes } from "@/features/notifications/enviar"
-import { podeArbitrar } from "@/lib/autorizacao"
+import { podeArbitrar, podeGerir } from "@/lib/autorizacao"
 import { removerEvidencia, subirEvidencia } from "@/lib/evidence"
 import { createClient } from "@/lib/supabase/server"
 import type { WoRequestStatus } from "@/lib/supabase/database.types"
@@ -578,4 +578,95 @@ export async function responderWO(
     )
   }
   return { ok: true }
+}
+
+export type PerdoarWoResult =
+  | { ok: true; perdoados: number }
+  | { ok: false; error: string }
+export type ExpulsarWoResult =
+  | { ok: true; expulsou: boolean }
+  | { ok: false; error: string }
+
+/**
+ * DISCIPLINA (change add-contador-wo-tecnico): perdoa os W.O. seguidos de um
+ * técnico numa competição — materializa o baseline de perdão (RPC
+ * `perdoar_wo_tecnico`, gated `pode_gerir_torneio`), zerando a contagem sem tocar
+ * `matches`/standings. Pré-check `podeGerir` (UX; a RPC é a defesa real). Retorna
+ * quantos perdões novos criou (para log/teste; a UI mostra só "Contagem zerada").
+ */
+export async function perdoarWoTecnico(
+  tournamentId: unknown,
+  userId: unknown
+): Promise<PerdoarWoResult> {
+  const t = z.uuid().safeParse(tournamentId)
+  const u = z.uuid().safeParse(userId)
+  if (!t.success || !u.success) {
+    return { ok: false, error: "Dados inválidos." }
+  }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+  if (!(await podeGerir(supabase, { tournamentId: t.data }))) {
+    return { ok: false, error: "Você não tem permissão para esta ação." }
+  }
+
+  const { data, error } = await supabase.rpc("perdoar_wo_tecnico", {
+    p_tournament_id: t.data,
+    p_user_id: u.data,
+  })
+  if (error) {
+    return { ok: false, error: "Não foi possível perdoar agora. Tente novamente." }
+  }
+
+  revalidatePath("/dashboard")
+  revalidatePath(`/dashboard/torneios/${t.data}`)
+  return { ok: true, perdoados: data ?? 0 }
+}
+
+/**
+ * DISCIPLINA (change add-contador-wo-tecnico): expulsa o técnico de uma vaga como
+ * gesto disciplinar. Diferente da `expulsarTecnico` dono-only (slots.ts), esta é
+ * liberada a quem `pode_gerir_torneio` (dono + admins) via a RPC dedicada
+ * `expulsar_tecnico_wo`. Esvazia a vaga (dispara o fecho da tenure → próximo técnico
+ * começa fresh). Pré-check `podeGerir` (UX; a RPC é a defesa real).
+ */
+export async function expulsarTecnicoWo(
+  tournamentId: unknown,
+  slotId: unknown
+): Promise<ExpulsarWoResult> {
+  const t = z.uuid().safeParse(tournamentId)
+  const s = z.uuid().safeParse(slotId)
+  if (!t.success || !s.success) {
+    return { ok: false, error: "Dados inválidos." }
+  }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+  if (authError || !user) {
+    return { ok: false, error: "Você precisa estar autenticado." }
+  }
+  if (!(await podeGerir(supabase, { tournamentId: t.data }))) {
+    return { ok: false, error: "Você não tem permissão para esta ação." }
+  }
+
+  const { data, error } = await supabase.rpc("expulsar_tecnico_wo", {
+    p_tournament_id: t.data,
+    p_slot_id: s.data,
+  })
+  if (error) {
+    return { ok: false, error: "Não foi possível expulsar agora. Tente novamente." }
+  }
+
+  revalidatePath("/dashboard")
+  revalidatePath(`/dashboard/torneios/${t.data}`)
+  return { ok: true, expulsou: (data ?? 0) > 0 }
 }

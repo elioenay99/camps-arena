@@ -12,6 +12,7 @@ import {
   Plus,
   Settings2,
   Shield,
+  ShieldAlert,
   Swords,
   Users,
 } from "lucide-react";
@@ -31,6 +32,8 @@ import { ChampionshipBadge } from "@/features/championship/components/Championsh
 import { GerarMataMataButton } from "@/features/groups/components/GerarMataMataButton";
 import { ArtilhariaRanking } from "@/features/league/components/ArtilhariaRanking";
 import { getArtilharia } from "@/features/league/data/getArtilharia";
+import { DisciplinaWoTecnicos } from "@/features/league/components/tecnico/DisciplinaWoTecnicos";
+import { getDisciplinaWoTorneio } from "@/features/league/data/getDisciplinaWoTorneio";
 import { IniciarGruposPanel } from "@/features/groups/components/IniciarGruposPanel";
 import { rotuloGrupo } from "@/features/groups/gerarFaseDeGrupos";
 import { AvancarFaseButton } from "@/features/knockout/components/AvancarFaseButton";
@@ -297,6 +300,7 @@ export default async function TorneioPage({
     codigosVagas,
     solicitacoesWO,
     propostasPendentes,
+    disciplinaWo,
   ] = await Promise.all([
     ehGerado ? Promise.resolve([]) : getParticipantesDoTorneio(id),
     !ehGerado && podeModerarParticipacao
@@ -313,6 +317,12 @@ export default async function TorneioPage({
     // técnico de vaga propõe placar + foto; o aprovador (ARBITRAR) decide. A
     // RLS só entrega ao aprovador (ou jogador) — só faz sentido em competitivo.
     ehGerado ? getPropostasPendentes(supabase, id) : Promise.resolve([]),
+    // Disciplina — W.O. seguidos (change add-contador-wo-tecnico): painel
+    // admin-facing (gate GERIR) por técnico. A RPC é gated `pode_gerir_torneio`;
+    // só puxa quando faz sentido (formato gerado + quem gere).
+    ehGerado && gerir
+      ? getDisciplinaWoTorneio(supabase, { tournamentId: id })
+      : Promise.resolve([]),
   ]);
 
   // Painéis de início dos formatos gerados: os LADOS são as vagas (slot ids
@@ -576,6 +586,19 @@ export default async function TorneioPage({
               </li>
             ))}
           </ul>
+        </SecaoTorneio>
+      ) : null}
+
+      {/* Disciplina — W.O. seguidos (change add-contador-wo-tecnico): admin-facing
+          (capacidade GERIR). A seção só surge quando há técnico com streak > 0; as
+          ações Perdoar/Expulsar aparecem por técnico no limite. */}
+      {gerir && disciplinaWo.length > 0 ? (
+        <SecaoTorneio
+          id="disciplina-wo-titulo"
+          titulo="Disciplina — W.O. seguidos"
+          Icon={ShieldAlert}
+        >
+          <DisciplinaWoTecnicos tournamentId={id} tecnicos={disciplinaWo} />
         </SecaoTorneio>
       ) : null}
 

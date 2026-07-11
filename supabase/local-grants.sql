@@ -46,3 +46,8 @@ alter default privileges for role postgres in schema public
 -- `grant all on all tables` acima reabriu. ÚLTIMA palavra sobre `users`.
 revoke select on public.users from anon, authenticated;
 grant select (id, nome, avatar, created_at) on public.users to anon, authenticated;
+
+-- Disciplina (add-contador-wo-tecnico): re-fecha o SELECT de anon em wo_perdoes que
+-- o `grant all` acima reabriu — espelha o `revoke select ... from anon` do schema.sql
+-- (anon falha-fechado 42501; authenticated fica gated pela policy).
+revoke select on public.wo_perdoes from anon;
