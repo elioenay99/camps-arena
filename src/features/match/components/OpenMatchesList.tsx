@@ -128,6 +128,19 @@ export function OpenMatchesList({
     const ehCompetitivo = p.vagaId_1 != null && p.vagaId_2 != null
     const podeMarcarWo = mostrarEncerrar && ehCompetitivo && !temPropostaPendente
     const podeSolicitarWo = !mostrarEncerrar && ehCompetitivo && jogaPartida(p)
+    const mostrarModal = mostrarEncerrar && !temPropostaPendente
+    console.log(
+      "DBGWO_ITEM",
+      JSON.stringify({
+        id: p.id,
+        m: `${p.nome_1} x ${p.nome_2}`,
+        st: p.status,
+        mE: mostrarEncerrar,
+        tpp: temPropostaPendente,
+        mm: mostrarModal,
+        comp: ehCompetitivo,
+      })
+    )
     return (
       <li
         key={p.id}
@@ -204,7 +217,7 @@ export function OpenMatchesList({
               Aguardando aprovação — veja Resultados pendentes
             </span>
           ) : null}
-          {mostrarEncerrar && !temPropostaPendente ? (
+          {mostrarModal ? (
             <MatchScoreModalConnected
               matchId={p.id}
               tituloPartida={`${p.nome_1} x ${p.nome_2}`}
@@ -242,7 +255,7 @@ export function OpenMatchesList({
               }
             />
           ) : null}
-          {mostrarEncerrar && !temPropostaPendente ? (
+          {mostrarModal ? (
             <MatchStatusButton matchId={p.id} acao="encerrar" />
           ) : null}
         </span>
