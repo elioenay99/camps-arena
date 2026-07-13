@@ -331,3 +331,16 @@ jogos de playoff/barragem/grande final, que já compartilham o `competitor_id`.
 - **WHEN** um competidor passa a ter vaga de copa com o mesmo `competitor_id`
 - **THEN** a tabela/classificação por-torneio da liga (escopada por `tournament_id`) permanece inalterada
 
+### Requirement: Compartilhar o pôster do técnico
+
+O perfil global do técnico SHALL oferecer, no cabeçalho, um botão "Compartilhar
+pôster" (client) que baixa o PNG da rota de imagem do técnico
+(`ligas/tecnico/[userId]/imagem`) via `fetch` same-origin e o entrega por
+`compartilharWhatsApp`, com texto montado no servidor (`mensagemTecnico`). SHALL estar
+disponível a qualquer usuário logado (o perfil do técnico já é leitura pública a
+logados), espelhando o padrão de `CompartilharRodadaButton`.
+
+#### Scenario: Compartilhar o pôster do técnico
+- **WHEN** um usuário logado toca "Compartilhar pôster" no perfil de um técnico
+- **THEN** o pôster PNG (campanha de sempre + troféus) é gerado e entregue ao seletor de compartilhamento
+
