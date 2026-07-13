@@ -72,6 +72,17 @@ export interface MatchScoreModalProps {
   /** Gatilho customizado; se ausente, usa um botão padrão. */
   trigger?: React.ReactNode
   /**
+   * Config SERIALIZÁVEL do gatilho padrão (rótulo/aria/classe). PREFERIR isto a
+   * `trigger` quando o modal é montado por um SERVER component: passar um JSX de
+   * client-component (`<Button>`) pela fronteira RSC pode chegar CORROMPIDO
+   * (deixa de ser React element válido — `React.isValidElement` = false) e o
+   * `DialogTrigger asChild` renderiza NADA, sem erro. Com strings, o gatilho é
+   * construído AQUI, no cliente, e sempre aparece.
+   */
+  triggerLabel?: string
+  triggerAriaLabel?: string
+  triggerClassName?: string
+  /**
    * Persistência do placar (Server Action na Fase 4). Recebe placares já
    * normalizados (inteiros >= 0). Sem onSave, o modal apenas confirma
    * localmente (modo demonstração).
@@ -473,6 +484,9 @@ export function MatchScoreModal({
   placarInicial1 = 0,
   placarInicial2 = 0,
   trigger,
+  triggerLabel,
+  triggerAriaLabel,
+  triggerClassName,
   onSave,
   onSelecionarClube,
   modoPlacar = "direto",
@@ -627,25 +641,25 @@ export function MatchScoreModal({
     })
   }
 
-  if (typeof window !== "undefined") {
-    const w = window as unknown as { __DBGWO2?: unknown[] }
-    ;(w.__DBGWO2 ||= []).push({
-      id: matchId,
-      valid: React.isValidElement(trigger),
-      type:
-        trigger == null
-          ? "nil"
-          : Array.isArray(trigger)
-            ? "arr"
-            : typeof trigger,
-    })
-  }
   return (
-    <>
-      <span data-dbgwo-modal={matchId} hidden />
-      <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        {trigger ?? <Button>Menu da Partida</Button>}
+        {/* `trigger` (JSX) só é usado se chegou como React element VÁLIDO. Vindo
+            de um server component pela fronteira RSC ele pode corromper — nesse
+            caso (ou quando ausente) o gatilho é construído a partir das strings
+            triggerLabel/triggerAriaLabel/triggerClassName, no cliente. */}
+        {React.isValidElement(trigger) ? (
+          trigger
+        ) : (
+          <Button
+            type="button"
+            variant="secondary"
+            className={triggerClassName ?? "min-h-11 px-4"}
+            aria-label={triggerAriaLabel}
+          >
+            {triggerLabel ?? "Menu da Partida"}
+          </Button>
+        )}
       </DialogTrigger>
 
       <DialogContent showCloseButton={false} className="rounded-2xl sm:max-w-md">
@@ -782,6 +796,5 @@ export function MatchScoreModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    </>
   )
 }

@@ -40,10 +40,6 @@ export function MatchScoreModalConnected({
   modoPlacar = "direto",
   ...props
 }: MatchScoreModalConnectedProps) {
-  if (typeof window !== "undefined") {
-    const w = window as unknown as { __DBGWO?: string[] }
-    ;(w.__DBGWO ||= []).push(props.matchId)
-  }
   return (
     <MatchScoreModal
       {...props}

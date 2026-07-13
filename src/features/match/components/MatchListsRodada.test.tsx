@@ -23,9 +23,20 @@ vi.mock("@/actions/wo", () => ({
 // transitivamente actions/scoreProposals/teams (padrão de MatchCard.test.tsx).
 const { modalProps } = vi.hoisted(() => ({ modalProps: vi.fn() }))
 vi.mock("@/features/match/components/MatchScoreModalConnected", () => ({
-  MatchScoreModalConnected: (props: { trigger?: ReactNode }) => {
+  MatchScoreModalConnected: (props: {
+    trigger?: ReactNode
+    triggerLabel?: string
+    triggerAriaLabel?: string
+  }) => {
     modalProps(props)
-    return props.trigger ?? null
+    // Espelha o componente real: gatilho por STRINGS (o JSX não cruza mais a
+    // fronteira RSC) — constrói o botão a partir de triggerLabel/triggerAriaLabel.
+    if (props.trigger) return props.trigger
+    if (props.triggerLabel)
+      return (
+        <button aria-label={props.triggerAriaLabel}>{props.triggerLabel}</button>
+      )
+    return null
   },
 }))
 

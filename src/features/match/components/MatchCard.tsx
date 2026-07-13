@@ -286,15 +286,12 @@ export function MatchCard({
             // Competitivo + não-aprovador (técnico) → envia placar p/ aprovação com foto.
             // Avulso ou aprovador → lança direto.
             modoPlacar={ehCompetitivo && !partida.podeArbitrar ? "proposta" : "direto"}
-            trigger={
-              <Button
-                aria-label={`Menu da partida ${tituloPartida}`}
-                variant="secondary"
-                className="w-full rounded-full"
-              >
-                Menu da Partida
-              </Button>
-            }
+            // Gatilho por STRINGS (não JSX): server component → passar o <Button>
+            // pela fronteira RSC pode corromper o elemento e o botão some. O modal
+            // (client) constrói o botão a partir destas strings.
+            triggerLabel="Menu da Partida"
+            triggerAriaLabel={`Menu da partida ${tituloPartida}`}
+            triggerClassName="w-full rounded-full"
           />
         </CardFooter>
       </Card>

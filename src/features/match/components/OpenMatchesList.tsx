@@ -128,19 +128,6 @@ export function OpenMatchesList({
     const ehCompetitivo = p.vagaId_1 != null && p.vagaId_2 != null
     const podeMarcarWo = mostrarEncerrar && ehCompetitivo && !temPropostaPendente
     const podeSolicitarWo = !mostrarEncerrar && ehCompetitivo && jogaPartida(p)
-    const mostrarModal = mostrarEncerrar && !temPropostaPendente
-    console.log(
-      "DBGWO_ITEM",
-      JSON.stringify({
-        id: p.id,
-        m: `${p.nome_1} x ${p.nome_2}`,
-        st: p.status,
-        mE: mostrarEncerrar,
-        tpp: temPropostaPendente,
-        mm: mostrarModal,
-        comp: ehCompetitivo,
-      })
-    )
     return (
       <li
         key={p.id}
@@ -217,7 +204,7 @@ export function OpenMatchesList({
               Aguardando aprovação — veja Resultados pendentes
             </span>
           ) : null}
-          {mostrarModal ? (
+          {mostrarEncerrar && !temPropostaPendente ? (
             <MatchScoreModalConnected
               matchId={p.id}
               tituloPartida={`${p.nome_1} x ${p.nome_2}`}
@@ -242,20 +229,16 @@ export function OpenMatchesList({
               autoresIniciais={autoresIniciaisDaPartida(golsPorPartida?.get(p.id))}
               permitirEscolherClube={false}
               modoPlacar="direto"
-              trigger={
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="min-h-11 px-4"
-                  aria-label={`Editar placar de ${p.nome_1} contra ${p.nome_2}`}
-                >
-                  Editar placar
-                </Button>
-              }
+              // Gatilho por STRINGS (não JSX): este é um SERVER component; passar
+              // o <Button> pela fronteira RSC corrompia o elemento em algumas
+              // partidas (React.isValidElement=false) e o botão sumia. O modal
+              // (client) constrói o botão a partir destas strings.
+              triggerLabel="Editar placar"
+              triggerAriaLabel={`Editar placar de ${p.nome_1} contra ${p.nome_2}`}
+              triggerClassName="min-h-11 px-4"
             />
           ) : null}
-          {mostrarModal ? (
+          {mostrarEncerrar && !temPropostaPendente ? (
             <MatchStatusButton matchId={p.id} acao="encerrar" />
           ) : null}
         </span>
