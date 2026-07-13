@@ -21,6 +21,9 @@ vi.mock("@/features/league/data/getSeason", () => ({ getSeason: vi.fn() }))
 vi.mock("@/features/league/data/getArtilharia", () => ({
   getArtilharia: vi.fn(async () => []),
 }))
+vi.mock("@/features/league/data/getMuralha", () => ({
+  getMuralha: vi.fn(async () => []),
+}))
 vi.mock("@/features/league/data/getDivisionStandings", () => ({
   getDivisionStandings: vi.fn(),
 }))

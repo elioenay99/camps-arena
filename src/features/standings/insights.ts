@@ -315,6 +315,8 @@ export interface DestaquesCompetidor {
   maiorInvencibilidade: number
   maiorSequenciaVitorias: number
   maiorSequenciaCleanSheets: number
+  /** TOTAL de jogos sem sofrer gol (exclui W.O.) — distinto da SEQUÊNCIA acima. */
+  totalCleanSheets: number
   /** Gols MARCADOS por jogo real (exclui W.O.). */
   mediaGolsPorJogo: number
 }
@@ -344,6 +346,7 @@ export function calcularDestaquesCompetidor(
   let golsContra = 0
   let golsReais = 0
   let jogosReais = 0
+  let totalCleanSheets = 0
   let maiorGoleada: Goleada | null = null
   const seqItens: ItemSequencia[] = []
 
@@ -353,6 +356,8 @@ export function calcularDestaquesCompetidor(
     if (r.resultado === "V") vitorias += 1
     else if (r.resultado === "E") empates += 1
     else derrotas += 1
+    // `cleanSheet` já é false nos ramos de W.O. — sem gate extra em `r.wo`.
+    if (r.cleanSheet) totalCleanSheets += 1
     seqItens.push({ resultado: r.resultado, cleanSheet: r.cleanSheet })
 
     // Gols e goleada só em jogo real (W.O. sem gols).
@@ -394,6 +399,7 @@ export function calcularDestaquesCompetidor(
     maiorInvencibilidade: inv?.extensao ?? 0,
     maiorSequenciaVitorias: vit?.extensao ?? 0,
     maiorSequenciaCleanSheets: cs?.extensao ?? 0,
+    totalCleanSheets,
     mediaGolsPorJogo: jogosReais === 0 ? 0 : golsReais / jogosReais,
   }
 }
@@ -542,4 +548,97 @@ export function rechavearInsights(
       mediaGolsPorJogo: d.mediaGolsPorJogo,
     },
   }
+}
+
+// ── Muralha (ranking de defesas) ────────────────────────────────────────────
+
+/** Identidade do competidor por LADO (slot), para creditar a defesa. */
+export interface CompetidorMuralha {
+  competitorId: string
+  /** Nome do clube/rótulo do competidor (desempate estável da ordenação). */
+  nome: string
+  /** Escudo do clube ou null (por-nome/avulso). */
+  escudoUrl: string | null
+}
+
+/** Uma linha do ranking de defesas (Muralha) — um competidor. */
+export interface LinhaMuralha {
+  competitorId: string
+  competitorNome: string
+  escudoUrl: string | null
+  jogos: number
+  cleanSheets: number
+  golsSofridos: number
+}
+
+/**
+ * Ranking de defesas ("Muralha") por competidor a partir das partidas
+ * ENCERRADAS. Espelho defensivo da artilharia: reusa a elegibilidade
+ * (`ehElegivel`) e a regra de W.O. de `resultadoDoLado` — um lado em W.O./duplo
+ * W.O. é PULADO por inteiro (não conta jogo, clean sheet nem gols sofridos), só
+ * o 0x0 REAL vira clean sheet. Os gols sofridos são o placar do ADVERSÁRIO
+ * (`resultadoDoLado` não retorna contagem), somados só nos jogos reais.
+ * `mapaLadoCompetidor` casa o id do lado (slot) → competidor; lado sem
+ * competidor (avulso por-nome) é ignorado, como na artilharia. Agrega por
+ * competidor e ordena por clean sheets desc → gols sofridos asc → jogos desc →
+ * nome (premia consistência defensiva sustentada por mais jogos, não quem jogou
+ * menos).
+ */
+export function calcularMuralha(
+  partidas: PartidaCronologica[],
+  mapaLadoCompetidor: Map<string, CompetidorMuralha>
+): LinhaMuralha[] {
+  const acc = new Map<
+    string,
+    {
+      competitorId: string
+      competitorNome: string
+      escudoUrl: string | null
+      jogos: number
+      cleanSheets: number
+      golsSofridos: number
+    }
+  >()
+
+  const creditar = (
+    comp: CompetidorMuralha,
+    cleanSheet: boolean,
+    golsSofridos: number
+  ) => {
+    const cur = acc.get(comp.competitorId)
+    if (cur) {
+      cur.jogos += 1
+      if (cleanSheet) cur.cleanSheets += 1
+      cur.golsSofridos += golsSofridos
+    } else {
+      acc.set(comp.competitorId, {
+        competitorId: comp.competitorId,
+        competitorNome: comp.nome,
+        escudoUrl: comp.escudoUrl,
+        jogos: 1,
+        cleanSheets: cleanSheet ? 1 : 0,
+        golsSofridos,
+      })
+    }
+  }
+
+  for (const p of partidas.filter(ehElegivel)) {
+    for (const lado of [1, 2] as const) {
+      const idLado = lado === 1 ? p.participante_1 : p.participante_2
+      const comp = mapaLadoCompetidor.get(idLado)
+      if (!comp) continue // avulso / lado sem competidor
+      const r = resultadoDoLado(p, lado)
+      if (r.wo) continue // W.O./duplo W.O. não conta jogo/cs/gols
+      const golsSofridos = lado === 1 ? p.placar_2 : p.placar_1
+      creditar(comp, r.cleanSheet, golsSofridos)
+    }
+  }
+
+  return [...acc.values()].sort(
+    (a, b) =>
+      b.cleanSheets - a.cleanSheets ||
+      a.golsSofridos - b.golsSofridos ||
+      b.jogos - a.jogos ||
+      a.competitorNome.localeCompare(b.competitorNome)
+  )
 }

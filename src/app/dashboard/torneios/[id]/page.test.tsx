@@ -41,6 +41,9 @@ vi.mock("@/features/tournament/data/getParticipantesDoTorneio", () => ({
 vi.mock("@/features/tournament/data/getConviteDoTorneio", () => ({
   getConviteDoTorneio: vi.fn(async () => null),
 }))
+vi.mock("@/features/league/data/getMuralha", () => ({
+  getMuralha: vi.fn(async () => []),
+}))
 vi.mock("@/features/league/data/getArtilharia", () => ({
   getArtilharia: vi.fn(async () => []),
 }))
@@ -517,7 +520,7 @@ describe("TorneioPage — composição dinâmica das abas (change add-torneio-ab
     await renderPage()
     // O rótulo agora tem span curto (aria-hidden) + completo (sr-only): o
     // textContent concatena ("Class.Classificação"), então asserta por
-    // accessible name, na ordem das abas. "Artilheiros" (add-artilharia) entra
+    // accessible name, na ordem das abas. "Números" (artilharia + Muralha) entra
     // em todo formato gerado, entre Rodadas e Vagas.
     const tabs = screen.getAllByRole("tab")
     expect(tabs).toHaveLength(5)
@@ -525,7 +528,7 @@ describe("TorneioPage — composição dinâmica das abas (change add-torneio-ab
       "Classificação",
       "Partidas",
       "Rodadas",
-      "Artilheiros",
+      "Números",
       "Vagas",
     ].entries()) {
       expect(tabs[i]).toHaveAccessibleName(new RegExp(nome))

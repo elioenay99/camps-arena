@@ -13,6 +13,7 @@ import {
   Settings2,
   Shield,
   ShieldAlert,
+  ShieldCheck,
   Swords,
   Users,
 } from "lucide-react";
@@ -36,6 +37,8 @@ import { ChampionshipBadge } from "@/features/championship/components/Championsh
 import { GerarMataMataButton } from "@/features/groups/components/GerarMataMataButton";
 import { ArtilhariaRanking } from "@/features/league/components/ArtilhariaRanking";
 import { getArtilharia } from "@/features/league/data/getArtilharia";
+import { MuralhaRanking } from "@/features/league/components/MuralhaRanking";
+import { getMuralha } from "@/features/league/data/getMuralha";
 import { DisciplinaWoTecnicos } from "@/features/league/components/tecnico/DisciplinaWoTecnicos";
 import { getDisciplinaWoTorneio } from "@/features/league/data/getDisciplinaWoTorneio";
 import { IniciarGruposPanel } from "@/features/groups/components/IniciarGruposPanel";
@@ -387,12 +390,19 @@ export default async function TorneioPage({
   );
   const themeProps = champThemeProps(primaria, secundaria);
 
-  // Ranking de artilharia (change add-artilharia): só nos formatos COMPETITIVOS
-  // (gerados) — o avulso não entra no ranking (getArtilharia já o ignora). Agrega
-  // por (competidor, autor) respeitando a visibilidade das partidas via RLS.
-  const artilharia = ehGerado
-    ? await getArtilharia(supabase, { tournamentIds: [id] })
-    : [];
+  // Rankings de artilharia e defesas/Muralha (changes add-artilharia,
+  // add-muralha-defesas): só nos formatos COMPETITIVOS (gerados) — o avulso não
+  // entra (ambos os fetchers já o ignoram). Agregam respeitando a visibilidade
+  // das partidas via RLS. Em paralelo (consultas independentes).
+  const [artilharia, muralha] = ehGerado
+    ? await Promise.all([
+        getArtilharia(supabase, { tournamentIds: [id] }),
+        getMuralha(supabase, { tournamentIds: [id] }),
+      ])
+    : ([[], []] as [
+        Awaited<ReturnType<typeof getArtilharia>>,
+        Awaited<ReturnType<typeof getMuralha>>,
+      ]);
 
   // Gols crus por partida (add-artilharia-colaborativa): batelado (sem N+1) —
   // alimenta o detalhe "N contra", o badge "faltam N", o editor pós-encerramento
@@ -793,23 +803,29 @@ export default async function TorneioPage({
           } satisfies AbaTorneio,
         ]
       : []),
-    // Artilheiros: só no competitivo (gerado). Sempre presente ali — o estado
-    // vazio orienta o organizador a informar os autores no lançamento do placar.
+    // Números: só no competitivo (gerado). Artilharia (ataque) + Muralha (defesa)
+    // empilhadas na MESMA aba — a TabsList mobile é grid sem rolagem, não cabe uma
+    // 6ª aba. O estado vazio de cada seção orienta o organizador.
     ...(ehGerado
       ? [
           {
             value: "artilheiros",
-            label: "Artilheiros",
-            labelCurto: "Gols",
+            label: "Números",
+            labelCurto: "Núm.",
             icon: <Goal aria-hidden="true" />,
             content: (
-              <SecaoTorneio
-                id="artilheiros-titulo"
-                titulo="Artilheiros"
-                Icon={Goal}
-              >
-                <ArtilhariaRanking linhas={artilharia} />
-              </SecaoTorneio>
+              <div className="flex flex-col gap-8">
+                <SecaoTorneio
+                  id="artilheiros-titulo"
+                  titulo="Artilheiros"
+                  Icon={Goal}
+                >
+                  <ArtilhariaRanking linhas={artilharia} />
+                </SecaoTorneio>
+                <SecaoTorneio id="muralha-titulo" titulo="Muralha" Icon={ShieldCheck}>
+                  <MuralhaRanking linhas={muralha} />
+                </SecaoTorneio>
+              </div>
             ),
           } satisfies AbaTorneio,
         ]

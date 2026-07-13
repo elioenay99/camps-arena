@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
-import { ExternalLink, Goal, Layers, Palette, Users } from "lucide-react"
+import { ExternalLink, Goal, Layers, Palette, ShieldCheck, Users } from "lucide-react"
 import { z } from "zod"
 
 import { Button } from "@/components/ui/button"
@@ -15,6 +15,8 @@ import { ChampionshipBadge } from "@/features/championship/components/Championsh
 import { CompartilharCompetitionButton } from "@/features/discovery/components/CompartilharCompetitionButton"
 import { ArtilhariaRanking } from "@/features/league/components/ArtilhariaRanking"
 import { getArtilharia } from "@/features/league/data/getArtilharia"
+import { MuralhaRanking } from "@/features/league/components/MuralhaRanking"
+import { getMuralha } from "@/features/league/data/getMuralha"
 import { ListarVitrineToggle } from "@/features/discovery/components/ListarVitrineToggle"
 import { CompartilharTemporadaButton } from "@/features/league/components/CompartilharTemporadaButton"
 import { FluxoTemporadaPanel } from "@/features/league/components/FluxoTemporadaPanel"
@@ -148,10 +150,18 @@ export default async function TemporadaPage({
       (t): t is string => t !== null
     )
   )
-  const artilharia =
+  // Muralha (defesas) da PIRÂMIDE (change add-muralha-defesas): mesma agregação
+  // e RLS da artilharia. Em paralelo (consultas independentes).
+  const [artilharia, muralha] =
     tournamentIdsTemporada.length > 0
-      ? await getArtilharia(supabase, { tournamentIds: tournamentIdsTemporada })
-      : []
+      ? await Promise.all([
+          getArtilharia(supabase, { tournamentIds: tournamentIdsTemporada }),
+          getMuralha(supabase, { tournamentIds: tournamentIdsTemporada }),
+        ])
+      : ([[], []] as [
+          Awaited<ReturnType<typeof getArtilharia>>,
+          Awaited<ReturnType<typeof getMuralha>>,
+        ])
 
   // Mapa nível → nome (para o FluxoTemporadaPanel rotular as divisões).
   const nivelNomes: Record<number, string> = {}
@@ -354,6 +364,24 @@ export default async function TemporadaPage({
             Artilheiros
           </h2>
           <ArtilhariaRanking linhas={artilharia} />
+        </section>
+      ) : null}
+
+      {/* Muralha da pirâmide (change add-muralha-defesas): espelho defensivo dos
+          Artilheiros, seção empilhada logo abaixo. Mesma agregação/RLS. */}
+      {!naoMontada ? (
+        <section
+          aria-labelledby="muralha-titulo"
+          className="flex flex-col gap-4 border-t pt-6"
+        >
+          <h2
+            id="muralha-titulo"
+            className="font-display flex items-center gap-2 text-lg font-bold tracking-tight"
+          >
+            <ShieldCheck className="text-primary size-5" aria-hidden="true" />
+            Muralha
+          </h2>
+          <MuralhaRanking linhas={muralha} />
         </section>
       ) : null}
 

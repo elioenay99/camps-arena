@@ -1,4 +1,4 @@
-import { Activity, Flame, Trophy, ShieldCheck, Gauge } from "lucide-react"
+import { Activity, Flame, Trophy, Shield, ShieldCheck, Gauge } from "lucide-react"
 
 import { FormaBadges } from "@/features/standings/components/FormaBadges"
 import type { CompetidorInsights } from "@/features/league/data/getCompetidorInsights"
@@ -44,10 +44,17 @@ export function CompetidorForma({
       valor: `${destaques.maiorInvencibilidade} jogos`,
     })
   }
+  if (destaques.totalCleanSheets > 0) {
+    cards.push({
+      Icon: Shield,
+      titulo: "Total sem sofrer gol",
+      valor: `${destaques.totalCleanSheets} jogos`,
+    })
+  }
   if (destaques.maiorSequenciaCleanSheets > 0) {
     cards.push({
       Icon: ShieldCheck,
-      titulo: "Sem sofrer gol",
+      titulo: "Sequência sem sofrer gol",
       valor: `${destaques.maiorSequenciaCleanSheets} jogos`,
     })
   }

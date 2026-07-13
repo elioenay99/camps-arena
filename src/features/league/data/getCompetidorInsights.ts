@@ -31,6 +31,7 @@ const VAZIO: CompetidorInsights = {
     maiorInvencibilidade: 0,
     maiorSequenciaVitorias: 0,
     maiorSequenciaCleanSheets: 0,
+    totalCleanSheets: 0,
     mediaGolsPorJogo: 0,
   },
 }

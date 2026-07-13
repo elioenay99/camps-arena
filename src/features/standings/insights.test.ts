@@ -10,9 +10,11 @@ import {
   calcularForma,
   calcularDestaques,
   calcularDestaquesCompetidor,
+  calcularMuralha,
   confrontoDireto,
   rechavearInsights,
   ordenarPorData,
+  type CompetidorMuralha,
   type PartidaCronologica,
 } from "@/features/standings/insights"
 
@@ -71,6 +73,119 @@ describe("pontosDoConfronto (extração do desempate)", () => {
       { participante_1: "A", participante_2: "C", placar_1: 4, placar_2: 0, status: "encerrada" },
     ]
     expect(pontosDoConfronto("A", "B", naoElegiveis, CBF)).toBe(0)
+  })
+})
+
+describe("calcularMuralha", () => {
+  /** Mapa lado(id)→competidor a partir de { id: nome }. escudo sempre null. */
+  function mapaDe(
+    entradas: Record<string, string>
+  ): Map<string, CompetidorMuralha> {
+    return new Map(
+      Object.entries(entradas).map(([id, nome]) => [
+        id,
+        { competitorId: id, nome, escudoUrl: null },
+      ])
+    )
+  }
+
+  it("0x0 REAL conta como clean sheet; W.O. e duplo W.O. NÃO contam (lado pulado)", () => {
+    const mapa = mapaDe({ A: "Alfa", B: "Beta" })
+    const partidas = [
+      jogo("A", "B", 0, 0), // 0x0 real → clean sheet para os dois
+      woJogo("A", "B", "A"), // W.O. → pula os dois lados
+      jogo("A", "B", 0, 3, { woDuplo: true }), // duplo W.O. → pula (placar ignorado)
+    ]
+    const r = calcularMuralha(partidas, mapa)
+    const a = r.find((l) => l.competitorId === "A")!
+    const b = r.find((l) => l.competitorId === "B")!
+    // Só o 0x0 real entra: 1 jogo, 1 clean sheet, 0 gols sofridos (o W.O. 0x3
+    // não credita gols — o lado foi pulado por inteiro).
+    expect(a).toMatchObject({ jogos: 1, cleanSheets: 1, golsSofridos: 0 })
+    expect(b).toMatchObject({ jogos: 1, cleanSheets: 1, golsSofridos: 0 })
+  })
+
+  it("agrega por competidor unindo slots distintos do MESMO competidor", () => {
+    // A1 e A2 são slots do competidor "A" (temporadas diferentes na pirâmide).
+    const mapa = new Map<string, CompetidorMuralha>([
+      ["A1", { competitorId: "A", nome: "Alfa", escudoUrl: null }],
+      ["A2", { competitorId: "A", nome: "Alfa", escudoUrl: null }],
+    ])
+    const partidas = [
+      jogo("A1", "x", 1, 0), // clean sheet, 0 sofridos
+      jogo("A2", "x", 0, 1), // sofreu 1
+    ]
+    const r = calcularMuralha(partidas, mapa)
+    expect(r).toHaveLength(1)
+    expect(r[0]).toMatchObject({
+      competitorId: "A",
+      jogos: 2,
+      cleanSheets: 1,
+      golsSofridos: 1,
+    })
+  })
+
+  it("ignora jogo não encerrado (ehElegivel) e lado sem competidor", () => {
+    const mapa = mapaDe({ A: "Alfa" }) // B fora do mapa (avulso)
+    const partidas = [
+      jogo("A", "B", 0, 0), // conta só para A (B não mapeado)
+      jogo("A", "B", 5, 0, { status: "agendada" }), // não-encerrado → ignorado
+    ]
+    const r = calcularMuralha(partidas, mapa)
+    expect(r).toHaveLength(1)
+    expect(r[0]).toMatchObject({
+      competitorId: "A",
+      jogos: 1,
+      cleanSheets: 1,
+      golsSofridos: 0,
+    })
+  })
+
+  it("gols sofridos = placar do adversário, somados só nos jogos reais", () => {
+    const mapa = mapaDe({ A: "Alfa" })
+    const partidas = [
+      jogo("A", "x", 2, 1), // sofreu 1
+      jogo("A", "x", 0, 3), // sofreu 3
+      jogo("A", "x", 0, 9, { woVencedor: "x" }), // W.O. → não soma os 9
+    ]
+    const r = calcularMuralha(partidas, mapa)
+    expect(r[0]).toMatchObject({ jogos: 2, cleanSheets: 0, golsSofridos: 4 })
+  })
+
+  it("ordena por clean sheets desc → gols sofridos asc → jogos desc", () => {
+    const mapa = mapaDe({
+      O: "Muralha O",
+      N: "Muralha N",
+      M: "Muralha M",
+      P: "Muralha P",
+    })
+    const partidas = [
+      // O: cs2, gc1, jogos3
+      jogo("O", "x", 1, 0),
+      jogo("O", "x", 2, 0),
+      jogo("O", "x", 0, 1),
+      // N: cs2, gc2, jogos4
+      jogo("N", "x", 1, 0),
+      jogo("N", "x", 2, 0),
+      jogo("N", "x", 0, 1),
+      jogo("N", "x", 0, 1),
+      // M: cs2, gc2, jogos3
+      jogo("M", "x", 1, 0),
+      jogo("M", "x", 2, 0),
+      jogo("M", "x", 0, 2),
+      // P: cs1
+      jogo("P", "x", 3, 0),
+    ]
+    const r = calcularMuralha(partidas, mapa)
+    // O (menor GC) → N (mesmo cs/gc que M, mais jogos) → M → P (menos cs).
+    expect(r.map((l) => l.competitorId)).toEqual(["O", "N", "M", "P"])
+  })
+
+  it("desempata por nome quando cs/gols/jogos empatam", () => {
+    const mapa = mapaDe({ z: "Zebra", a: "Aardvark" })
+    const partidas = [jogo("z", "x", 1, 0), jogo("a", "y", 1, 0)]
+    const r = calcularMuralha(partidas, mapa)
+    expect(r.map((l) => l.competitorId)).toEqual(["a", "z"])
   })
 })
 
