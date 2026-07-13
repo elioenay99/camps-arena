@@ -627,8 +627,23 @@ export function MatchScoreModal({
     })
   }
 
+  if (typeof window !== "undefined") {
+    const w = window as unknown as { __DBGWO2?: unknown[] }
+    ;(w.__DBGWO2 ||= []).push({
+      id: matchId,
+      valid: React.isValidElement(trigger),
+      type:
+        trigger == null
+          ? "nil"
+          : Array.isArray(trigger)
+            ? "arr"
+            : typeof trigger,
+    })
+  }
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <>
+      <span data-dbgwo-modal={matchId} hidden />
+      <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         {trigger ?? <Button>Menu da Partida</Button>}
       </DialogTrigger>
@@ -767,5 +782,6 @@ export function MatchScoreModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   )
 }
