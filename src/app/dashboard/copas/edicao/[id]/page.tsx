@@ -116,10 +116,13 @@ function VisualizacaoTorneio({
   dados,
   ehGrupos,
   terceiroLugar,
+  cor,
 }: {
   dados: ClassificacaoTorneio
   ehGrupos: boolean
   terceiroLugar: boolean
+  /** Cor da copa (change add-frente-compartilhavel) — celebração do campeão. */
+  cor: string | null
 }) {
   const { chave, grupos } = dados
   // Toggle rolar/caber só quando há ao menos uma tabela de grupo com linhas.
@@ -166,7 +169,12 @@ function VisualizacaoTorneio({
               : "A chave aparece quando a edição for iniciada."}
           </EstadoVazio>
         ) : (
-          <BracketView partidas={chave} terceiroLugar={terceiroLugar} />
+          <BracketView
+            partidas={chave}
+            terceiroLugar={terceiroLugar}
+            cor={cor}
+            celebrarCampeao
+          />
         )}
       </Secao>
     </>
@@ -342,6 +350,7 @@ export default async function EdicaoPage({
           dados={classificacaoTorneio}
           ehGrupos={ehGrupos}
           terceiroLugar={classificacaoTorneio.torneio.terceiro_lugar}
+          cor={edicao.copa.corPrimaria}
         />
       ) : null}
 

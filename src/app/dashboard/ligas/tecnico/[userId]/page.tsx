@@ -10,6 +10,8 @@ import { createClient } from "@/lib/supabase/server"
 import { getTecnicoProfile } from "@/features/league/data/getTecnicoProfile"
 import { getConquistasDoTecnico } from "@/features/league/data/getConquistasDoTecnico"
 import { getTecnicoCampanha } from "@/features/league/data/getTecnicoCampanha"
+import { mensagemTecnico } from "@/lib/whatsapp"
+import { CompartilharTecnicoButton } from "@/features/league/components/tecnico/CompartilharTecnicoButton"
 import { TecnicoHero } from "@/features/league/components/tecnico/TecnicoHero"
 import { CampanhaDeSempre } from "@/features/league/components/tecnico/CampanhaDeSempre"
 import { ClubesComandados } from "@/features/league/components/tecnico/ClubesComandados"
@@ -78,6 +80,18 @@ export default async function TecnicoPage({
       </div>
 
       <TecnicoHero perfil={perfil} />
+
+      {/* Compartilhar o pôster do técnico (change add-frente-compartilhavel): só
+          quando há histórico — não gera "pôster de nada". */}
+      {!semHistorico ? (
+        <div className="flex justify-end">
+          <CompartilharTecnicoButton
+            userId={perfil.id}
+            nome={perfil.nome}
+            texto={mensagemTecnico({ nome: perfil.nome, userId: perfil.id })}
+          />
+        </div>
+      ) : null}
 
       {semHistorico ? (
         <Card className="elevate animate-rise flex flex-col items-center gap-4 px-6 py-12 text-center">

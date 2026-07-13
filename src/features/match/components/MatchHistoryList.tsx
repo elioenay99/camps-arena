@@ -2,6 +2,7 @@ import {
   ArtilheirosEncerrada,
   type LadoEditavel,
 } from "@/features/match/components/ArtilheirosEncerrada"
+import { CompartilharResultadoButton } from "@/features/match/components/CompartilharResultadoButton"
 import { MatchStatusButton } from "@/features/match/components/MatchStatusButton"
 import { RoundPager } from "@/features/match/components/RoundPager"
 import {
@@ -10,6 +11,7 @@ import {
 } from "@/features/match/data/getMatchGoals"
 import type { PartidaEncerrada } from "@/features/standings/data/getTournamentClassificacao"
 import { cn } from "@/lib/utils"
+import { mensagemResultado } from "@/lib/whatsapp"
 
 // Timezone fixo do produto (app pt-BR): sem ele o servidor formataria em UTC
 // e a data viraria "amanhã" à noite. Por-usuário só quando houver perfil.
@@ -31,6 +33,8 @@ export function MatchHistoryList({
   userId,
   podeArbitrar = false,
   golsPorPartida,
+  tournamentId,
+  titulo,
 }: {
   partidas: PartidaEncerrada[]
   mostrarReabrir?: boolean
@@ -42,6 +46,11 @@ export function MatchHistoryList({
    * editor. `null` = erro de IO (NÃO oferece as superfícies, para não mostrar
    * estado falso de "zero gols"); `undefined` = não competitivo. */
   golsPorPartida?: Map<string, GolCru[]> | null
+  /** Torneio (change add-frente-compartilhavel): habilita "Compartilhar resultado"
+   * por partida encerrada. Ausente ⇒ sem o botão (ex.: fixtures antigas). */
+  tournamentId?: string
+  /** Título do campeonato — texto do compartilhamento (`mensagemResultado`). */
+  titulo?: string
 }) {
   function renderItem(p: PartidaEncerrada) {
     // Artilharia colaborativa só em partida COMPETITIVA com placar (W.O. = 0×0 sem
@@ -155,6 +164,27 @@ export function MatchHistoryList({
           <time dateTime={p.encerradaEm} className="text-muted-foreground text-xs">
             {formatoData.format(new Date(p.encerradaEm))}
           </time>
+          {/* Compartilhar resultado (change add-frente-compartilhavel): qualquer
+              logado que enxerga a partida. O texto é montado no servidor. */}
+          {tournamentId ? (
+            <CompartilharResultadoButton
+              tournamentId={tournamentId}
+              matchId={p.id}
+              nome1={p.nome_1}
+              nome2={p.nome_2}
+              texto={mensagemResultado({
+                titulo,
+                nome1: p.nome_1,
+                nome2: p.nome_2,
+                placar1: p.placar_1,
+                placar2: p.placar_2,
+                wo: p.wo,
+                woDuplo: p.woDuplo,
+                woVencedorLado: p.woVencedorLado ?? null,
+                tournamentId,
+              })}
+            />
+          ) : null}
           {mostrarReabrir ? (
             <MatchStatusButton matchId={p.id} acao="reabrir" />
           ) : null}

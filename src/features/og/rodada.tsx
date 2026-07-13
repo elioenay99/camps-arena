@@ -1,10 +1,20 @@
 import { ImageResponse } from "next/og"
 
-import { env } from "@/lib/env"
 import type { ConfrontoRodada } from "@/features/match/data/getPartidasDaRodada"
 import type { CoresResolvidas } from "@/features/standings/data/getTournamentClassificacao"
 
 import { carregarAssets, paraArrayBuffer } from "./brand"
+import {
+  cortar,
+  Crest,
+  escudoDataURL,
+  FUNDO,
+  FUNDO_CARD,
+  HEX6,
+  ROXO,
+  TEXTO,
+  TEXTO_SUAVE,
+} from "./compartilhado"
 
 /**
  * Imagem da rodada (change add-compartilhar-rodada) — PNG 1080×1080 gerado por
@@ -39,100 +49,12 @@ export function alturaDaRodada(n: number, temRestantes: boolean): number {
   return Math.max(ALTURA_MIN, CABECALHO_H + linhas + restantes + RODAPE_H)
 }
 
-// Tema base (Dracula) quando o campeonato não tem cor própria.
-const FUNDO = "#282a36"
-const FUNDO_CARD = "#343746"
-const ROXO = "#bd93f9"
-const TEXTO = "#f8f8f2"
-const TEXTO_SUAVE = "#abafd0"
-
-const HEX6 = /^#[0-9a-fA-F]{6}$/
-
 /** Teto de confrontos desenhados. Pior caso real = uma rodada de FASE DE GRUPOS, em
  * que um único valor de `rodada` agrega os jogos de TODOS os grupos (getPartidasDaRodada
  * filtra só por torneio+rodada): 32 clubes ⇒ até 16 confrontos. 20 cobre isso com folga;
  * acima do teto cai no rodapé "+N confrontos" (não corta). Existe só para não gerar PNG
  * absurdamente alto. */
 const MAX_LINHAS = 20
-
-/** Cor estável (HSL) para o monograma — replica TeamCrest (que é client). */
-function corDoNome(nome: string): string {
-  let h = 0
-  for (const ch of nome) h = (h * 31 + ch.charCodeAt(0)) % 360
-  return `hsl(${h} 45% 32%)`
-}
-
-function inicial(nome: string): string {
-  return [...nome.trim()][0]?.toUpperCase() ?? "?"
-}
-
-/** Corta nomes longos (por-nome livre) para não quebrar o layout em rodadas
- * grandes. Satori não trunca por CSS de forma confiável; cortamos no texto. */
-function cortar(nome: string, max = 18): string {
-  const chars = [...nome]
-  return chars.length > max ? `${chars.slice(0, max - 1).join("")}…` : nome
-}
-
-/**
- * Hosts confiáveis do escudo, para o fetch server-side (anti-SSRF). Espelha o
- * `csp.ts`/`next.config.ts`: CDN da api-sports (transição) + host EXATO do
- * Storage do projeto (derivado do env). `escudo_url` vem do banco, mas a RLS de
- * `teams` não valida a URL — sem esta allowlist, um dono de torneio poderia
- * gravar uma URL interna (ex.: metadata endpoint) e disparar SSRF cego por esta
- * rota. Host fora da allowlist ⇒ cai no monograma (non-fatal, já existente).
- */
-const ESCUDO_HOSTS_CONFIAVEIS = new Set<string>([
-  "media.api-sports.io",
-  new URL(env.NEXT_PUBLIC_SUPABASE_URL).host,
-])
-
-/** Escudo remoto → data URL (timeout 2s, paralelizável). Falha ⇒ null (monograma). */
-async function escudoDataURL(url: string): Promise<string | null> {
-  // Allowlist de host ANTES do fetch (anti-SSRF): URL malformada ou host fora
-  // da lista ⇒ null (monograma).
-  try {
-    if (!ESCUDO_HOSTS_CONFIAVEIS.has(new URL(url).host)) return null
-  } catch {
-    return null
-  }
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(2000) })
-    if (!res.ok) return null
-    const buf = Buffer.from(await res.arrayBuffer())
-    const mime = res.headers.get("content-type") ?? "image/png"
-    return `data:${mime};base64,${buf.toString("base64")}`
-  } catch {
-    return null
-  }
-}
-
-function Crest({ nome, escudoData }: { nome: string; escudoData: string | null }) {
-  const lado = 92
-  if (escudoData) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={escudoData} width={lado} height={lado} alt="" style={{ borderRadius: 12 }} />
-    )
-  }
-  return (
-    <div
-      style={{
-        display: "flex",
-        width: lado,
-        height: lado,
-        alignItems: "center",
-        justifyContent: "center",
-        borderRadius: 12,
-        backgroundColor: corDoNome(nome),
-        color: "#ffffff",
-        fontSize: 44,
-        fontWeight: 700,
-      }}
-    >
-      {inicial(nome)}
-    </div>
-  )
-}
 
 function Linha({
   nome1,
@@ -165,7 +87,7 @@ function Linha({
         <div style={{ display: "flex", fontSize: 38, fontWeight: 500, color: TEXTO, textAlign: "right" }}>
           {cortar(nome1)}
         </div>
-        <Crest nome={nome1} escudoData={escudo1} />
+        <Crest nome={nome1} escudoData={escudo1} lado={92} />
       </div>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 96 }}>
         <div style={{ display: "flex", fontSize: 34, fontWeight: 700, color: accent }}>×</div>
@@ -174,7 +96,7 @@ function Linha({
         ) : null}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 18, width: 400 }}>
-        <Crest nome={nome2} escudoData={escudo2} />
+        <Crest nome={nome2} escudoData={escudo2} lado={92} />
         <div style={{ display: "flex", fontSize: 38, fontWeight: 500, color: TEXTO }}>{cortar(nome2)}</div>
       </div>
     </div>

@@ -68,8 +68,17 @@ vi.mock("@/features/groups/components/GerarMataMataButton", () => ({
 vi.mock("@/features/knockout/components/AvancarFaseButton", () => ({
   AvancarFaseButton: () => null,
 }))
+// BracketView neutralizado, mas CAPTURANDO `celebrarCampeao` — guard da spec
+// title-celebration (playoff/playout/barragem NÃO celebram). vi.hoisted expõe o
+// array ao factory (que é içado acima dos imports).
+const { bracketCalls } = vi.hoisted(() => ({
+  bracketCalls: [] as { celebrarCampeao?: boolean; cor?: string | null }[],
+}))
 vi.mock("@/features/knockout/components/BracketView", () => ({
-  BracketView: () => null,
+  BracketView: (p: { celebrarCampeao?: boolean; cor?: string | null }) => {
+    bracketCalls.push(p)
+    return <div data-testid="bracket-view" data-celebrar={String(p.celebrarCampeao)} />
+  },
 }))
 vi.mock("@/features/match/components/MatchHistoryList", () => ({
   MatchHistoryList: () => null,
@@ -170,15 +179,19 @@ function montarCenario(c: {
   /** season_id devolvido pela query de `league_division_seasons` (link "Ver
    * liga"). Default null = não resolve → sem link. */
   divisionSeasonId?: string | null
+  /** O torneio é um playoff/playout/barragem (id em `league_boundaries.
+   * playoff_tournament_id`)? Faz as queries de `league_boundaries` devolverem uma
+   * linha → `ehChaveDeTitulo=false` (não celebra). Default false. */
+  fronteiraPlayoff?: boolean
 }) {
-  // Cadeia mínima para a query de barragem 'pares' (esconde "Avançar fase");
-  // retorna { data: null } → não-barragem, preserva o comportamento existente.
+  // Cadeia das queries de `league_boundaries` (barragem 'pares' + fronteira do
+  // playoff da celebração). Uma linha ⇒ o torneio é um playoff (não celebra).
   const chain: Record<string, unknown> = {
     select: () => chain,
     eq: () => chain,
     or: () => chain,
     limit: () => chain,
-    maybeSingle: async () => ({ data: null }),
+    maybeSingle: async () => ({ data: c.fronteiraPlayoff ? { id: "b1" } : null }),
   }
   // Cadeia dedicada da resolução do season_id da divisão (add-liga-visao-leitura).
   const divChain: Record<string, unknown> = {
@@ -232,6 +245,7 @@ async function ativarAba(nome: string | RegExp) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  bracketCalls.length = 0
   mockVagas.mockResolvedValue([])
   mockCodigos.mockResolvedValue(new Map())
   mockParticipantes.mockResolvedValue([])
@@ -545,5 +559,56 @@ describe("TorneioPage — composição dinâmica das abas (change add-torneio-ab
     expect(screen.getByRole("tab", { name: "Participantes" })).toBeInTheDocument()
     expect(screen.queryByRole("tab", { name: "Vagas" })).toBeNull()
     expect(screen.queryByRole("tab", { name: "Rodadas" })).toBeNull()
+  })
+})
+
+describe("TorneioPage — celebração de título só em coroamento REAL (add-frente-compartilhavel)", () => {
+  // Chave mínima válida (1 confronto/final) para o BracketView renderizar e a
+  // geometria da página (tamanhoChaveDasPartidas) não quebrar.
+  const chaveFinal = [
+    {
+      id: "m1",
+      rodada: 1,
+      posicao: 1,
+      perna: null,
+      participante_1: "a",
+      participante_2: "b",
+      nome_1: "A",
+      nome_2: "B",
+      placar_1: 3,
+      placar_2: 1,
+      status: "encerrada",
+    },
+  ]
+
+  function cenarioMataMata(over: { fronteiraPlayoff?: boolean }) {
+    montarCenario({
+      torneio: { formato: "mata_mata", status: "ativo" },
+      fronteiraPlayoff: over.fronteiraPlayoff,
+    })
+    mockClassificacao.mockResolvedValue({
+      torneio: torneioBase({ formato: "mata_mata", status: "ativo" }),
+      linhas: [],
+      partidasEncerradas: [],
+      clubes: [],
+      partidasAbertas: [],
+      chave: chaveFinal,
+      grupos: [],
+      rodadaAtiva: null,
+      rodadasLiberacao: [],
+      proximaRodadaOculta: null,
+    } as unknown as Awaited<ReturnType<typeof getTournamentClassificacao>>)
+  }
+
+  it("mata_mata standalone (fora de league_boundaries) celebra o campeão", async () => {
+    cenarioMataMata({ fronteiraPlayoff: false })
+    await renderPage()
+    expect(screen.getByTestId("bracket-view")).toHaveAttribute("data-celebrar", "true")
+  })
+
+  it("playoff/playout/barragem (id em league_boundaries) NÃO celebra", async () => {
+    cenarioMataMata({ fronteiraPlayoff: true })
+    await renderPage()
+    expect(screen.getByTestId("bracket-view")).toHaveAttribute("data-celebrar", "false")
   })
 })

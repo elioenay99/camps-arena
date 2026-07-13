@@ -25,7 +25,11 @@ import { podeArbitrar, podeGerir, podeModerar } from "@/lib/autorizacao";
 import { carregarCelulares } from "@/lib/contatos";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
-import { mensagemListaTimes, mensagemRodada } from "@/lib/whatsapp";
+import {
+  mensagemClassificacao,
+  mensagemListaTimes,
+  mensagemRodada,
+} from "@/lib/whatsapp";
 import { Button } from "@/components/ui/button";
 import { champThemeProps } from "@/features/championship/championshipTheme";
 import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge";
@@ -57,6 +61,7 @@ import { ResponderWoButtons } from "@/features/match/components/WoButtons";
 import { getPropostasPendentes } from "@/features/match/data/getPropostasPendentes";
 import { getSolicitacoesWO } from "@/features/match/data/getSolicitacoesWO";
 import { ClassificacaoResponsiva } from "@/features/standings/components/ClassificacaoResponsiva";
+import { CompartilharClassificacaoButton } from "@/features/standings/components/CompartilharClassificacaoButton";
 import { StandingsTable } from "@/features/standings/components/StandingsTable";
 import { DestaquesClassificacao } from "@/features/standings/components/DestaquesClassificacao";
 import {
@@ -251,6 +256,24 @@ export default async function TorneioPage({
         .maybeSingle()
     : { data: null };
 
+  // Celebração de título (change add-frente-compartilhavel): playoff de acesso,
+  // playout e barragem são materializados como torneios `mata_mata` cujo id fica
+  // em `league_boundaries.playoff_tournament_id` (montar_playoff) — a chave decide
+  // ACESSO/REBAIXAMENTO, não título, e NUNCA deve disparar o confete. Só é
+  // coroamento REAL quando o id NÃO aparece ali (torneio/copa standalone; a grande
+  // final de divisão celebra pela própria página da liga). Só consulto no
+  // `mata_mata` (o único formato que um playoff assume); grupos+mata_mata é sempre
+  // título próprio.
+  const { data: fronteiraDoPlayoff } = ehMataMata
+    ? await supabase
+        .from("league_boundaries")
+        .select("id")
+        .eq("playoff_tournament_id", id)
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
+  const ehChaveDeTitulo = fronteiraDoPlayoff === null;
+
   // Avançar fase (estrutural) = capacidade GERIR. Formato com chave, ativo,
   // chave gerada e final ainda não criada (a action revalida tudo; o gate aqui é
   // UX). Geometria derivada da PRÓPRIA chave em FASES RELATIVAS (rodada-base ≠ 1
@@ -410,7 +433,12 @@ export default async function TorneioPage({
               A chave aparece quando o torneio for iniciado.
             </EstadoVazioSecao>
           ) : (
-            <BracketView partidas={chave} terceiroLugar={torneio.terceiro_lugar} />
+            <BracketView
+              partidas={chave}
+              terceiroLugar={torneio.terceiro_lugar}
+              cor={primaria}
+              celebrarCampeao={ehChaveDeTitulo}
+            />
           )}
         </SecaoTorneio>
       ) : null}
@@ -467,6 +495,8 @@ export default async function TorneioPage({
                 <BracketView
                   partidas={chave}
                   terceiroLugar={torneio.terceiro_lugar}
+                  cor={primaria}
+                  celebrarCampeao={ehChaveDeTitulo}
                 />
               )}
             </SecaoTorneio>
@@ -475,7 +505,24 @@ export default async function TorneioPage({
       ) : null}
 
       {!aguardandoLiberacao && !ehMataMata && !ehGrupos ? (
-        <SecaoTorneio id="classificacao-titulo" titulo="Classificação" Icon={ListOrdered}>
+        <SecaoTorneio
+          id="classificacao-titulo"
+          titulo="Classificação"
+          Icon={ListOrdered}
+          acao={
+            ehLiga && linhas.length > 0 ? (
+              <CompartilharClassificacaoButton
+                imagemPath={`/dashboard/torneios/${id}/classificacao/imagem`}
+                titulo={titulo}
+                texto={mensagemClassificacao({
+                  titulo,
+                  lider: linhas[0]?.nome ?? null,
+                  href: `/dashboard/torneios/${id}`,
+                })}
+              />
+            ) : undefined
+          }
+        >
           {linhas.length === 0 ? (
             <EstadoVazioSecao Icon={ListOrdered}>
               A classificação aparece depois da primeira partida encerrada.
@@ -626,6 +673,8 @@ export default async function TorneioPage({
             userId={user.id}
             podeArbitrar={podeArbitrarPartidas}
             golsPorPartida={golsPorPartida}
+            tournamentId={id}
+            titulo={titulo}
           />
         </SecaoTorneio>
       ) : null}

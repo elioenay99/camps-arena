@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest"
 import { cleanup, render, screen, within } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { BracketView } from "@/features/knockout/components/BracketView"
 import type { PartidaDaChave } from "@/features/standings/data/getTournamentClassificacao"
@@ -204,6 +204,66 @@ describe("BracketView — campeão", () => {
     )
 
     expect(screen.queryByText(/Campeão:/)).not.toBeInTheDocument()
+  })
+})
+
+describe("BracketView — celebração ativa do título", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear()
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: false,
+        media: "(prefers-reduced-motion: reduce)",
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }))
+    )
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  const finalDecidida = () =>
+    partida({
+      id: "final",
+      rodada: 1,
+      posicao: 1,
+      nome_1: "Ana",
+      nome_2: "Beto",
+      placar_1: 3,
+      placar_2: 1,
+      status: "encerrada",
+    })
+
+  it("celebrarCampeao + cor + campeão ⇒ dispara o confete", () => {
+    render(
+      <BracketView partidas={[finalDecidida()]} cor="#bd93f9" celebrarCampeao />
+    )
+    expect(screen.getByTestId("celebracao-confete")).toBeInTheDocument()
+  })
+
+  it("celebrarCampeao=false (playoff/playout/barragem) NÃO celebra, mesmo com cor", () => {
+    render(<BracketView partidas={[finalDecidida()]} cor="#bd93f9" />)
+    expect(screen.queryByTestId("celebracao-confete")).not.toBeInTheDocument()
+    // o banner de campeão do bracket continua (só o confete é gated).
+    expect(screen.getByText(/Campeão: Ana/)).toBeInTheDocument()
+  })
+
+  it("sem cor não celebra mesmo com o flag", () => {
+    render(<BracketView partidas={[finalDecidida()]} celebrarCampeao />)
+    expect(screen.queryByTestId("celebracao-confete")).not.toBeInTheDocument()
+  })
+
+  it("final ainda em aberto não celebra", () => {
+    render(
+      <BracketView
+        partidas={[
+          partida({ id: "final", rodada: 1, posicao: 1, status: "em_andamento" }),
+        ]}
+        cor="#bd93f9"
+        celebrarCampeao
+      />
+    )
+    expect(screen.queryByTestId("celebracao-confete")).not.toBeInTheDocument()
   })
 })
 

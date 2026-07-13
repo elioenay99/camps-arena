@@ -416,6 +416,14 @@
     opacity: 0.15;
     animation: hs-cheer 5.5s ease-in-out infinite;
   }
+  /* Burst ONE-SHOT do campeão (change add-frente-compartilhavel): cada peça de
+     confete voa do centro (--bx/--by), gira (--br) e some. Cor via --burst-cor
+     (a cor do campeonato). Nome NOVO — NÃO colide com o .hs-confetti do hero
+     (loop infinito). Opt-out no bloco prefers-reduced-motion lá embaixo. */
+  .hs-burst {
+    opacity: 0;
+    animation: hs-burst 1s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  }
 }
 
 @keyframes hs-score-a {
@@ -455,6 +463,14 @@
   0%, 46% { opacity: 0.15; }
   52% { opacity: 0.55; }
   72%, 100% { opacity: 0.15; }
+}
+@keyframes hs-burst {
+  0% { opacity: 1; transform: translate(0px, 0px) rotate(0deg) scale(1); }
+  70% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(var(--bx, 0px), var(--by, 0px)) rotate(var(--br, 300deg)) scale(0.4);
+  }
 }
 /* Bola rola do gramado (perto) até o gol (fundo, menor), comemora e reinicia. */
 @keyframes hs-roll {
@@ -565,7 +581,8 @@
   .hs-beam,
   .ball-bounce,
   .hs-confetti,
-  .hs-cheer {
+  .hs-cheer,
+  .hs-burst {
     animation: none;
   }
   /* Escudo da marca: aparece desenhado por completo e parado. */

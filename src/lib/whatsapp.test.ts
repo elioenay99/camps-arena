@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest"
 
 import {
   linkWhatsApp,
+  mensagemClassificacao,
   mensagemConvocacao,
   mensagemListaTimes,
+  mensagemResultado,
   mensagemRodada,
+  mensagemTecnico,
+  mensagemTemporada,
 } from "@/lib/whatsapp"
 
 describe("linkWhatsApp", () => {
@@ -226,6 +230,122 @@ describe("mensagemListaTimes", () => {
       times: [{ clube: "A", comandante: null, celular: null }],
       tournamentId,
     })
+    expect(msg).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}]/u)
+  })
+})
+
+const TID = "11111111-1111-4111-8111-111111111111"
+
+describe("mensagemResultado", () => {
+  it("placar normal com título e URL", () => {
+    const msg = mensagemResultado({
+      titulo: "Copa",
+      nome1: "A",
+      nome2: "B",
+      placar1: 2,
+      placar2: 1,
+      tournamentId: TID,
+    })
+    expect(msg).toContain("Copa — Resultado")
+    expect(msg).toContain("A 2 x 1 B")
+    expect(msg).toContain(`/dashboard/torneios/${TID}`)
+  })
+
+  it("diferença ≥ 3 e sem W.O. marca Goleada", () => {
+    const msg = mensagemResultado({
+      titulo: "Copa",
+      nome1: "A",
+      nome2: "B",
+      placar1: 5,
+      placar2: 0,
+      tournamentId: TID,
+    })
+    expect(msg).toContain("Goleada")
+  })
+
+  it("W.O. simples nomeia o vencedor", () => {
+    const msg = mensagemResultado({
+      nome1: "A",
+      nome2: "B",
+      placar1: 0,
+      placar2: 0,
+      wo: true,
+      woVencedorLado: 2,
+      tournamentId: TID,
+    })
+    expect(msg).toContain("W.O. (B venceu)")
+    expect(msg).not.toContain("Goleada")
+  })
+
+  it("W.O. duplo não afirma vencedor", () => {
+    const msg = mensagemResultado({
+      nome1: "A",
+      nome2: "B",
+      placar1: 0,
+      placar2: 0,
+      wo: true,
+      woDuplo: true,
+      tournamentId: TID,
+    })
+    expect(msg).toContain("W.O. duplo")
+    expect(msg).not.toContain("venceu")
+  })
+
+  it("sem título usa fallback e sem emoji decorativo", () => {
+    const msg = mensagemResultado({
+      nome1: "A",
+      nome2: "B",
+      placar1: 1,
+      placar2: 1,
+      tournamentId: TID,
+    })
+    expect(msg).toContain("Campeonato — Resultado")
+    expect(msg).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}]/u)
+  })
+})
+
+describe("mensagemClassificacao", () => {
+  it("torneio: título, líder e URL da página do torneio", () => {
+    const msg = mensagemClassificacao({
+      titulo: "Brasileirão",
+      lider: "Palmeiras",
+      href: `/dashboard/torneios/${TID}`,
+    })
+    expect(msg).toContain("Brasileirão — Classificação")
+    expect(msg).toContain("Palmeiras")
+    expect(msg).toContain(`/dashboard/torneios/${TID}`)
+  })
+
+  it("sem líder omite a linha do topo (tabela vazia)", () => {
+    const msg = mensagemClassificacao({
+      titulo: "Liga",
+      lider: null,
+      href: `/dashboard/torneios/${TID}`,
+    })
+    expect(msg).toContain("Liga — Classificação")
+    expect(msg).not.toContain("Líder")
+  })
+})
+
+describe("mensagemTemporada", () => {
+  it("compõe título e URL da temporada", () => {
+    const msg = mensagemTemporada({
+      titulo: "Pirâmide — Temporada 3",
+      href: `/dashboard/ligas/${TID}`,
+    })
+    expect(msg).toContain("Pirâmide — Temporada 3")
+    expect(msg).toContain(`/dashboard/ligas/${TID}`)
+  })
+})
+
+describe("mensagemTecnico", () => {
+  it("compõe nome do técnico e URL do perfil", () => {
+    const msg = mensagemTecnico({
+      nome: "Fulano",
+      userId: TID,
+    })
+    expect(msg).toContain("Fulano")
+    expect(msg).toContain(`/dashboard/ligas/tecnico/${TID}`)
     expect(msg).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}]/u)
   })
 })

@@ -1,5 +1,6 @@
 import { Trophy } from "lucide-react"
 
+import { CelebracaoTitulo } from "@/features/knockout/components/CelebracaoTitulo"
 import {
   decidirConfronto,
   ehTerceiroLugar,
@@ -156,10 +157,19 @@ function ConfrontoFuturo() {
 export function BracketView({
   partidas,
   terceiroLugar = false,
+  cor = null,
+  celebrarCampeao = false,
 }: {
   partidas: PartidaDaChave[]
   /** Torneio com disputa de 3º lugar — a coluna final ganha o slot extra. */
   terceiroLugar?: boolean
+  /** Cor do campeonato (change add-frente-compartilhavel) — pinta o confete da
+   * celebração. `null` = tema base (a celebração só dispara com cor + flag). */
+  cor?: string | null
+  /** Esta chave coroa um CAMPEÃO (final de torneio/copa, grande final de divisão)?
+   * Só então a celebração ativa dispara. FALSE (default) em playoff/playout/
+   * barragem — que usam bracket mas decidem promoção/rebaixamento, não título. */
+  celebrarCampeao?: boolean
 }) {
   // Chave sem partidas (ex.: grande final montada e não gerada → `partidas: []`): as
   // derivações abaixo (rodadaBaseDaChave/tamanhoChaveDasPartidas) lançam "Chave sem
@@ -206,10 +216,17 @@ export function BracketView({
       ? nomeDoVencedor({ posicao: 1, partidas: confrontoFinal, terceiroLugar: false })
       : null
 
+  // Celebração ativa (change add-frente-compartilhavel): só quando esta chave
+  // coroa um CAMPEÃO (flag do call-site) e há cor. `chaveId` estável (ids das
+  // partidas da final) alimenta o guard anti-repetição do CelebracaoTitulo.
+  const celebrar = celebrarCampeao && campeao !== null && cor !== null
+  const chaveId = confrontoFinal?.map((p) => p.id).join("-") ?? ""
+
   return (
     <div className="flex flex-col gap-4">
       {campeao !== null ? (
-        <p className="trophy-sheen animate-rise flex items-center gap-2.5 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-sm shadow-[0_0_28px_-8px_color-mix(in_oklch,var(--gold)_45%,transparent)]">
+        <p className="trophy-sheen animate-rise relative flex items-center gap-2.5 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-sm shadow-[0_0_28px_-8px_color-mix(in_oklch,var(--gold)_45%,transparent)]">
+          {celebrar ? <CelebracaoTitulo cor={cor} chaveId={chaveId} /> : null}
           <Trophy className="size-5 shrink-0 text-gold-ink" aria-hidden="true" />
           <span className="min-w-0 font-display font-bold tracking-wide break-words text-gold-ink">{`Campeão: ${campeao}`}</span>
         </p>

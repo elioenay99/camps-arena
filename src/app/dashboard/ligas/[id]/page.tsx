@@ -16,6 +16,7 @@ import { CompartilharCompetitionButton } from "@/features/discovery/components/C
 import { ArtilhariaRanking } from "@/features/league/components/ArtilhariaRanking"
 import { getArtilharia } from "@/features/league/data/getArtilharia"
 import { ListarVitrineToggle } from "@/features/discovery/components/ListarVitrineToggle"
+import { CompartilharTemporadaButton } from "@/features/league/components/CompartilharTemporadaButton"
 import { FluxoTemporadaPanel } from "@/features/league/components/FluxoTemporadaPanel"
 import { IniciarDivisaoButton } from "@/features/league/components/IniciarDivisaoButton"
 import { TurnoDivisaoControl } from "@/features/league/components/TurnoDivisaoControl"
@@ -41,9 +42,11 @@ import {
 } from "@/features/league/data/getSeason"
 import { BracketView } from "@/features/knockout/components/BracketView"
 import { ClassificacaoResponsiva } from "@/features/standings/components/ClassificacaoResponsiva"
+import { CompartilharClassificacaoButton } from "@/features/standings/components/CompartilharClassificacaoButton"
 import { StandingsTable } from "@/features/standings/components/StandingsTable"
 import { DestaquesClassificacao } from "@/features/standings/components/DestaquesClassificacao"
 import { createClient } from "@/lib/supabase/server"
+import { mensagemClassificacao, mensagemTemporada } from "@/lib/whatsapp"
 
 export async function generateMetadata({
   params,
@@ -202,6 +205,8 @@ export default async function TemporadaPage({
           standings={standingsPorDivisao[i]}
           grandeFinal={grandeFinalPorDivisao[i]}
           seasonId={temporada.seasonId}
+          competitionId={temporada.competicao.id}
+          nomeCompeticao={temporada.competicao.nome.trim() || "Pirâmide"}
           corCompeticao={{
             cor_primaria: temporada.competicao.corPrimaria,
             cor_secundaria: temporada.competicao.corSecundaria,
@@ -428,6 +433,18 @@ export default async function TemporadaPage({
             nivelNomes={nivelNomes}
             ehDono={ehDono}
           />
+          {/* Compartilhar o pôster de temporada (change add-frente-compartilhavel):
+              wire do órfão, DONO-only (a rota de imagem segue dono-only). */}
+          {ehDono ? (
+            <CompartilharTemporadaButton
+              imagemPath={`/dashboard/ligas/${temporada.competicao.id}/temporada/${temporada.seasonId}/imagem`}
+              titulo={`${temporada.competicao.nome.trim() || "Pirâmide"} — Temporada ${temporada.numero}`}
+              texto={mensagemTemporada({
+                titulo: `${temporada.competicao.nome.trim() || "Pirâmide"} — Temporada ${temporada.numero}`,
+                href: `/dashboard/ligas/${temporada.seasonId}`,
+              })}
+            />
+          ) : null}
         </section>
       ) : null}
     </main>
@@ -452,6 +469,8 @@ function DivisaoCard({
   standings,
   grandeFinal,
   seasonId,
+  competitionId,
+  nomeCompeticao,
   corCompeticao,
   ordem,
   podeGerir,
@@ -462,6 +481,12 @@ function DivisaoCard({
   grandeFinal: GrandeFinalDivisao | null
   /** Id da temporada — repassado ao painel da grande final (action recebe seasonId). */
   seasonId: string
+  /** Id da COMPETIÇÃO — compõe a rota de imagem da classificação (change
+   * add-frente-compartilhavel): `ligas/[competitionId]/temporada/[seasonId]/...`. */
+  competitionId: string
+  /** Nome da competição — compõe o título "Competição — Divisão" do card de
+   * compartilhamento, casando com o texto do PNG (change add-frente-compartilhavel). */
+  nomeCompeticao: string
   /** Cor DEFAULT da competição (fallback de herança da divisão sem cor própria). */
   corCompeticao: { cor_primaria: string | null; cor_secundaria: string | null }
   ordem: number
@@ -585,6 +610,19 @@ function DivisaoCard({
             ocultarCampeao={ehSplit}
             expansivel
           />
+          {/* Compartilhar a classificação da divisão (change add-frente-
+              compartilhavel): qualquer logado que enxerga a tabela. */}
+          <div className="flex justify-end">
+            <CompartilharClassificacaoButton
+              imagemPath={`/dashboard/ligas/${competitionId}/temporada/${seasonId}/divisao/${divisao.id}/imagem`}
+              titulo={`${nomeCompeticao} — ${divisao.nome.trim() || `Divisão ${divisao.nivel}`}`}
+              texto={mensagemClassificacao({
+                titulo: `${nomeCompeticao} — ${divisao.nome.trim() || `Divisão ${divisao.nivel}`}`,
+                lider: standings.linhas[0]?.nome ?? null,
+                href: `/dashboard/ligas/${seasonId}`,
+              })}
+            />
+          </div>
           {/* Destaques (change add-insights-classificacao): só quando há insights
               (null no ciclo split, fora do MVP). */}
           {standings.insights ? (
@@ -604,7 +642,11 @@ function DivisaoCard({
               grandeFinal={grandeFinal}
               bracket={
                 grandeFinal.partidas.length > 0 ? (
-                  <BracketView partidas={grandeFinal.partidas} />
+                  <BracketView
+                    partidas={grandeFinal.partidas}
+                    cor={primaria}
+                    celebrarCampeao
+                  />
                 ) : null
               }
               podeGerir={podeGerir}

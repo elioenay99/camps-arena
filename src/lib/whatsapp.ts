@@ -95,6 +95,51 @@ export function mensagemRodada({
   return `${t} — ${rodada}a rodada Liberada\n\n${corpo}Acompanhe: ${url}`
 }
 
+/**
+ * Texto do RESULTADO de uma partida encerrada para o WhatsApp (change
+ * add-frente-compartilhavel). Cabeçalho "<título> — Resultado" + a linha do
+ * confronto (com selo textual GOLEADA/W.O./W.O. duplo derivado do mesmo modelo
+ * do card) + a URL absoluta da página. Sem emoji decorativo. Montado no SERVIDOR.
+ * PURO — os selos vêm dos mesmos campos do card (`seloDoResultado`).
+ */
+export function mensagemResultado({
+  titulo,
+  nome1,
+  nome2,
+  placar1,
+  placar2,
+  wo = false,
+  woDuplo = false,
+  woVencedorLado = null,
+  tournamentId,
+}: {
+  titulo?: string | null
+  nome1: string
+  nome2: string
+  placar1: number
+  placar2: number
+  wo?: boolean
+  woDuplo?: boolean
+  woVencedorLado?: 1 | 2 | null
+  tournamentId: string
+}): string {
+  const t = titulo?.trim() || "Campeonato"
+  const url = `${env.NEXT_PUBLIC_SITE_URL}/dashboard/torneios/${tournamentId}`
+  let linha: string
+  if (woDuplo) {
+    linha = `${nome1} x ${nome2} — W.O. duplo (ambos ausentes)`
+  } else if (wo) {
+    const venc = woVencedorLado === 1 ? nome1 : woVencedorLado === 2 ? nome2 : null
+    linha = venc
+      ? `${nome1} x ${nome2} — W.O. (${venc} venceu)`
+      : `${nome1} x ${nome2} — W.O.`
+  } else {
+    const goleada = Math.abs(placar1 - placar2) >= 3 ? " — Goleada!" : ""
+    linha = `${nome1} ${placar1} x ${placar2} ${nome2}${goleada}`
+  }
+  return `${t} — Resultado\n\n${linha}\n\nAcompanhe: ${url}`
+}
+
 /** Um time na lista de times para o texto de compartilhamento. */
 export interface TimeListaTexto {
   /** Nome do clube (ou competidor por-nome). */
@@ -135,4 +180,62 @@ export function mensagemListaTimes({
   const linhas = times.map(linha).join("\n")
   const corpo = linhas ? `${linhas}\n\n` : ""
   return `${t} — Times\n\n${corpo}Veja: ${url}`
+}
+
+/**
+ * Texto do compartilhamento da CLASSIFICAÇÃO (change add-frente-compartilhavel) —
+ * torneio de liga OU divisão de pirâmide. Cabeçalho "<título> — Classificação"
+ * + a linha do líder (quando há) + a URL absoluta da superfície (`href` é o path
+ * da página: torneio ou temporada). Montado no SERVIDOR, PURO, sem emoji.
+ */
+export function mensagemClassificacao({
+  titulo,
+  lider,
+  href,
+}: {
+  titulo?: string | null
+  /** Nome do 1º colocado; null = tabela vazia (omite a linha). */
+  lider?: string | null
+  /** Path da página de origem (ex.: `/dashboard/torneios/<id>`). */
+  href: string
+}): string {
+  const t = titulo?.trim() || "Campeonato"
+  const url = `${env.NEXT_PUBLIC_SITE_URL}${href}`
+  const nomeLider = lider?.trim()
+  const corpo = nomeLider ? `Líder: ${nomeLider}\n\n` : ""
+  return `${t} — Classificação\n\n${corpo}Veja: ${url}`
+}
+
+/**
+ * Texto do compartilhamento do PÔSTER DE TEMPORADA (change add-frente-
+ * compartilhavel) — dono-only. `titulo` já vem pronto ("<liga> — Temporada N");
+ * `href` é o path da temporada. Absoluto pela SITE_URL, PURO, sem emoji.
+ */
+export function mensagemTemporada({
+  titulo,
+  href,
+}: {
+  titulo?: string | null
+  href: string
+}): string {
+  const t = titulo?.trim() || "Temporada"
+  const url = `${env.NEXT_PUBLIC_SITE_URL}${href}`
+  return `${t}\n\nConfira a temporada no Goliseu: ${url}`
+}
+
+/**
+ * Texto do compartilhamento do PÔSTER DO TÉCNICO (change add-frente-
+ * compartilhavel). Nome + a URL absoluta do perfil global do técnico. PURO, sem
+ * emoji. Montado no SERVIDOR.
+ */
+export function mensagemTecnico({
+  nome,
+  userId,
+}: {
+  nome?: string | null
+  userId: string
+}): string {
+  const n = nome?.trim() || "Técnico"
+  const url = `${env.NEXT_PUBLIC_SITE_URL}/dashboard/ligas/tecnico/${userId}`
+  return `Confira a carreira de ${n} como técnico no Goliseu: ${url}`
 }
