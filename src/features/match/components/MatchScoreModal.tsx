@@ -237,7 +237,10 @@ function IdentidadeLado({
   size?: number
 }) {
   return (
-    <div className="flex min-w-0 flex-col items-center gap-1.5">
+    // `w-full`: a coluna do scoreboard é `flex items-center` (não estica o
+    // filho no eixo cruzado), então sem isto a raiz teria a largura do CONTEÚDO
+    // e o `truncate` do nome não constringiria (nome longo vazaria a 360px).
+    <div className="flex w-full min-w-0 flex-col items-center gap-1.5">
       {participante.ehCompetitivo ? (
         <TeamCrest
           nome={participante.clube?.nome ?? participante.nome}
@@ -771,9 +774,11 @@ export function MatchScoreModal({
             <p className="mb-4 text-center text-xs font-semibold tracking-wide uppercase text-muted-foreground">
               {ehProposta ? "Enviar placar para aprovação" : "Lançar placar"}
             </p>
-            {/* Placar 2-up já na base (mobile): "A × B". `min-w-0` nas trilhas
-                1fr e nas colunas para o conteúdo encolher em vez de estourar. */}
-            <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-1">
+            {/* Placar 2-up já na base (mobile): "A × B". `minmax(0,1fr)` nas
+                trilhas (não `1fr`, cujo mínimo é o conteúdo → não encolheria e
+                o nome longo vazaria) + `min-w-0` nas colunas para o `truncate`
+                do nome funcionar. */}
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-1">
               <div className="flex min-w-0 flex-col items-center gap-2">
                 <IdentidadeLado participante={participante1} />
                 <Stepper
