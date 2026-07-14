@@ -61,6 +61,8 @@ function ladoAvulso(
       celular: p?.celular ?? null,
       mensagemWhatsApp,
       clube: clube ? { nome: clube.nome, escudoUrl: clube.escudo_url } : null,
+      // Avulso: a identidade primária é a PESSOA (foto+nome) — o clube é cosmético.
+      ehCompetitivo: false,
     },
     nomeConvocacao: p?.nome?.trim() || null,
     celularConvocacao: p?.celular ?? null,
@@ -70,10 +72,16 @@ function ladoAvulso(
 /** Lado COMPETITIVO: o CLUBE é o lado; o técnico vira detalhe e destinatário. */
 function ladoVaga(vaga: VagaResumo | null, mensagemWhatsApp: string): Lado {
   if (!vaga) {
-    // Bye na chave (vaga_2 null): lado vazio, sem clube nem técnico.
+    // Bye na chave (vaga_2 null): lado vazio, sem clube nem técnico. Ainda é
+    // COMPETITIVO — sem `ehCompetitivo` cairia (undefined=falsy) no ramo avulso.
     return {
       ownerId: null,
-      participante: { nome: "A definir", avatarUrl: null, celular: null },
+      participante: {
+        nome: "A definir",
+        avatarUrl: null,
+        celular: null,
+        ehCompetitivo: true,
+      },
       nomeConvocacao: null,
       celularConvocacao: null,
     }
@@ -101,6 +109,8 @@ function ladoVaga(vaga: VagaResumo | null, mensagemWhatsApp: string): Lado {
       celular: tecnico?.celular ?? null,
       mensagemWhatsApp,
       clube: { nome, escudoUrl },
+      // Competitivo: a identidade é o CLUBE (escudo), não a pessoa.
+      ehCompetitivo: true,
     },
     nomeConvocacao: tecnico?.nome?.trim() || null,
     celularConvocacao: tecnico?.celular ?? null,

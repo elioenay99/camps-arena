@@ -2,6 +2,7 @@ import Link from "next/link"
 import { ShieldCheck } from "lucide-react"
 
 import type { LinhaMuralha } from "@/features/league/data/getMuralha"
+import { RankingExpansivel } from "@/features/league/components/RankingExpansivel"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 
 /**
@@ -30,7 +31,7 @@ export function MuralhaRanking({ linhas }: { linhas: LinhaMuralha[] }) {
   }
 
   return (
-    <ol className="flex list-none flex-col gap-2 p-0">
+    <RankingExpansivel>
       {linhas.map((linha, i) => (
         <li
           key={linha.competitorId}
@@ -72,6 +73,6 @@ export function MuralhaRanking({ linhas }: { linhas: LinhaMuralha[] }) {
           </span>
         </li>
       ))}
-    </ol>
+    </RankingExpansivel>
   )
 }

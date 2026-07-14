@@ -367,3 +367,182 @@ describe("MatchScoreModal — captura de autores de gols (add-artilharia)", () =
     expect(carregarSugestoes).toHaveBeenCalledWith("v1")
   })
 })
+
+describe("MatchScoreModal — layout responsivo (scoreboard 2-up e identidade)", () => {
+  it("competitivo: a identidade do clube aparece UMA vez por lado (sem duplicação)", () => {
+    render(
+      <MatchScoreModal
+        matchId="m1"
+        tituloPartida="Grêmio x Flamengo"
+        subtitulo="Brasileirão • agendada"
+        descricao="Grêmio enfrenta Flamengo"
+        participante1={{
+          nome: "Grêmio",
+          detalhe: "téc. Renato",
+          ehCompetitivo: true,
+          clube: { nome: "Grêmio", escudoUrl: null },
+          convocavel: false,
+        }}
+        participante2={{
+          nome: "Flamengo",
+          ehCompetitivo: true,
+          clube: { nome: "Flamengo", escudoUrl: null },
+          convocavel: false,
+        }}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: /Menu da Partida/ }))
+
+    // O nome do clube aparece UMA vez (a duplicação antiga renderizava 2x).
+    expect(screen.getAllByText("Grêmio")).toHaveLength(1)
+    expect(screen.getAllByText("Flamengo")).toHaveLength(1)
+    // Técnico como subtítulo.
+    expect(screen.getByText("téc. Renato")).toBeInTheDocument()
+  })
+
+  it("competitivo (ehCompetitivo) renderiza o TeamCrest do clube, não a FotoPessoa", () => {
+    // Sem escudo (competitivo por-nome): o TeamCrest cai no monograma
+    // `.text-white`; a FotoPessoa (avulso) usaria `.border.bg-muted`, sem
+    // `.text-white`. Se o discriminador falhasse, o lado cairia em FotoPessoa.
+    render(
+      <MatchScoreModal
+        matchId="m1"
+        tituloPartida="Grêmio x Flamengo"
+        subtitulo="Brasileirão • agendada"
+        descricao="Grêmio enfrenta Flamengo"
+        participante1={{
+          nome: "Grêmio",
+          ehCompetitivo: true,
+          clube: { nome: "Grêmio", escudoUrl: null },
+          convocavel: false,
+        }}
+        participante2={{
+          nome: "Flamengo",
+          ehCompetitivo: true,
+          clube: { nome: "Flamengo", escudoUrl: null },
+          convocavel: false,
+        }}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: /Menu da Partida/ }))
+
+    // O modal renderiza em portal (document.body) — consulta o document.
+    // Um monograma de TeamCrest por lado — e nenhum wrapper de FotoPessoa.
+    expect(document.querySelectorAll("span.text-white")).toHaveLength(2)
+    expect(
+      document.querySelectorAll("span.rounded-full.border.bg-muted")
+    ).toHaveLength(0)
+  })
+
+  it("scoreboard 2-up: dois steppers (um por lado) e o '×' central", () => {
+    render(
+      <MatchScoreModal
+        matchId="m1"
+        tituloPartida="Ana x Beto"
+        subtitulo="Avulso • agendada"
+        descricao="Ana enfrenta Beto"
+        participante1={{ nome: "Ana", ehCompetitivo: false, convocavel: false }}
+        participante2={{ nome: "Beto", ehCompetitivo: false, convocavel: false }}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: /Menu da Partida/ }))
+
+    // Um stepper por lado (dois botões de diminuir/aumentar placar).
+    expect(
+      screen.getAllByRole("button", { name: /Diminuir placar de/ })
+    ).toHaveLength(2)
+    expect(
+      screen.getAllByRole("button", { name: /Aumentar placar de/ })
+    ).toHaveLength(2)
+    // Separador "×" central.
+    expect(screen.getByText("×")).toBeInTheDocument()
+  })
+
+  it("avulso com clube cosmético: a coluna mostra a PESSOA; o clube vai para a seção de baixo", () => {
+    render(
+      <MatchScoreModal
+        matchId="m1"
+        tituloPartida="Ana x Beto"
+        subtitulo="Avulso • agendada"
+        descricao="Ana enfrenta Beto"
+        participante1={{
+          nome: "Ana",
+          ehCompetitivo: false,
+          clube: { nome: "Sport Club Corinthians", escudoUrl: null },
+          convocavel: false,
+        }}
+        participante2={{ nome: "Beto", ehCompetitivo: false, convocavel: false }}
+        onSelecionarClube={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: /Menu da Partida/ }))
+
+    // A identidade da coluna é a PESSOA (nome uma vez).
+    expect(screen.getAllByText("Ana")).toHaveLength(1)
+    // O clube cosmético não some — reaparece na seção de seleção de clube.
+    expect(screen.getByText("Sport Club Corinthians")).toBeInTheDocument()
+    expect(screen.getAllByPlaceholderText(/Buscar clube/)).toHaveLength(2)
+  })
+})
+
+describe("MatchScoreModal — autores recolhíveis (<details>)", () => {
+  const base = {
+    matchId: "m1",
+    tituloPartida: "Ataias x João",
+    subtitulo: "Série A • em andamento",
+    descricao: "Ataias enfrenta João",
+    participante1: { nome: "Ataias", ehCompetitivo: true, convocavel: false },
+    participante2: { nome: "João", ehCompetitivo: true, convocavel: false },
+  } as const
+
+  function detalhes() {
+    return screen
+      .getByText("Autores dos gols (opcional)")
+      .closest("details") as HTMLDetailsElement
+  }
+
+  it("sem autores gravados: a seção começa RECOLHIDA", () => {
+    render(<MatchScoreModal {...base} onSave={vi.fn()} vagaId1="v1" placarInicial1={2} />)
+    fireEvent.click(screen.getByRole("button", { name: /Menu da Partida/ }))
+    expect(detalhes()).not.toHaveAttribute("open")
+  })
+
+  it("com autores gravados (preload): a seção começa ABERTA", () => {
+    render(
+      <MatchScoreModal
+        {...base}
+        onSave={vi.fn()}
+        vagaId1="v1"
+        placarInicial1={2}
+        autoresIniciais={[{ lado: 1, jogador: "Endrick", gols: 1, contra: false }]}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: /Menu da Partida/ }))
+    expect(detalhes()).toHaveAttribute("open")
+    // O autor gravado vem preenchido para edição.
+    expect(screen.getByDisplayValue("Endrick")).toBeInTheDocument()
+  })
+
+  it("continua RECOLHÍVEL após re-render do Stepper (aberto por estado, não `open` cru)", () => {
+    render(
+      <MatchScoreModal
+        {...base}
+        onSave={vi.fn()}
+        vagaId1="v1"
+        placarInicial1={2}
+        autoresIniciais={[{ lado: 1, jogador: "Endrick", gols: 1, contra: false }]}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: /Menu da Partida/ }))
+    const det = detalhes()
+    expect(det).toHaveAttribute("open")
+
+    // Usuário recolhe a seção (native toggle → estado controlado vira false).
+    det.open = false
+    fireEvent(det, new Event("toggle"))
+
+    // Re-render pelo Stepper NÃO deve reabrir a seção (o bug do `open` cru).
+    fireEvent.click(screen.getAllByRole("button", { name: /Aumentar placar de/ })[0])
+    expect(detalhes()).not.toHaveAttribute("open")
+  })
+})

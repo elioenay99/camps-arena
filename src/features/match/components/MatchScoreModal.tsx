@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Minus, Plus, MessageCircle, X } from "lucide-react"
+import { Minus, Plus, MessageCircle, X, ChevronDown } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -55,6 +55,13 @@ export interface ParticipantePartida {
   convocavel?: boolean
   /** Clube que o lado representa (escudo + nome). */
   clube?: { nome: string; escudoUrl?: string | null } | null
+  /**
+   * Discriminador competitivo × avulso (zero-DDL, setado no mapeamento). Governa
+   * a identidade do lado no scoreboard: `true` → escudo do CLUBE (`TeamCrest`);
+   * `false`/ausente → FOTO da pessoa. NUNCA usar `clube` truthiness para isso —
+   * o avulso pode ter um clube COSMÉTICO e ainda assim ser identidade-pessoa.
+   */
+  ehCompetitivo?: boolean
 }
 
 export interface MatchScoreModalProps {
@@ -153,6 +160,15 @@ export interface AutorInicial {
   contra: boolean
 }
 
+/**
+ * O lado renderiza um botão "Chamar" na seção abaixo do scoreboard? Espelha a
+ * guarda interna de `SecaoLado`: só quando é convocável E há link wa.me válido
+ * — sem isso, o wrapper montaria um divisor `border-t` vazio.
+ */
+function temChamada(p: ParticipantePartida) {
+  return p.convocavel === true && linkWhatsApp(p.celular, p.mensagemWhatsApp) !== null
+}
+
 function primeiroNome(nome: string) {
   const limpo = nome.trim()
   if (!limpo) return "participante"
@@ -169,24 +185,77 @@ function iniciais(nome: string) {
     .join("")
 }
 
-function Avatar({ participante }: { participante: ParticipantePartida }) {
+/** Foto da PESSOA (avulso), com fallback de iniciais. Decorativa — o nome
+ * acompanha em texto na `IdentidadeLado`. */
+function FotoPessoa({
+  participante,
+  size = 40,
+}: {
+  participante: ParticipantePartida
+  size?: number
+}) {
   const [erro, setErro] = React.useState(false)
   const mostrarImagem = Boolean(participante.avatarUrl) && !erro
 
   return (
-    <span className="flex size-16 items-center justify-center overflow-hidden rounded-full border bg-muted text-lg font-semibold">
+    <span
+      aria-hidden="true"
+      className="flex shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted font-semibold"
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.max(11, Math.round(size * 0.35)),
+      }}
+    >
       {mostrarImagem ? (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
           src={participante.avatarUrl ?? undefined}
-          alt={participante.nome || "Participante"}
+          alt=""
           className="size-full object-cover"
           onError={() => setErro(true)}
         />
       ) : (
-        <span aria-hidden="true">{iniciais(participante.nome)}</span>
+        <span>{iniciais(participante.nome)}</span>
       )}
     </span>
+  )
+}
+
+/**
+ * UMA identidade por lado (sem duplicação): escudo ~40px (competitivo) ou foto
+ * da pessoa (avulso) + nome UMA vez (truncado) + `detalhe` (técnico). Ramifica
+ * por `ehCompetitivo` (NUNCA por `clube` truthiness — o avulso pode ter clube
+ * cosmético). O clube cosmético do avulso reaparece na seção abaixo do
+ * scoreboard, não aqui.
+ */
+function IdentidadeLado({
+  participante,
+  size = 40,
+}: {
+  participante: ParticipantePartida
+  size?: number
+}) {
+  return (
+    <div className="flex min-w-0 flex-col items-center gap-1.5">
+      {participante.ehCompetitivo ? (
+        <TeamCrest
+          nome={participante.clube?.nome ?? participante.nome}
+          escudoUrl={participante.clube?.escudoUrl}
+          size={size}
+        />
+      ) : (
+        <FotoPessoa participante={participante} size={size} />
+      )}
+      <span className="w-full truncate text-center text-sm font-medium">
+        {participante.nome}
+      </span>
+      {participante.detalhe ? (
+        <span className="w-full truncate text-center text-xs text-muted-foreground">
+          {participante.detalhe}
+        </span>
+      ) : null}
+    </div>
   )
 }
 
@@ -205,7 +274,9 @@ function Stepper({
   const noMaximo = value >= max
 
   return (
-    <div className="flex items-center justify-center gap-2">
+    // Compacto para caber 2-up a 360px: gap-1, botões 40px, número sem largura
+    // fixa (só min-w-6). Conta min-content ≈ 88 + número ≤ ~116px @360.
+    <div className="flex items-center justify-center gap-1">
       <Button
         type="button"
         variant="outline"
@@ -224,7 +295,7 @@ function Stepper({
       </Button>
 
       <span
-        className="font-display min-w-12 text-center text-4xl font-bold tabular-nums"
+        className="font-display min-w-6 text-center text-2xl font-bold tabular-nums sm:text-3xl"
         aria-hidden="true"
       >
         {value}
@@ -251,21 +322,23 @@ function Stepper({
   )
 }
 
-function ColunaParticipante({
+/**
+ * Seção de largura total ABAIXO do scoreboard, para UM lado: o botão "Chamar"
+ * (só do lado convocável) e — no avulso (`onSelecionarClube`) — o clube
+ * cosmético atual + a busca de clube. Fica FORA das colunas do placar para que
+ * elas permaneçam simétricas e curtas; o clube do avulso não some, só migra.
+ * Renderiza nada quando o lado não tem nem convocação nem seleção de clube.
+ */
+function SecaoLado({
   participante,
   lado,
-  value,
-  onChange,
   onSelecionarClube,
 }: {
   participante: ParticipantePartida
   lado: 1 | 2
-  value: number
-  onChange: (atualizar: (atual: number) => number) => void
   onSelecionarClube?: (lado: 1 | 2, team: TeamResult) => Promise<void> | void
 }) {
-  // Só o lado convocável (o adversário) ganha link — nunca a coluna do próprio
-  // usuário (sem auto-chamada).
+  // Só o lado convocável (o adversário) ganha link — nunca o próprio usuário.
   const wa = participante.convocavel
     ? linkWhatsApp(participante.celular, participante.mensagemWhatsApp)
     : null
@@ -273,41 +346,29 @@ function ColunaParticipante({
   // No competitivo, "Chamar …" sauda o TÉCNICO (não o clube de `nome`).
   const nomeConvocacao = participante.nomeConvocacao?.trim() || participante.nome
 
-  return (
-    <div className="flex flex-col items-center gap-4">
-      <div className="flex flex-col items-center gap-2">
-        <Avatar participante={participante} />
-        <span className="text-center text-sm font-medium">
-          {participante.nome}
-        </span>
-        {participante.detalhe ? (
-          <span className="text-center text-xs text-muted-foreground">
-            {participante.detalhe}
-          </span>
-        ) : null}
-      </div>
+  if (!wa && !onSelecionarClube) return null
 
-      <div className="flex w-full flex-col items-center gap-2">
-        <div className="flex items-center gap-2">
-          <TeamCrest
-            nome={clube?.nome ?? participante.nome}
-            escudoUrl={clube?.escudoUrl}
-            size={28}
-          />
-          <span className="text-xs text-muted-foreground">
-            {clube?.nome ?? "Sem clube"}
-          </span>
-        </div>
-        {onSelecionarClube ? (
+  return (
+    <div className="flex flex-col gap-2">
+      {onSelecionarClube ? (
+        <div className="flex w-full flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <TeamCrest
+              nome={clube?.nome ?? participante.nome}
+              escudoUrl={clube?.escudoUrl}
+              size={24}
+            />
+            <span className="text-xs text-muted-foreground">
+              {clube?.nome ?? "Sem clube"}
+            </span>
+          </div>
           <TeamSearchInput
             className="w-full"
             label={`Clube de ${primeiroNome(participante.nome)}`}
             onSelect={(team) => onSelecionarClube(lado, team)}
           />
-        ) : null}
-      </div>
-
-      <Stepper label={participante.nome} value={value} onChange={onChange} />
+        </div>
+      ) : null}
 
       {wa ? (
         <Button
@@ -551,6 +612,21 @@ export function MatchScoreModal({
     [autoresIniciais]
   )
 
+  // Há autores JÁ GRAVADOS no preload editável (superfícies REPLACE)? Se sim, a
+  // seção de autores começa ABERTA — senão o organizador não veria o que editar.
+  const temPreload = React.useMemo(
+    () =>
+      [...preloadDoLado(1), ...preloadDoLado(2)].some(
+        (l) => l.jogador.trim() !== "" || l.contra || l.gols > 0
+      ),
+    [preloadDoLado]
+  )
+
+  // Abertura CONTROLADA por estado (NÃO `open={temPreload}` cru — reafirmaria
+  // `open=true` a cada re-render do Stepper e reabriria sozinha). O `<details>`
+  // só oculta via CSS; os autores no pai (`autores1/2`) PERSISTEM.
+  const [autoresAbertos, setAutoresAbertos] = React.useState(() => temPreload)
+
   // Ressincroniza o estado otimista ao (re)abrir o modal — no handler, sem efeito.
   function handleOpenChange(proximo: boolean) {
     // Não fecha enquanto a Server Action está em voo (evita perder o resultado).
@@ -565,6 +641,9 @@ export function MatchScoreModal({
       setAutores1(preloadDoLado(1))
       setAutores2(preloadDoLado(2))
       setAutoresTocado(false)
+      // Ressincroniza a visibilidade: reabre se há autores gravados, recolhe
+      // no caso comum. (O toggle do usuário durante a sessão vale enquanto aberto.)
+      setAutoresAbertos(temPreload)
     }
     setOpen(proximo)
   }
@@ -692,51 +771,93 @@ export function MatchScoreModal({
             <p className="mb-4 text-center text-xs font-semibold tracking-wide uppercase text-muted-foreground">
               {ehProposta ? "Enviar placar para aprovação" : "Lançar placar"}
             </p>
-            {/* Empilha os lados em 360-390px; lado a lado no sm+. */}
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-              <ColunaParticipante
-                participante={participante1}
-                lado={1}
-                value={placar1}
-                onChange={setPlacar1}
-                onSelecionarClube={onSelecionarClube}
-              />
-              <ColunaParticipante
-                participante={participante2}
-                lado={2}
-                value={placar2}
-                onChange={setPlacar2}
-                onSelecionarClube={onSelecionarClube}
-              />
+            {/* Placar 2-up já na base (mobile): "A × B". `min-w-0` nas trilhas
+                1fr e nas colunas para o conteúdo encolher em vez de estourar. */}
+            <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-1">
+              <div className="flex min-w-0 flex-col items-center gap-2">
+                <IdentidadeLado participante={participante1} />
+                <Stepper
+                  label={participante1.nome}
+                  value={placar1}
+                  onChange={setPlacar1}
+                />
+              </div>
+              <span
+                className="text-muted-foreground self-center text-lg"
+                aria-hidden="true"
+              >
+                ×
+              </span>
+              <div className="flex min-w-0 flex-col items-center gap-2">
+                <IdentidadeLado participante={participante2} />
+                <Stepper
+                  label={participante2.nome}
+                  value={placar2}
+                  onChange={setPlacar2}
+                />
+              </div>
             </div>
+
+            {/* "Chamar" e a busca de clube saem das colunas → seção de largura
+                total, mantendo o placar simétrico e curto. */}
+            {onSelecionarClube ||
+            temChamada(participante1) ||
+            temChamada(participante2) ? (
+              <div className="mt-4 flex flex-col gap-3 border-t pt-4">
+                <SecaoLado
+                  participante={participante1}
+                  lado={1}
+                  onSelecionarClube={onSelecionarClube}
+                />
+                <SecaoLado
+                  participante={participante2}
+                  lado={2}
+                  onSelecionarClube={onSelecionarClube}
+                />
+              </div>
+            ) : null}
           </div>
 
           {mostrarAutores ? (
-            <div className="elevate flex flex-col gap-4 rounded-2xl border bg-card/60 p-4">
-              <p className="text-center text-xs font-semibold tracking-wide uppercase text-muted-foreground">
-                Autores dos gols (opcional)
-              </p>
-              {mostrarAutores1 ? (
-                <AutoresLado
-                  lado={1}
-                  nomeLado={participante1.nome}
-                  placar={placar1}
-                  sugestoes={sugestoes1}
-                  autores={autores1}
-                  onChange={(proximo) => atualizarAutores(1, proximo)}
+            <details
+              open={autoresAbertos}
+              onToggle={(e) => setAutoresAbertos(e.currentTarget.open)}
+              className="elevate group rounded-2xl border bg-card/60"
+            >
+              {/* Recolhido no caso comum (aberto quando há autores gravados). O
+                  texto EXATO fica em nó próprio; o chevron é ícone decorativo. */}
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-2xl px-4 py-3 [&::-webkit-details-marker]:hidden">
+                <span className="text-xs font-semibold tracking-wide uppercase text-muted-foreground">
+                  Autores dos gols (opcional)
+                </span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
                 />
-              ) : null}
-              {mostrarAutores2 ? (
-                <AutoresLado
-                  lado={2}
-                  nomeLado={participante2.nome}
-                  placar={placar2}
-                  sugestoes={sugestoes2}
-                  autores={autores2}
-                  onChange={(proximo) => atualizarAutores(2, proximo)}
-                />
-              ) : null}
-            </div>
+              </summary>
+              <div className="flex flex-col gap-4 px-4 pb-4">
+                {mostrarAutores1 ? (
+                  <AutoresLado
+                    lado={1}
+                    nomeLado={participante1.nome}
+                    placar={placar1}
+                    sugestoes={sugestoes1}
+                    autores={autores1}
+                    onChange={(proximo) => atualizarAutores(1, proximo)}
+                  />
+                ) : null}
+                {mostrarAutores2 ? (
+                  <AutoresLado
+                    lado={2}
+                    nomeLado={participante2.nome}
+                    placar={placar2}
+                    sugestoes={sugestoes2}
+                    autores={autores2}
+                    onChange={(proximo) => atualizarAutores(2, proximo)}
+                  />
+                ) : null}
+              </div>
+            </details>
           ) : null}
 
           {ehProposta ? (
@@ -761,7 +882,7 @@ export function MatchScoreModal({
           ) : null}
         </DialogBody>
 
-        <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+        <DialogFooter className="flex-col gap-2 pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex-col sm:space-x-0">
           {/* Anuncia o estado em voo a leitores de tela: o botão fica
               `disabled` (sai da árvore de a11y), então o feedback precisa
               vir de uma região live independente. */}

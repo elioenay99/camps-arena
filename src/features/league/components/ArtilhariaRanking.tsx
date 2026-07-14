@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Goal } from "lucide-react"
 
 import type { ArtilhariaLinha } from "@/features/league/data/getArtilharia"
+import { RankingExpansivel } from "@/features/league/components/RankingExpansivel"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 
 /**
@@ -33,7 +34,7 @@ export function ArtilhariaRanking({ linhas }: { linhas: ArtilhariaLinha[] }) {
   }
 
   return (
-    <ol className="flex list-none flex-col gap-2 p-0">
+    <RankingExpansivel>
       {linhas.map((linha, i) => (
         <li
           key={`${linha.competitorId}-${linha.jogador}`}
@@ -71,6 +72,6 @@ export function ArtilhariaRanking({ linhas }: { linhas: ArtilhariaLinha[] }) {
           </span>
         </li>
       ))}
-    </ol>
+    </RankingExpansivel>
   )
 }

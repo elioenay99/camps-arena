@@ -38,7 +38,14 @@ function ladoModal(
   nome: string,
   escudo: string | null | undefined,
   tecnico: TecnicoDoLado | null | undefined,
-  orfao: boolean | undefined
+  orfao: boolean | undefined,
+  /**
+   * O lado é COMPETITIVO (tem vaga)? Governa a identidade no scoreboard:
+   * competitivo → escudo (`TeamCrest`, com fallback de iniciais no por-nome);
+   * avulso → foto da pessoa. Deriva do sinal POR-LADO da vaga (não da
+   * truthiness do escudo — o competitivo por-nome NÃO tem escudo).
+   */
+  competitivo: boolean
 ): ParticipantePartida {
   const detalhe = tecnico?.nome?.trim()
     ? `téc. ${tecnico.nome.trim()}`
@@ -50,6 +57,7 @@ function ladoModal(
     detalhe,
     avatarUrl: escudo ?? null,
     clube: escudo ? { nome, escudoUrl: escudo } : null,
+    ehCompetitivo: competitivo,
   }
 }
 
@@ -216,8 +224,20 @@ export function OpenMatchesList({
                   : LABEL_STATUS[p.status]
               }
               descricao={`${p.nome_1} enfrenta ${p.nome_2}`}
-              participante1={ladoModal(p.nome_1, p.escudo_1, p.tecnico_1, p.orfao_1)}
-              participante2={ladoModal(p.nome_2, p.escudo_2, p.tecnico_2, p.orfao_2)}
+              participante1={ladoModal(
+                p.nome_1,
+                p.escudo_1,
+                p.tecnico_1,
+                p.orfao_1,
+                p.vagaId_1 != null
+              )}
+              participante2={ladoModal(
+                p.nome_2,
+                p.escudo_2,
+                p.tecnico_2,
+                p.orfao_2,
+                p.vagaId_2 != null
+              )}
               placarInicial1={p.placar_1}
               placarInicial2={p.placar_2}
               // Vagas (competitivo) → habilitam a captura de autores + autocomplete.
