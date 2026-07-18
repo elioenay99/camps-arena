@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { removerExifJpeg, sniffTipoImagem } from "@/lib/evidence"
+import { removerExifJpeg, sniffTipoImagem, subirEvidencia } from "@/lib/evidence"
 
 const b = (...nums: number[]) => Uint8Array.from(nums)
 
@@ -104,5 +104,72 @@ describe("removerExifJpeg", () => {
     const entrada = b(...SOI, ...APP1, ...XMP, ...APP0, ...SCAN)
     const saida = removerExifJpeg(entrada)
     expect(Array.from(saida)).toEqual([...SOI, ...APP0, ...SCAN])
+  })
+})
+
+// Exercita a subirEvidencia REAL (sem mockar @/lib/evidence) com um stub de
+// ServerClient, para blindar os invariantes que o mutation testing pega:
+// (1) rejeição de MIME spoofado; (2) strip de EXIF antes do upload.
+describe("subirEvidencia (integração com storage stub)", () => {
+  function stubClient() {
+    const upload = vi.fn<(...args: unknown[]) => Promise<{ error: null }>>(
+      async () => ({ error: null })
+    )
+    const remove = vi.fn<(...args: unknown[]) => Promise<{ error: null }>>(
+      async () => ({ error: null })
+    )
+    const supabase = {
+      storage: { from: () => ({ upload, remove }) },
+    } as unknown as Parameters<typeof subirEvidencia>[0]
+    return { supabase, upload }
+  }
+
+  it("rejeita MIME spoofado (conteúdo JPEG declarado como image/png) e NÃO sobe", async () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46])
+    const file = new File([jpeg], "x.png", { type: "image/png" })
+    const { supabase, upload } = stubClient()
+
+    const r = await subirEvidencia(supabase, "u1", "m1", file)
+
+    expect(r).toEqual({
+      ok: false,
+      error: expect.stringMatching(/não corresponde ao tipo/i),
+    })
+    expect(upload).not.toHaveBeenCalled()
+  })
+
+  it("remove o EXIF (APP1) antes de subir o JPEG ao storage", async () => {
+    const SOI = [0xff, 0xd8]
+    const APP1 = [
+      0xff, 0xe1, 0x00, 0x0c, // marcador + tamanho (12)
+      0x45, 0x78, 0x69, 0x66, 0x00, 0x00, // "Exif\0\0"
+      0x11, 0x22, 0x33, 0x44, // GPS falso
+    ]
+    const APP0 = [
+      0xff, 0xe0, 0x00, 0x10,
+      0x4a, 0x46, 0x49, 0x46, 0x00,
+      0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+    ]
+    const SCAN = [0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x3f, 0x00, 0xaa, 0xff, 0xd9]
+    const entrada = new Uint8Array([...SOI, ...APP1, ...APP0, ...SCAN])
+    const file = new File([entrada], "e.jpg", { type: "image/jpeg" })
+    const { supabase, upload } = stubClient()
+
+    const r = await subirEvidencia(supabase, "u1", "m1", file)
+
+    expect(r.ok).toBe(true)
+    expect(upload).toHaveBeenCalledTimes(1)
+    const corpo = upload.mock.calls[0][1] as Uint8Array
+    // Menor que o original: o segmento APP1 foi removido.
+    expect(corpo.length).toBe(entrada.length - APP1.length)
+    // Nenhum marcador APP1 (FF E1) sobrou no corpo enviado.
+    let temApp1 = false
+    for (let i = 0; i + 1 < corpo.length; i++) {
+      if (corpo[i] === 0xff && corpo[i + 1] === 0xe1) temApp1 = true
+    }
+    expect(temApp1).toBe(false)
+    // Ainda é JPEG (começa por SOI).
+    expect(corpo[0]).toBe(0xff)
+    expect(corpo[1]).toBe(0xd8)
   })
 })
