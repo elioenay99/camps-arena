@@ -11,7 +11,7 @@
 -- =====================================================================
 \set ON_ERROR_STOP on
 begin;
-select plan(18);
+select plan(21);
 
 \set DONO      '\'00000000-0000-0000-0000-000000000001\''
 \set TEC1      '\'00000000-0000-0000-0000-000000000002\''
@@ -27,6 +27,7 @@ select plan(18);
 \set MORFAO    '\'00000000-0000-0000-0000-00000000e3a1\''
 \set MGUARD    '\'00000000-0000-0000-0000-00000000e4a1\''
 \set MENC      '\'00000000-0000-0000-0000-00000000e5a1\''
+\set MATOM     '\'00000000-0000-0000-0000-00000000e6a1\''
 
 -- ---------- Fixtures (superuser; triggers OFF para não brigar com os locks) ----------
 set local session_replication_role = replica;
@@ -56,6 +57,10 @@ values (:MGUARD, :B1, :TEC1::uuid, '00000000-0000-0000-0000-000000000003'::uuid,
 -- Match ENCERRADO (avulso 002×003).
 insert into public.matches (id, tournament_id, participante_1, participante_2, vaga_1, vaga_2, status, placar_1, placar_2, liberada_em)
 values (:MENC, :B1, :TEC1::uuid, '00000000-0000-0000-0000-000000000003'::uuid, null, null, 'encerrada', 1, 0, now() - interval '1 hour');
+
+-- Match para ATOMICIDADE de escrita parcial (avulso 002×003; placar ORIGINAL 5×3).
+insert into public.matches (id, tournament_id, participante_1, participante_2, vaga_1, vaga_2, status, placar_1, placar_2, liberada_em)
+values (:MATOM, :B1, :TEC1::uuid, '00000000-0000-0000-0000-000000000003'::uuid, null, null, 'agendada', 5, 3, now() - interval '1 hour');
 
 set local session_replication_role = origin;  -- triggers LIGADOS para as asserções
 
@@ -153,6 +158,26 @@ select is(
 );
 
 -- =====================================================================
+-- Atomicidade de escrita PARCIAL: o UPDATE de placar acontece ANTES do INSERT de
+-- autores; se o INSERT abortar (aqui, Zico/zico colapsam em gols=198 > 99 do CHECK
+-- de match_goals → 23514), o placar já aplicado (200×0) DEVE reverter junto. Prova
+-- o rollback de escrita parcial (não só a guarda-antes-da-escrita acima).
+-- =====================================================================
+select throws_ok(
+  $$ select public.aplicar_placar_direto(
+       '00000000-0000-0000-0000-00000000e6a1'::uuid, 200, 0,
+       '[{"lado":1,"jogador":"Zico","gols":99},{"lado":1,"jogador":"zico","gols":99}]'::jsonb,
+       'agendada') $$,
+  '23514', null,
+  'INSERT que viola o CHECK de gols (merge Zico/zico = 198) aborta com 23514'
+);
+select is(
+  (select placar_1 || 'x' || placar_2 from public.matches where id = :MATOM),
+  '5x3',
+  'atomicidade: o UPDATE de placar (200×0) reverteu junto com o INSERT abortado'
+);
+
+-- =====================================================================
 -- Partida ENCERRADA rejeitada
 -- =====================================================================
 select throws_ok(
@@ -198,6 +223,19 @@ select throws_ok(
   'AUTH_REQUIRED',
   'chamada sem identidade (sub ausente) dispara AUTH_REQUIRED'
 );
+
+-- REVOKE sob papel REAL: os casos acima usam só o JWT (o runner é superuser e
+-- BYPASSA grants). Este exerce o `revoke execute ... from public, anon` de verdade,
+-- sob role anon → 42501 (insufficient_privilege) antes mesmo de rodar o corpo.
+set local role anon;
+set local request.jwt.claims to '{"role":"anon"}';
+select throws_ok(
+  $$ select public.aplicar_placar_direto(
+       '00000000-0000-0000-0000-0000000000d1'::uuid, 1, 0, null, 'agendada') $$,
+  '42501', null,
+  'anon NÃO executa aplicar_placar_direto (EXECUTE revogado → 42501)'
+);
+reset role;
 
 select * from finish();
 rollback;
