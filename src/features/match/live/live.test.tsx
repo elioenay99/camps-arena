@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 // Canal Realtime fake: captura o handler de postgres_changes para dirigir
 // eventos no teste e expõe o spy de removeChannel para checar o cleanup.
 const h = vi.hoisted(() => {
-  const state: { handler?: (payload: { new: unknown }) => void } = {}
+  const state: {
+    handler?: (payload: { new: unknown }) => void
+    onConfig?: { filter?: string }
+  } = {}
   const removeChannel = vi.fn()
   const channelObj: {
     on: ReturnType<typeof vi.fn>
@@ -16,8 +19,13 @@ const h = vi.hoisted(() => {
     subscribe: vi.fn(),
   }
   channelObj.on = vi.fn(
-    (_event: string, _cfg: unknown, handler: (p: { new: unknown }) => void) => {
+    (
+      _event: string,
+      cfg: { filter?: string },
+      handler: (p: { new: unknown }) => void
+    ) => {
       state.handler = handler
+      state.onConfig = cfg
       return channelObj
     }
   )
@@ -185,6 +193,26 @@ describe("camada de tempo real do painel", () => {
     expect(h.removeChannel).not.toHaveBeenCalled()
     unmount()
     expect(h.removeChannel).toHaveBeenCalledOnce()
+  })
+
+  it("dashboard (sem tournamentId): canal global e SEM filtro na origem", () => {
+    montar()
+    // O dashboard multi-torneio assina todos os matches visíveis por RLS e filtra
+    // no cliente (comportamento deliberado — não regride).
+    expect(h.channel).toHaveBeenCalledWith("dashboard-matches")
+    expect(h.state.onConfig?.filter).toBeUndefined()
+  })
+
+  it("página de torneio (tournamentId): canal escopado e filtro na origem", () => {
+    render(
+      <LiveMatchesProvider initial={SEED} tournamentId="t1">
+        <LiveScore matchId="m1" field="placar_1" initial={0} />
+      </LiveMatchesProvider>
+    )
+    // Escopa a assinatura por tournament_id (o Postgres filtra na origem) e usa um
+    // nome de canal próprio para não colidir com outro provider.
+    expect(h.channel).toHaveBeenCalledWith("matches-torneio-t1")
+    expect(h.state.onConfig?.filter).toBe("tournament_id=eq.t1")
   })
 })
 

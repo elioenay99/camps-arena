@@ -42,12 +42,21 @@ function semear(seeds: LiveMatchSeed[]): LiveMap {
  * Só atualiza partidas JÁ presentes na tela (decisão de produto): eventos de
  * ids ausentes do mapa são ignorados. A composição da lista (entrar/sair) só
  * muda num novo carregamento — o `initial` reseme o estado a cada render da RSC.
+ *
+ * `tournamentId` OPCIONAL: numa página de torneio único, escopa a assinatura por
+ * `tournament_id=eq.<id>` (o Postgres já filtra na origem, em vez de o cliente
+ * descartar eventos de outros torneios). O dashboard multi-torneio NÃO passa nada
+ * e mantém o filtro client-side deliberado (assina todos os `matches` visíveis por
+ * RLS). O nome do canal também é escopado, para dois providers (páginas distintas)
+ * nunca colidirem no mesmo canal.
  */
 export function LiveMatchesProvider({
   initial,
+  tournamentId,
   children,
 }: {
   initial: LiveMatchSeed[]
+  tournamentId?: string
   children: React.ReactNode
 }) {
   const [live, setLive] = useState<LiveMap>(() => semear(initial))
@@ -64,11 +73,18 @@ export function LiveMatchesProvider({
 
   useEffect(() => {
     const supabase = createClient()
+    // Escopo por torneio (quando informado): o Postgres filtra na origem; o nome
+    // do canal acompanha o escopo para providers de páginas distintas não
+    // colidirem. Sem `tournamentId`, o comportamento é idêntico ao do dashboard.
+    const canal = tournamentId ? `matches-torneio-${tournamentId}` : "dashboard-matches"
+    const filtro: { event: "UPDATE"; schema: "public"; table: "matches"; filter?: string } =
+      { event: "UPDATE", schema: "public", table: "matches" }
+    if (tournamentId) filtro.filter = `tournament_id=eq.${tournamentId}`
     const channel = supabase
-      .channel("dashboard-matches")
+      .channel(canal)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "matches" },
+        filtro,
         (payload) => {
           const row = payload.new as {
             id: string
@@ -97,7 +113,7 @@ export function LiveMatchesProvider({
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [tournamentId])
 
   return (
     <LiveMatchesContext.Provider value={live}>

@@ -3,6 +3,7 @@
 import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
+import { after } from "next/server"
 import { z } from "zod"
 
 import { FORMATOS_COM_CHAVE } from "@/features/knockout/gerarChaveMataMata"
@@ -240,21 +241,29 @@ export async function updateMatchScore(
     vaga_2: { user_id: string | null } | null
     tournaments: { titulo: string } | null
   }
-  await enviarNotificacoes(
-    supabase,
-    [
-      dados.participante_1,
-      dados.participante_2,
-      dados.vaga_1?.user_id,
-      dados.vaga_2?.user_id,
-    ],
-    {
-      title: "Placar atualizado",
-      body: `Há um novo placar em ${dados.tournaments?.titulo ?? "um torneio"}.`,
-      url: `/dashboard/torneios/${match.tournament_id}`,
-      tag: `torneio-${match.tournament_id}-placar`,
-    },
-    user.id
+  // Push FORA do caminho crítico: `after()` roda DEPOIS do flush da resposta
+  // (mantido vivo pela plataforma via waitUntil), então o salvar-placar retorna
+  // imediato em vez de esperar a RPC de subs + os POSTs webpush externos. Uma
+  // promessa solta seria CORTADA em serverless (ver enviar.ts:41-42); `after()` é
+  // a primitiva correta (Next 16, next/server). `enviarNotificacoes` é best-effort
+  // e NUNCA lança — a notificação ainda sai, só deixou de somar latência ao save.
+  after(() =>
+    enviarNotificacoes(
+      supabase,
+      [
+        dados.participante_1,
+        dados.participante_2,
+        dados.vaga_1?.user_id,
+        dados.vaga_2?.user_id,
+      ],
+      {
+        title: "Placar atualizado",
+        body: `Há um novo placar em ${dados.tournaments?.titulo ?? "um torneio"}.`,
+        url: `/dashboard/torneios/${match.tournament_id}`,
+        tag: `torneio-${match.tournament_id}-placar`,
+      },
+      user.id
+    )
   )
 
   return { ok: true }

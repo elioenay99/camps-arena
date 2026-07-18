@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // factory, que é hoisteada; acessados depois via vi.mocked).
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }))
+// `after()` agenda o push FORA do caminho crítico (F3). No teste ele é no-op — a
+// notificação é best-effort e coberta em outro lugar; aqui só validamos o save.
+vi.mock("next/server", () => ({ after: vi.fn() }))
 
 import { revalidatePath } from "next/cache"
 
