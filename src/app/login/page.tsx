@@ -39,12 +39,20 @@ export default async function LoginPage({
             </p>
           ) : null}
           <LoginForm redirectTo={redirectTo} />
-          <Link
-            href="/recuperar-senha"
-            className="text-muted-foreground text-sm underline underline-offset-4"
-          >
-            Esqueci minha senha
-          </Link>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Link
+              href="/recuperar-senha"
+              className="text-muted-foreground text-sm underline underline-offset-4"
+            >
+              Esqueci minha senha
+            </Link>
+            <Link
+              href="/demo"
+              className="text-primary text-sm underline underline-offset-4"
+            >
+              Ver demonstração
+            </Link>
+          </div>
         </CardContent>
         <CardFooter>
           <p className="text-muted-foreground text-sm">

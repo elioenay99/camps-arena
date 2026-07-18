@@ -15,7 +15,15 @@ import { TeamCrest } from "@/features/team/components/TeamCrest"
  * o escudo real do clube do competidor (`escudoUrl`); competidor por-nome/avulso
  * (`escudoUrl` null) cai no placeholder de iniciais do `TeamCrest`.
  */
-export function ArtilhariaRanking({ linhas }: { linhas: ArtilhariaLinha[] }) {
+export function ArtilhariaRanking({
+  linhas,
+  hrefCompetidorBase = "/dashboard/ligas/competidor",
+}: {
+  linhas: ArtilhariaLinha[]
+  /** Base do link do competidor. Default = rota do dashboard (produção
+   * inalterada); o modo demo passa `/demo/ligas/competidor`. */
+  hrefCompetidorBase?: string
+}) {
   if (linhas.length === 0) {
     return (
       <div className="bg-muted/10 flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-10 text-center">
@@ -57,7 +65,7 @@ export function ArtilhariaRanking({ linhas }: { linhas: ArtilhariaLinha[] }) {
                 (perfil do competidor) — a rajada estourava a borda da Vercel
                 (503). Ver add-liga-prefetch-fix. */}
             <Link
-              href={`/dashboard/ligas/competidor/${linha.competitorId}`}
+              href={`${hrefCompetidorBase}/${linha.competitorId}`}
               prefetch={false}
               className="text-muted-foreground truncate text-xs underline-offset-4 hover:underline focus-visible:underline"
             >

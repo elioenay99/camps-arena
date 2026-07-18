@@ -12,7 +12,15 @@ import { TeamCrest } from "@/features/team/components/TeamCrest"
  * total de clean sheets em destaque. RSC puro — só renderiza os dados já
  * agregados/ordenados por `getMuralha` (clean sheets desc). Vazia → estado limpo.
  */
-export function MuralhaRanking({ linhas }: { linhas: LinhaMuralha[] }) {
+export function MuralhaRanking({
+  linhas,
+  hrefCompetidorBase = "/dashboard/ligas/competidor",
+}: {
+  linhas: LinhaMuralha[]
+  /** Base do link do competidor. Default = rota do dashboard (produção
+   * inalterada); o modo demo passa `/demo/ligas/competidor`. */
+  hrefCompetidorBase?: string
+}) {
   if (linhas.length === 0) {
     return (
       <div className="bg-muted/10 flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-10 text-center">
@@ -53,7 +61,7 @@ export function MuralhaRanking({ linhas }: { linhas: LinhaMuralha[] }) {
                 (perfil do competidor) — a rajada estourava a borda da Vercel
                 (503). Ver add-liga-prefetch-fix. */}
             <Link
-              href={`/dashboard/ligas/competidor/${linha.competitorId}`}
+              href={`${hrefCompetidorBase}/${linha.competitorId}`}
               prefetch={false}
               className="truncate font-medium underline-offset-4 hover:underline focus-visible:underline"
             >

@@ -1,10 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import { headers } from "next/headers";
-import { Analytics } from "@vercel/analytics/next";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
+import { AnalyticsGate } from "@/components/analytics-gate";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -101,9 +100,9 @@ export default async function RootLayout({
         </ThemeProvider>
         {/* Vercel Analytics + Web Vitals: injetam o script via createElement no
             bundle confiável (autorizado por strict-dynamic) e batem em endpoints
-            same-origin; no-op fora do Vercel. */}
-        <Analytics />
-        <SpeedInsights />
+            same-origin; no-op fora do Vercel. Gated por rota: suprimidos na
+            subárvore pública /demo (sem integração externa). */}
+        <AnalyticsGate />
         {/* Registra o service worker (offline) só em produção. */}
         <ServiceWorkerRegister />
       </body>
