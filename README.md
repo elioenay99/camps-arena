@@ -59,8 +59,20 @@ Pré-requisitos: Node 20+, [pnpm](https://pnpm.io) e (para o banco local) a
 
    ```bash
    npx supabase start
-   # aplique o schema (fonte de verdade) no banco local:
-   psql "$DATABASE_URL" -f supabase/schema.sql
+   # String de conexão do stack local (porta 54322 do config.toml):
+   LOCAL_DB="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+
+   # Aplique o schema (fonte de verdade) em DOIS passes: o schema.sql tem uma
+   # forward-ref (um índice referencia a coluna `rodada`, criada mais adiante),
+   # então o passe 1 é tolerante e o passe 2 é estrito.
+   psql "$LOCAL_DB" -f supabase/schema.sql >/dev/null 2>&1 || true   # passe 1 (tolerante)
+   psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f supabase/schema.sql        # passe 2 (estrito)
+
+   # CRÍTICO: grants de paridade com a produção. Sem eles o PostgREST nega
+   # anon/authenticated ("permission denied for table ...") mesmo com a anon key
+   # correta — o Supabase Cloud concede esses grants automaticamente; o stack
+   # local, não.
+   psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f supabase/local-grants.sql
    ```
 
 4. Rode a aplicação — direto no host:
