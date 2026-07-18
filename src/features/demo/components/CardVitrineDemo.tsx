@@ -16,7 +16,9 @@ export function CardVitrineDemo({
   onToggleListar,
 }: {
   item: ItemVitrineDemo
-  onToggleListar: () => void
+  // Ausente quando o perfil fictício não pode gerir: o card fica read-only
+  // (sem o toggle "listar"), espelhando o gate de UI do produto.
+  onToggleListar?: () => void
 }) {
   const meta = FORMATO_META[item.formato]
   return (
@@ -34,23 +36,25 @@ export function CardVitrineDemo({
         </span>
       </div>
       <StatusPill status={item.status} />
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={onToggleListar}
-        aria-pressed={item.listado}
-        aria-label={item.listado ? `Remover ${item.nome} da vitrine` : `Listar ${item.nome} na vitrine`}
-      >
-        {item.listado ? (
-          <>
-            <Eye aria-hidden className="size-3.5" /> Listada
-          </>
-        ) : (
-          <>
-            <EyeOff aria-hidden className="size-3.5" /> Não listada
-          </>
-        )}
-      </Button>
+      {onToggleListar ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onToggleListar}
+          aria-pressed={item.listado}
+          aria-label={item.listado ? `Remover ${item.nome} da vitrine` : `Listar ${item.nome} na vitrine`}
+        >
+          {item.listado ? (
+            <>
+              <Eye aria-hidden className="size-3.5" /> Listada
+            </>
+          ) : (
+            <>
+              <EyeOff aria-hidden className="size-3.5" /> Não listada
+            </>
+          )}
+        </Button>
+      ) : null}
     </li>
   )
 }

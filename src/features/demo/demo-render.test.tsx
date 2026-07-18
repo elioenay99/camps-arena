@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest"
+import * as React from "react"
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { DemoProvider } from "@/features/demo/store/DemoProvider"
+import { useDemoStore } from "@/features/demo/store/useDemoStore"
 import { DemoHub } from "@/features/demo/components/DemoHub"
 import { DemoTorneioView } from "@/features/demo/components/DemoTorneioView"
 import { DemoTorneiosLista } from "@/features/demo/components/DemoTorneiosLista"
@@ -16,6 +18,19 @@ import { DemoLigaView } from "@/features/demo/components/DemoLigaView"
 
 function Wrap({ children }: { children: React.ReactNode }) {
   return <DemoProvider>{children}</DemoProvider>
+}
+
+// Troca o perfil fictício para "gestor" antes de renderizar os filhos, para
+// exercitar os controles de gestão (que ficam ocultos no perfil padrão
+// "visitante").
+function ComoGestor({ children }: { children: React.ReactNode }) {
+  const { state, dispatch } = useDemoStore()
+  React.useEffect(() => {
+    if (state.perfil !== "gestor") {
+      dispatch({ type: "TROCAR_PERFIL", perfil: "gestor" })
+    }
+  }, [state.perfil, dispatch])
+  return state.perfil === "gestor" ? <>{children}</> : null
 }
 
 beforeEach(() => {
@@ -99,11 +114,37 @@ describe("render da demonstração (sem sessão)", () => {
     aviso.mockRestore()
   })
 
+  it("a lista de torneios oculta gestão para visitante (perfil padrão)", () => {
+    render(
+      <Wrap>
+        <DemoTorneiosLista />
+      </Wrap>
+    )
+    // Isola um torneio conhecido apenas para inspecionar seus controles.
+    expect(
+      screen.getByText("Liga Goliseu — Série Ouro")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /criar torneio/i })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Editar$/i })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Excluir /i })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", { name: /mudar status de/i })
+    ).not.toBeInTheDocument()
+  })
+
   it("excluir um torneio exige confirmação (só some após confirmar)", async () => {
     const user = userEvent.setup()
     render(
       <Wrap>
-        <DemoTorneiosLista />
+        <ComoGestor>
+          <DemoTorneiosLista />
+        </ComoGestor>
       </Wrap>
     )
     // Isola um torneio pela busca.

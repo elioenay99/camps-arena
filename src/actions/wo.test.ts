@@ -502,8 +502,13 @@ describe("solicitarWO", () => {
       user: { id: "tecB" },
       match: { ...partidaAberta(), v1: { user_id: "tecA" }, v2: { user_id: "tecB" } },
     })
-    // 4 bytes > 0 (size > 0 dispara o upload); tipo webp → ext "webp".
-    const foto = new File([new Uint8Array([1, 2, 3, 4])], "p.webp", { type: "image/webp" })
+    // WEBP com magic bytes válidos (RIFF...WEBP): o upload valida o conteúdo real.
+    const webp = new Uint8Array([
+      0x52, 0x49, 0x46, 0x46, // "RIFF"
+      0x0c, 0x00, 0x00, 0x00, // tamanho (irrelevante para o sniff)
+      0x57, 0x45, 0x42, 0x50, // "WEBP"
+    ])
+    const foto = new File([webp], "p.webp", { type: "image/webp" })
     const r = await solicitarWO(MATCH, foto)
     expect(r).toEqual({ ok: true })
     // upload chamado com path <uid>/<matchId>/<rand>.webp (rand não fixado).

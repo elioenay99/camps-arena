@@ -21,7 +21,7 @@ import type { TournamentFormat, TournamentStatus } from "@/lib/supabase/database
 import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge"
 import { StatusPill } from "@/features/tournament/components/StatusPill"
 import { FORMATO_META } from "@/features/tournament/formatoMeta"
-import { useDemoStore } from "@/features/demo/store/useDemoStore"
+import { useDemoStore, usePerfilFlags } from "@/features/demo/store/useDemoStore"
 import type { TorneioDemo } from "@/features/demo/store/tipos"
 
 const FORMATOS: TournamentFormat[] = [
@@ -162,6 +162,7 @@ function ConfirmarExclusao({
 
 export function DemoTorneiosLista() {
   const { state, dispatch } = useDemoStore()
+  const flags = usePerfilFlags()
   const [busca, setBusca] = React.useState("")
   const [filtroStatus, setFiltroStatus] = React.useState<TournamentStatus | "todos">(
     "todos"
@@ -196,16 +197,18 @@ export function DemoTorneiosLista() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-xl font-bold">Torneios</h1>
-        <FormularioTorneio
-          triggerLabel={
-            <>
-              <Plus aria-hidden className="size-3.5" /> Criar torneio
-            </>
-          }
-          onSalvar={(nome, formato) =>
-            dispatch({ type: "CRIAR_TORNEIO", nome, formato })
-          }
-        />
+        {flags.podeGerir ? (
+          <FormularioTorneio
+            triggerLabel={
+              <>
+                <Plus aria-hidden className="size-3.5" /> Criar torneio
+              </>
+            }
+            onSalvar={(nome, formato) =>
+              dispatch({ type: "CRIAR_TORNEIO", nome, formato })
+            }
+          />
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -291,49 +294,53 @@ export function DemoTorneiosLista() {
                   <span className="text-xs text-muted-foreground">{meta.label}</span>
                 </div>
                 <StatusPill status={t.status} />
-                <label className="text-xs">
-                  <span className="sr-only">Mudar status de {t.nome}</span>
-                  <select
-                    value={t.status}
-                    onChange={(e) =>
-                      dispatch({
-                        type: "MUDAR_STATUS",
-                        id: t.id,
-                        status: e.target.value as TournamentStatus,
-                      })
-                    }
-                    aria-label={`Mudar status de ${t.nome}`}
-                    className="h-8 rounded-md border border-input bg-background px-1.5 text-xs"
-                  >
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s === "rascunho"
-                          ? "Rascunho"
-                          : s === "ativo"
-                            ? "Ativo"
-                            : "Encerrado"}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <FormularioTorneio
-                  inicial={t}
-                  triggerVariant="ghost"
-                  triggerLabel={
-                    <>
-                      <Pencil aria-hidden className="size-3.5" /> Editar
-                    </>
-                  }
-                  onSalvar={(nome, formato) =>
-                    dispatch({ type: "EDITAR_TORNEIO", id: t.id, nome, formato })
-                  }
-                />
-                <ConfirmarExclusao
-                  nome={t.nome}
-                  onConfirmar={() =>
-                    dispatch({ type: "EXCLUIR_TORNEIO", id: t.id })
-                  }
-                />
+                {flags.podeGerir ? (
+                  <>
+                    <label className="text-xs">
+                      <span className="sr-only">Mudar status de {t.nome}</span>
+                      <select
+                        value={t.status}
+                        onChange={(e) =>
+                          dispatch({
+                            type: "MUDAR_STATUS",
+                            id: t.id,
+                            status: e.target.value as TournamentStatus,
+                          })
+                        }
+                        aria-label={`Mudar status de ${t.nome}`}
+                        className="h-8 rounded-md border border-input bg-background px-1.5 text-xs"
+                      >
+                        {STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {s === "rascunho"
+                              ? "Rascunho"
+                              : s === "ativo"
+                                ? "Ativo"
+                                : "Encerrado"}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <FormularioTorneio
+                      inicial={t}
+                      triggerVariant="ghost"
+                      triggerLabel={
+                        <>
+                          <Pencil aria-hidden className="size-3.5" /> Editar
+                        </>
+                      }
+                      onSalvar={(nome, formato) =>
+                        dispatch({ type: "EDITAR_TORNEIO", id: t.id, nome, formato })
+                      }
+                    />
+                    <ConfirmarExclusao
+                      nome={t.nome}
+                      onConfirmar={() =>
+                        dispatch({ type: "EXCLUIR_TORNEIO", id: t.id })
+                      }
+                    />
+                  </>
+                ) : null}
               </li>
             )
           })}
