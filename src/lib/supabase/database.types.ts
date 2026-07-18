@@ -1732,6 +1732,16 @@ export interface Database {
         Args: { p_proposal_id: string }
         Returns: string
       }
+      aplicar_placar_direto: {
+        Args: {
+          p_match_id: string
+          p_placar_1: number
+          p_placar_2: number
+          p_autores?: Json
+          p_expected_status?: string
+        }
+        Returns: string
+      }
       registrar_autores_lado: {
         Args: {
           p_match_id: string

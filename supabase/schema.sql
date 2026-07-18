@@ -5518,6 +5518,163 @@ create trigger matches_limpar_gols_wo
   execute function public.limpar_gols_no_wo();
 
 -- =====================================================================
+-- PLACAR DIRETO TRANSACIONAL (change fix-placar-replace-transacional)
+-- Aplica placar + autores (REPLACE dos DOIS lados) + poda de invariante numa
+-- ÚNICA transação SECURITY DEFINER — fecha a janela do caminho não-transacional
+-- (3 escritas PostgREST) que deixava artilharia inconsistente e gols órfãos acima
+-- do teto materializáveis na foto durável do hall da fama. Espelha o endurecimento
+-- de aprovar_proposta_placar, mas: NÃO encerra a partida e é REPLACE dos DOIS lados
+-- (semântica do modal direto do organizador, que pré-carrega ambos).
+--   * p_autores = null           → PRESERVA os gols (só placar + poda de órfãos).
+--   * p_autores = array (incl []) → REPLACE dos DOIS lados (delete [1,2] + insert).
+--   * p_expected_status (opcional) → guarda otimista: aplica só se o status casa
+--     (mata o last-write-wins / check-then-act não-atômico).
+-- Writer AUTORITATIVO: a autz (participante do avulso OU árbitro) vive AQUI (definer
+-- bypassa RLS); Zod/RLS são reforço. NÃO altera status.
+create or replace function public.aplicar_placar_direto(
+  p_match_id        uuid,
+  p_placar_1        integer,
+  p_placar_2        integer,
+  p_autores         jsonb default null,
+  p_expected_status text  default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_tid    uuid;
+  v_avulso boolean;
+  v_p1     integer := p_placar_1;
+  v_p2     integer := p_placar_2;
+  v_linhas integer;
+  v_merged jsonb;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  -- Serializa a corrida: trava a linha da partida. `coalesce` é LOAD-BEARING —
+  -- numa partida competitiva participante_1/2 são NULL; sem ele `null or false`
+  -- daria NULL e o `if not (...)` abaixo NÃO lançaria (bypass de autorização).
+  select m.tournament_id,
+         coalesce(m.participante_1 = v_uid, false)
+           or coalesce(m.participante_2 = v_uid, false)
+    into v_tid, v_avulso
+    from public.matches m
+   where m.id = p_match_id
+   for update;
+
+  if not found then
+    raise exception 'PARTIDA_INVALIDA';
+  end if;
+
+  -- Autorização (writer autoritativo): participante do avulso OU quem arbitra.
+  if not (v_avulso or public.pode_arbitrar_torneio(v_tid)) then
+    raise exception 'NAO_AUTORIZADO';
+  end if;
+
+  -- Placar + guarda otimista. Encerrada é imutável; p_expected_status (quando
+  -- não-null) fecha o last-write-wins (partida mudou sob os pés do editor).
+  update public.matches
+     set placar_1 = v_p1, placar_2 = v_p2
+   where id = p_match_id
+     and status <> 'encerrada'
+     and (p_expected_status is null or status::text = p_expected_status);
+  get diagnostics v_linhas = row_count;
+  if v_linhas = 0 then
+    -- Desambigua 0 linhas: encerrada tem mensagem própria; senão é corrida/obsoleto.
+    if exists (select 1 from public.matches
+                where id = p_match_id and status = 'encerrada') then
+      raise exception 'PARTIDA_ENCERRADA';
+    end if;
+    raise exception 'PARTIDA_INDISPONIVEL';
+  end if;
+
+  -- Autores: só quando ENVIADO (array). null = PRESERVA (não deleta nada; só a
+  -- poda abaixo age). REPLACE dos DOIS lados (semântica do modal direto): parse
+  -- endurecido (guards de tipo ANTES dos casts + RANGE no numeric antes do `::int`
+  -- — `2.5` trunca, `1e20` cai no else null; elemento malformado é IGNORADO, nunca
+  -- aborta). Um lado cuja SOMA exceda o placar NÃO entra no conjunto final (fica
+  -- vazio após o delete) — defesa contra payload forjado, espelha aprovar_proposta.
+  if p_autores is not null and jsonb_typeof(p_autores) = 'array' then
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'lado', g.lado, 'contra', g.contra, 'jogador', g.jogador, 'gols', g.gols)),
+             '[]'::jsonb)
+      into v_merged
+      from (
+        select x.lado,
+               x.contra,
+               min(x.jogador)                             as jogador,
+               sum(x.gols)                                as gols,
+               sum(sum(x.gols)) over (partition by x.lado) as total_lado
+          from (
+            select case when jsonb_typeof(e->'lado') = 'number'
+                        then case when (e->>'lado')::numeric in (1, 2)
+                                  then floor((e->>'lado')::numeric)::int end
+                        end                                                 as lado,
+                   case when jsonb_typeof(e->'contra') = 'boolean'
+                        then (e->>'contra')::boolean else false end         as contra,
+                   case when jsonb_typeof(e->'jogador') = 'string'
+                        then nullif(btrim(e->>'jogador'), '') else null end  as jogador,
+                   case when jsonb_typeof(e->'gols') = 'number'
+                        then case when (e->>'gols')::numeric >= 1
+                                   and (e->>'gols')::numeric < 100
+                                  then floor((e->>'gols')::numeric)::int end
+                        end                                                 as gols
+              from jsonb_array_elements(p_autores) e
+          ) x
+         where x.lado in (1, 2)
+           and x.gols between 1 and 99
+           and (
+             (x.jogador is not null and char_length(x.jogador) between 1 and 60)
+             or (x.jogador is null and x.contra = true)
+           )
+         group by x.lado, x.contra, lower(coalesce(x.jogador, ''))
+      ) g
+     where g.total_lado <= case g.lado when 1 then v_p1 else v_p2 end;
+
+    -- REPLACE dos DOIS lados: apaga ambos e reescreve com o conjunto válido. Um
+    -- lado sem item válido no payload fica VAZIO (limpar é intencional — o modal
+    -- mostra o estado atual via preload). Difere de aprovar_proposta_placar (que só
+    -- governa os lados presentes na proposta).
+    delete from public.match_goals
+     where match_id = p_match_id and lado in (1, 2);
+
+    insert into public.match_goals (match_id, lado, jogador, gols, contra)
+    select p_match_id,
+           (e->>'lado')::smallint,
+           nullif(e->>'jogador', ''),
+           (e->>'gols')::int,
+           (e->>'contra')::boolean
+      from jsonb_array_elements(v_merged) e;
+  end if;
+
+  -- Invariante soma(match_goals de um lado) ≤ placar[lado] SEMPRE: se o placar foi
+  -- REDUZIDO abaixo da soma já gravada de um lado NÃO governado (autores nulos), os
+  -- gols órfãos acima do novo teto seriam materializados na FOTO durável do hall da
+  -- fama (corrupção irreversível). Poda o lado inteiro. O lado governado já foi
+  -- reescrito ≤ placar (teto), então nunca cai aqui.
+  delete from public.match_goals g
+   where g.match_id = p_match_id
+     and (case g.lado when 1 then v_p1 else v_p2 end) <
+         (select sum(g2.gols) from public.match_goals g2
+           where g2.match_id = p_match_id and g2.lado = g.lado);
+
+  return p_match_id;
+end;
+$$;
+
+revoke execute on function
+  public.aplicar_placar_direto(uuid, integer, integer, jsonb, text)
+  from public, anon;
+grant execute on function
+  public.aplicar_placar_direto(uuid, integer, integer, jsonb, text)
+  to authenticated;
+
+-- =====================================================================
 -- Fim — ARTILHARIA COLABORATIVA
 -- =====================================================================
 

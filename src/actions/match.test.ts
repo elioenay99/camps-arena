@@ -34,44 +34,42 @@ interface Cenario {
     vaga_2?: { user_id: string | null } | null
   } | null
   readError?: { message: string } | null
-  writeData?: { id: string }[] | null
-  writeError?: { message: string } | null
   /** Proposta de placar PENDENTE para a partida (só consultada no caminho
-   * NÃO-avulso, ANTES do UPDATE). Default null = nenhuma pendente. */
+   * NÃO-avulso, ANTES da RPC). Default null = nenhuma pendente. */
   propostaPendente?: { id: string } | null
-  /** Erro simulado do delete/insert de match_goals (autores). */
-  goalsDeleteError?: { message: string } | null
-  goalsInsertError?: { message: string } | null
-  /** Somatórios atuais de match_goals por lado (poda de órfãos R1). */
-  goalsSums?: { lado: number; gols: number }[]
-  goalsSumsError?: { message: string } | null
+  /** Erro simulado da RPC transacional `aplicar_placar_direto` (raise → message). */
+  rpcError?: { message: string } | null
 }
 
 /**
- * Cliente Supabase falso com a forma encadeável que a action usa. Expõe spies
- * para o nome da tabela (`from`), os filtros `.eq` de leitura/escrita e o
- * payload do `.update` — assim o teste valida não só o retorno, mas QUAL linha
- * é tocada e COM quê (barreira contra escrever na partida errada).
+ * Cliente Supabase falso com a forma encadeável que a action usa. A gravação
+ * agora é ATÔMICA numa RPC (`aplicar_placar_direto`) — o mock ramifica `rpc` por
+ * nome de função (a autz `pode_arbitrar_torneio` vs a escrita transacional) e
+ * captura os argumentos passados à RPC de placar (barreira: valida QUAL partida,
+ * placar e autores são gravados, e a guarda otimista `p_expected_status`).
  */
 function montarClient(c: Cenario) {
-  const updateSpy = vi.fn()
   const readEqSpy = vi.fn()
-  const writeEqSpy = vi.fn()
   const proposalEqSpy = vi.fn()
-  const goalsDeleteSpy = vi.fn()
-  const goalsDeleteInSpy = vi.fn()
-  const goalsInsertSpy = vi.fn()
-  const goalsSumsEqSpy = vi.fn()
+  const placarRpcSpy = vi.fn()
   const client = {
     auth: {
       getUser: vi
         .fn()
         .mockResolvedValue({ data: { user: c.user ?? null }, error: c.authError ?? null }),
     },
-    // podeArbitrar() delega à RPC pode_arbitrar_torneio (só no caminho não-avulso).
-    rpc: vi.fn(async () => ({ data: c.arbitra ?? false, error: null })),
+    // Duas RPCs distintas: pode_arbitrar_torneio (autz, só no caminho não-avulso)
+    // e aplicar_placar_direto (a escrita transacional, writer autoritativo).
+    rpc: vi.fn(async (fn: string, args: unknown) => {
+      if (fn === "aplicar_placar_direto") {
+        placarRpcSpy(args)
+        return { data: c.rpcError ? null : UUID, error: c.rpcError ?? null }
+      }
+      // pode_arbitrar_torneio (e qualquer outra) devolve a capacidade simulada.
+      return { data: c.arbitra ?? false, error: null }
+    }),
     from: vi.fn((tabela: string) => {
-      // Guarda de proposta pendente (caminho não-avulso, ANTES do UPDATE):
+      // Guarda de proposta pendente (caminho não-avulso, ANTES da RPC):
       // select("id").eq("match_id", …).eq("status", "pendente").limit(1).maybeSingle()
       if (tabela === "match_score_proposals") {
         const builder = {
@@ -86,36 +84,8 @@ function montarClient(c: Cenario) {
         }
         return { select: vi.fn(() => builder) }
       }
-      // Autores dos gols (add-artilharia-colaborativa): delete-then-insert
-      // POR-LADO. delete().eq("match_id", …).in("lado", [...])  e  insert([...]).
-      // A poda de órfãos (R1) lê os somatórios: select("lado, gols").eq("match_id",…).
-      if (tabela === "match_goals") {
-        return {
-          select: vi.fn(() => ({
-            eq: vi.fn((coluna: string, valor: unknown) => {
-              goalsSumsEqSpy(coluna, valor)
-              return Promise.resolve({ data: c.goalsSums ?? [], error: c.goalsSumsError ?? null })
-            }),
-          })),
-          delete: vi.fn(() => ({
-            eq: vi.fn((coluna: string, valor: unknown) => {
-              goalsDeleteSpy(coluna, valor)
-              return {
-                in: vi.fn((colLado: string, lados: unknown) => {
-                  goalsDeleteInSpy(colLado, lados)
-                  return Promise.resolve({ error: c.goalsDeleteError ?? null })
-                }),
-              }
-            }),
-          })),
-          insert: vi.fn((rows: unknown) => {
-            goalsInsertSpy(rows)
-            return Promise.resolve({ error: c.goalsInsertError ?? null })
-          }),
-        }
-      }
+      // Leitura da partida: select(...).eq("id", matchId).maybeSingle()
       return {
-        // Leitura: select(...).eq("id", matchId).maybeSingle()
         select: vi.fn(() => ({
           eq: vi.fn((coluna: string, valor: unknown) => {
             readEqSpy(coluna, valor)
@@ -126,30 +96,11 @@ function montarClient(c: Cenario) {
             }
           }),
         })),
-        // Escrita: update({...}).eq("id", matchId).select("id")
-        update: vi.fn((vals: unknown) => {
-          updateSpy(vals)
-          return {
-            eq: vi.fn((coluna: string, valor: unknown) => {
-              writeEqSpy(coluna, valor)
-              return {
-                select: vi
-                  .fn()
-                  .mockResolvedValue({ data: c.writeData ?? null, error: c.writeError ?? null }),
-              }
-            }),
-          }
-        }),
       }
     }),
-    updateSpy,
     readEqSpy,
-    writeEqSpy,
     proposalEqSpy,
-    goalsDeleteSpy,
-    goalsDeleteInSpy,
-    goalsInsertSpy,
-    goalsSumsEqSpy,
+    placarRpcSpy,
   }
   mockCreateClient.mockResolvedValue(client as unknown as never)
   return client
@@ -179,7 +130,7 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toContain("autenticado")
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
@@ -192,7 +143,7 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toContain("autenticado")
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
@@ -201,11 +152,11 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toBe("Partida não encontrada.")
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
-  it("rejeita placar em partida ENCERRADA com mensagem específica, sem UPDATE", async () => {
+  it("rejeita placar em partida ENCERRADA com mensagem específica, sem RPC", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: {
@@ -218,7 +169,7 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toMatch(/encerrada/i)
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
@@ -227,11 +178,11 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toBe("Não foi possível carregar a partida.")
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
-  it("rejeita quem não participa da partida e não escreve", async () => {
+  it("rejeita quem não participa da partida e não chama a RPC", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: OUTRO_ID, participante_2: null },
@@ -239,44 +190,52 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toBe("Você não participa desta partida.")
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
   it("persiste e revalida quando o usuário é o participante_1", async () => {
     const client = montarClient({
       user: { id: USER_ID },
-      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
+      readData: {
+        id: UUID,
+        participante_1: USER_ID,
+        participante_2: OUTRO_ID,
+        status: "agendada",
+      },
     })
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(true)
-    // Toca a tabela e a LINHA corretas (leitura e escrita no mesmo matchId).
+    // Lê a partida certa e delega a escrita à RPC transacional com a LINHA + placar
+    // corretos e a guarda otimista pelo status lido.
     expect(client.from).toHaveBeenCalledWith("matches")
     expect(client.readEqSpy).toHaveBeenCalledWith("id", UUID)
-    expect(client.writeEqSpy).toHaveBeenCalledWith("id", UUID)
-    // Segurança: só placares no payload (sem reatribuir participantes/torneio).
-    expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
+    expect(client.placarRpcSpy).toHaveBeenCalledWith({
+      p_match_id: UUID,
+      p_placar_1: 3,
+      p_placar_2: 1,
+      p_autores: null,
+      p_expected_status: "agendada",
+    })
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
   })
 
-  it("sem autores NÃO toca match_goals (retrocompat)", async () => {
+  it("sem autores passa p_autores null (PRESERVA os gols)", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
     })
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(true)
-    expect(client.goalsDeleteSpy).not.toHaveBeenCalled()
-    expect(client.goalsInsertSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ p_autores: null })
+    )
   })
 
-  it("com autores enviado reescreve os DOIS lados (superfície REPLACE)", async () => {
+  it("com autores enviado passa o array AGREGADO à RPC (REPLACE dos dois lados)", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
     })
     const r = await updateMatchScore({
       ...entradaValida,
@@ -287,40 +246,40 @@ describe("updateMatchScore", () => {
       ],
     })
     expect(r.ok).toBe(true)
-    expect(client.goalsDeleteSpy).toHaveBeenCalledWith("match_id", UUID)
-    // Modal REPLACE (preload dos dois lados) → delete SEMPRE dos dois lados.
-    expect(client.goalsDeleteInSpy).toHaveBeenCalledWith("lado", [1, 2])
-    expect(client.goalsInsertSpy).toHaveBeenCalledWith([
-      { match_id: UUID, lado: 1, jogador: "Endrick", gols: 2, contra: false },
-      { match_id: UUID, lado: 1, jogador: "Vini", gols: 1, contra: false },
-      { match_id: UUID, lado: 2, jogador: "João", gols: 1, contra: false },
-    ])
+    // agregarAutores casa os buckets do índice parcial e preserva as entradas.
+    expect(client.placarRpcSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        p_autores: [
+          { lado: 1, jogador: "Endrick", gols: 2, contra: false },
+          { lado: 1, jogador: "Vini", gols: 1, contra: false },
+          { lado: 2, jogador: "João", gols: 1, contra: false },
+        ],
+      })
+    )
   })
 
-  it("autores de UM lado ESVAZIA o lado oposto (replace dos dois; lado vazio apaga)", async () => {
+  it("autores de UM lado deixa o array só com aquele lado (a RPC esvazia o oposto)", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
     })
     const r = await updateMatchScore({
       ...entradaValida,
       autores: [{ lado: 1, jogador: "Endrick", gols: 2, contra: false }],
     })
     expect(r.ok).toBe(true)
-    // Os DOIS lados são governados (o modal mostra ambos via preload); o lado 2
-    // veio VAZIO no payload → apagado (delete [1,2], insert só o lado 1).
-    expect(client.goalsDeleteInSpy).toHaveBeenCalledWith("lado", [1, 2])
-    expect(client.goalsInsertSpy).toHaveBeenCalledWith([
-      { match_id: UUID, lado: 1, jogador: "Endrick", gols: 2, contra: false },
-    ])
+    // O array traz só o lado 1; a RPC (REPLACE dos dois) esvazia o lado 2.
+    expect(client.placarRpcSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        p_autores: [{ lado: 1, jogador: "Endrick", gols: 2, contra: false }],
+      })
+    )
   })
 
-  it("grava o gol contra (contra=true, jogador null quando anônimo)", async () => {
+  it("gol contra anônimo vai com jogador undefined no array agregado", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
     })
     const r = await updateMatchScore({
       matchId: UUID,
@@ -332,84 +291,42 @@ describe("updateMatchScore", () => {
       ],
     })
     expect(r.ok).toBe(true)
-    expect(client.goalsInsertSpy).toHaveBeenCalledWith([
-      { match_id: UUID, lado: 1, jogador: "Vini", gols: 2, contra: false },
-      { match_id: UUID, lado: 1, jogador: null, gols: 1, contra: true },
-    ])
+    // agregarAutores transforma o anônimo em `jogador: undefined`; a RPC grava null.
+    expect(client.placarRpcSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        p_autores: [
+          { lado: 1, jogador: "Vini", gols: 2, contra: false },
+          { lado: 1, jogador: undefined, gols: 1, contra: true },
+        ],
+      })
+    )
   })
 
-  it("com autores vazio (tocado) ESVAZIA os dois lados (replace)", async () => {
+  it("com autores vazio (tocado) passa p_autores [] (REPLACE que esvazia os dois)", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
     })
     const r = await updateMatchScore({ ...entradaValida, autores: [] })
     expect(r.ok).toBe(true)
-    // `[]` enviado = o organizador limpou a captura (viu o estado pelo preload) →
-    // delete dos dois lados, sem reinsert.
-    expect(client.goalsDeleteInSpy).toHaveBeenCalledWith("lado", [1, 2])
-    expect(client.goalsInsertSpy).not.toHaveBeenCalled()
+    // `[]` (não undefined) → REPLACE que limpa os dois lados. Distinto de preservar.
+    expect(client.placarRpcSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ p_autores: [] })
+    )
   })
 
-  it("sem autores (campo ausente) NÃO toca match_goals — só a poda R1 checa somas", async () => {
+  it("campo autores AUSENTE preserva (p_autores null), distinto de [] enviado", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
     })
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(true)
-    // Campo ausente = preserva; nenhum delete de autores (a poda R1 não deleta
-    // porque não há somas configuradas).
-    expect(client.goalsDeleteSpy).not.toHaveBeenCalled()
-    expect(client.goalsInsertSpy).not.toHaveBeenCalled()
+    const args = client.placarRpcSpy.mock.calls[0]?.[0] as { p_autores: unknown }
+    expect(args.p_autores).toBeNull()
   })
 
-  it("R1: reduzir o placar abaixo da soma de um lado omitido PODA os gols órfãos", async () => {
-    // Placar novo 1×2 (sem autores); o lado 1 já tem 3 gols gravados (> 1) → poda.
-    const client = montarClient({
-      user: { id: USER_ID },
-      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
-      goalsSums: [
-        { lado: 1, gols: 2 },
-        { lado: 1, gols: 1 },
-        { lado: 2, gols: 2 },
-      ],
-    })
-    const r = await updateMatchScore({ matchId: UUID, placar_1: 1, placar_2: 2 })
-    expect(r.ok).toBe(true)
-    // Sem autores, mas a poda de órfãos deleta o lado 1 (soma 3 > placar 1); o lado
-    // 2 (soma 2 = placar 2) fica intocado.
-    expect(client.goalsDeleteInSpy).toHaveBeenCalledWith("lado", [1])
-  })
-
-  it("R1: sem redução de placar não poda nada", async () => {
-    const client = montarClient({
-      user: { id: USER_ID },
-      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
-      goalsSums: [{ lado: 1, gols: 3 }, { lado: 2, gols: 1 }],
-    })
-    const r = await updateMatchScore(entradaValida) // 3×1, soma casa
-    expect(r.ok).toBe(true)
-    expect(client.goalsDeleteInSpy).not.toHaveBeenCalled()
-  })
-
-  it("R1: erro ao LER os somatórios NÃO é engolido (retorna erro, não ok silencioso)", async () => {
-    montarClient({
-      user: { id: USER_ID },
-      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
-      goalsSumsError: { message: "io" },
-    })
-    const r = await updateMatchScore(entradaValida)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/ajustar os autores/i)
-  })
-
-  it("rejeita autores excedendo o placar (Zod), sem tocar no banco", async () => {
+  it("rejeita autores excedendo o placar (Zod), sem chamar a RPC", async () => {
     const client = montarClient({ user: { id: USER_ID } })
     const r = await updateMatchScore({
       matchId: UUID,
@@ -418,60 +335,29 @@ describe("updateMatchScore", () => {
       autores: [{ lado: 1, jogador: "Endrick", gols: 2, contra: false }],
     })
     expect(r.ok).toBe(false)
-    expect(client.updateSpy).not.toHaveBeenCalled()
-    expect(client.goalsDeleteSpy).not.toHaveBeenCalled()
-  })
-
-  it("erro ao gravar autores retorna mensagem (placar já salvo)", async () => {
-    montarClient({
-      user: { id: USER_ID },
-      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
-      goalsInsertError: { message: "boom" },
-    })
-    const r = await updateMatchScore({
-      ...entradaValida,
-      autores: [{ lado: 1, jogador: "Endrick", gols: 2, contra: false }],
-    })
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/autores dos gols/i)
-  })
-
-  it("colisão de nome no índice único (lower divergente) é tratada sem crash", async () => {
-    // Caso-limite: dois nomes que o JS considera distintos mas o lower() do
-    // Postgres colapsa (locale/não-ASCII) violariam match_goals_unico no INSERT.
-    // A action deve devolver ok:false com mensagem clara — nunca lançar/500.
-    const client = montarClient({
-      user: { id: USER_ID },
-      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
-      goalsInsertError: {
-        message: 'duplicate key value violates unique constraint "match_goals_unico"',
-      },
-    })
-    const r = await updateMatchScore({
-      ...entradaValida,
-      autores: [
-        { lado: 1, jogador: "İrfan", gols: 1, contra: false },
-        { lado: 1, jogador: "irfan", gols: 1, contra: false },
-      ],
-    })
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toMatch(/autores dos gols/i)
-    // O delete precede o insert (placar já salvo): fluxo chegou até a escrita.
-    expect(client.goalsDeleteSpy).toHaveBeenCalledWith("match_id", UUID)
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
   })
 
   it("aceita também o participante_2 com o mesmo efeito (simetria)", async () => {
     const client = montarClient({
       user: { id: USER_ID },
-      readData: { id: UUID, participante_1: OUTRO_ID, participante_2: USER_ID },
-      writeData: [{ id: UUID }],
+      readData: {
+        id: UUID,
+        participante_1: OUTRO_ID,
+        participante_2: USER_ID,
+        status: "em_andamento",
+      },
     })
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(true)
-    expect(client.writeEqSpy).toHaveBeenCalledWith("id", UUID)
-    expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
+    expect(client.placarRpcSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        p_match_id: UUID,
+        p_placar_1: 3,
+        p_placar_2: 1,
+        p_expected_status: "em_andamento",
+      })
+    )
     expect(mockRevalidate).toHaveBeenCalledWith("/dashboard")
   })
 
@@ -493,7 +379,7 @@ describe("updateMatchScore", () => {
     expect(r.ok).toBe(false)
     if (!r.ok)
       expect(r.error).toBe("Envie o placar para aprovação com a foto de evidência.")
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
   })
 
   it("competitivo: o TÉCNICO da vaga_2 também NÃO grava direto (simetria por vaga)", async () => {
@@ -512,7 +398,7 @@ describe("updateMatchScore", () => {
     expect(r.ok).toBe(false)
     if (!r.ok)
       expect(r.error).toBe("Envie o placar para aprovação com a foto de evidência.")
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
   })
 
   it("competitivo: o ÁRBITRO (não joga) lança o placar DIRETO", async () => {
@@ -527,14 +413,15 @@ describe("updateMatchScore", () => {
         vaga_1: { user_id: OUTRO_ID },
         vaga_2: { user_id: null },
       },
-      writeData: [{ id: UUID }],
     })
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(true)
-    expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
+    expect(client.placarRpcSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ p_placar_1: 3, p_placar_2: 1 })
+    )
   })
 
-  it("competitivo: vaga ÓRFÃ (técnico null) não dá acesso e não escreve", async () => {
+  it("competitivo: vaga ÓRFÃ (técnico null) não dá acesso e não chama a RPC", async () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: {
@@ -549,7 +436,7 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toBe("Você não participa desta partida.")
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
   })
 
   it("competitivo: técnico de OUTRO clube (nenhuma vaga minha) é rejeitado", async () => {
@@ -566,10 +453,10 @@ describe("updateMatchScore", () => {
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toBe("Você não participa desta partida.")
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
   })
 
-  it("competitivo: com PROPOSTA pendente, o árbitro é recusado limpo e NÃO grava", async () => {
+  it("competitivo: com PROPOSTA pendente, o árbitro é recusado limpo e NÃO chama a RPC", async () => {
     // O árbitro (arbitra:true) normalmente grava direto; mas havendo uma proposta
     // de placar aguardando aprovação, a action recusa com mensagem clara (não o
     // "unexpected response") e não escreve — fecha a corrida de aba velha.
@@ -584,7 +471,6 @@ describe("updateMatchScore", () => {
         vaga_2: { user_id: null },
       },
       propostaPendente: { id: "prop1" },
-      // writeData não deve ser alcançado.
     })
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
@@ -593,8 +479,8 @@ describe("updateMatchScore", () => {
     expect(client.from).toHaveBeenCalledWith("match_score_proposals")
     expect(client.proposalEqSpy).toHaveBeenCalledWith("match_id", UUID)
     expect(client.proposalEqSpy).toHaveBeenCalledWith("status", "pendente")
-    // Barreira: nenhum UPDATE.
-    expect(client.updateSpy).not.toHaveBeenCalled()
+    // Barreira: nenhuma RPC de escrita.
+    expect(client.placarRpcSpy).not.toHaveBeenCalled()
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 
@@ -611,13 +497,14 @@ describe("updateMatchScore", () => {
         vaga_2: { user_id: null },
       },
       propostaPendente: null,
-      writeData: [{ id: UUID }],
     })
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(true)
     // A guarda consultou a tabela (caminho não-avulso), mas nada pendente → gravou.
     expect(client.proposalEqSpy).toHaveBeenCalledWith("match_id", UUID)
-    expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
+    expect(client.placarRpcSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ p_placar_1: 3, p_placar_2: 1 })
+    )
   })
 
   it("avulso: a guarda de proposta NEM é consultada (evita hop no caminho comum)", async () => {
@@ -626,7 +513,6 @@ describe("updateMatchScore", () => {
     const client = montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [{ id: UUID }],
     })
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(true)
@@ -634,29 +520,49 @@ describe("updateMatchScore", () => {
     expect(client.proposalEqSpy).not.toHaveBeenCalled()
   })
 
-  it("rejeita quando o UPDATE falha", async () => {
+  it("mapeia PARTIDA_INDISPONIVEL da RPC (guarda otimista / corrida)", async () => {
     montarClient({
       user: { id: USER_ID },
       readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeError: { message: "boom" },
-    })
-    const r = await updateMatchScore(entradaValida)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toBe("Não foi possível salvar o placar.")
-    expect(mockRevalidate).not.toHaveBeenCalled()
-  })
-
-  it("trata corrida: 0 linhas afetadas após a checagem (RLS/partida sumiu)", async () => {
-    const client = montarClient({
-      user: { id: USER_ID },
-      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
-      writeData: [],
+      rpcError: { message: 'erro: PARTIDA_INDISPONIVEL' },
     })
     const r = await updateMatchScore(entradaValida)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toContain("alterada")
-    // O UPDATE foi tentado (a mensagem "alterada" só é alcançável pós-escrita).
-    expect(client.updateSpy).toHaveBeenCalledWith({ placar_1: 3, placar_2: 1 })
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it("mapeia PARTIDA_ENCERRADA da RPC (encerrou entre a checagem e a escrita)", async () => {
+    montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      rpcError: { message: 'PARTIDA_ENCERRADA' },
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/encerrada/i)
+  })
+
+  it("mapeia NAO_AUTORIZADO da RPC (POST direto que burlou a UI)", async () => {
+    montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      rpcError: { message: 'NAO_AUTORIZADO' },
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toBe("Você não participa desta partida.")
+  })
+
+  it("erro genérico da RPC vira mensagem de salvar o placar (sem vazar interno)", async () => {
+    montarClient({
+      user: { id: USER_ID },
+      readData: { id: UUID, participante_1: USER_ID, participante_2: OUTRO_ID },
+      rpcError: { message: "deadlock detected" },
+    })
+    const r = await updateMatchScore(entradaValida)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toBe("Não foi possível salvar o placar.")
     expect(mockRevalidate).not.toHaveBeenCalled()
   })
 })

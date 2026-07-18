@@ -10,6 +10,7 @@ import { varrerOrfaosDaRodada } from "@/features/match/closeRound"
 import { enviarNotificacoes } from "@/features/notifications/enviar"
 import { podeArbitrar, podeGerir } from "@/lib/autorizacao"
 import { createClient } from "@/lib/supabase/server"
+import type { Json } from "@/lib/supabase/database.types"
 import {
   agregarAutores,
   createMatchSchema,
@@ -54,6 +55,33 @@ function ehJogadorDaPartida(
     match.vaga_1?.user_id === userId ||
     match.vaga_2?.user_id === userId
   )
+}
+
+/**
+ * Códigos `raise exception` da RPC `aplicar_placar_direto` → mensagem pt-BR já
+ * existente. A pré-guarda da action (autz, status, proposta pendente) cobre o
+ * caminho comum; este mapeamento fecha as corridas que só a RPC detecta (guarda
+ * otimista, autz por POST direto que burlou a UI).
+ */
+function mensagemErroPlacar(message: string): string {
+  const codigo =
+    /(AUTH_REQUIRED|NAO_AUTORIZADO|PARTIDA_INVALIDA|PARTIDA_ENCERRADA|PARTIDA_INDISPONIVEL)/.exec(
+      message
+    )?.[1] ?? ""
+  switch (codigo) {
+    case "AUTH_REQUIRED":
+      return "Você precisa estar autenticado."
+    case "NAO_AUTORIZADO":
+      return "Você não participa desta partida."
+    case "PARTIDA_ENCERRADA":
+      return "Partida encerrada não aceita placar. Peça ao dono do torneio para reabri-la."
+    case "PARTIDA_INDISPONIVEL":
+      return "Não foi possível salvar o placar. A partida pode ter sido alterada. Tente novamente."
+    case "PARTIDA_INVALIDA":
+      return "Partida não encontrada."
+    default:
+      return "Não foi possível salvar o placar."
+  }
 }
 
 /**
@@ -169,108 +197,28 @@ export async function updateMatchScore(
     }
   }
 
-  // 3) UPDATE — apenas placares (não dispara o trigger de trava de relações).
-  //    `.select()` confirma a escrita: se a RLS barrar ou a partida sumir
-  //    entre a checagem e o update, nenhuma linha volta.
-  const { data: atualizada, error: updateError } = await supabase
-    .from("matches")
-    .update({ placar_1, placar_2 })
-    .eq("id", matchId)
-    .select("id")
-
-  if (updateError) {
-    return { ok: false, error: "Não foi possível salvar o placar." }
-  }
-  if (!atualizada || atualizada.length === 0) {
-    // Propriedade já foi confirmada acima: 0 linhas aqui indica corrida
-    // (partida alterada/removida entre a checagem e o update) ou RLS — não
-    // falta de propriedade. Mensagem distinta evita diagnóstico enganoso.
-    return {
-      ok: false,
-      error: "Não foi possível salvar o placar. A partida pode ter sido alterada. Tente novamente.",
-    }
-  }
-
-  // Autores dos gols (artilharia): o modal de lançamento DIRETO do organizador é
-  // uma superfície REPLACE — ele PRÉ-CARREGA os autores atuais dos DOIS lados
-  // (`autoresIniciais`) e, quando o organizador MEXE na captura, submete a lista
-  // COMPLETA. Por isso, quando `autores` é ENVIADO (mesmo `[]`), tratamos como
-  // REPLACE dos DOIS lados: cada lado é reescrito exatamente com o que veio; um
-  // lado enviado VAZIO ESVAZIA aquele lado (o organizador vê o estado atual pelo
-  // preload, então limpar é intencional e efetivo). Distinção load-bearing:
-  //   * `autores` AUSENTE (`undefined`) → PRESERVA TUDO (retrocompat: reabrir +
-  //     re-lançar sem tocar na captura não apaga a artilharia colaborativa).
-  //   * `autores` ENVIADO (array, incl. `[]`) → REPLACE dos dois lados.
-  // A mesma autorização do placar já passou acima e a RLS de match_goals a espelha.
-  // O Zod garantiu soma por lado ≤ placar (contando contra) e sem duplicata.
-  // Não-transacional (MVP): o placar já foi salvo; falha aqui retorna erro claro.
-  // Agregamos por (lado, contra, nome normalizado) antes do INSERT para casar com
-  // os índices parciais — buckets que só diferem em caixa/espaço (ou dois contras
-  // anônimos) somam numa linha só, sem violar o unique.
-  if (autores !== undefined) {
-    const { error: delError } = await supabase
-      .from("match_goals")
-      .delete()
-      .eq("match_id", matchId)
-      .in("lado", [1, 2])
-    if (delError) {
-      return { ok: false, error: "Placar salvo, mas não foi possível registrar os autores dos gols." }
-    }
-    const autoresAgg = agregarAutores(autores)
-    if (autoresAgg.length > 0) {
-      const { error: insError } = await supabase.from("match_goals").insert(
-        autoresAgg.map((a) => ({
-          match_id: matchId,
-          lado: a.lado,
-          // Gol contra anônimo → jogador null; normal sempre tem nome.
-          jogador: a.jogador ?? null,
-          gols: a.gols,
-          contra: a.contra,
-        }))
-      )
-      if (insError) {
-        return { ok: false, error: "Placar salvo, mas não foi possível registrar os autores dos gols." }
-      }
-    }
-  }
-
-  // Invariante soma(match_goals de um lado) ≤ placar[lado] SEMPRE (add-artilharia-
-  // colaborativa, R1): se o placar foi REDUZIDO abaixo da soma já gravada de um
-  // lado E os autores daquele lado NÃO vieram no payload (delete por-lado só toca
-  // os lados presentes), os gols antigos ficariam ÓRFÃOS acima do novo teto e
-  // seriam materializados na FOTO durável do hall da fama (corrupção irreversível).
-  // Poda o lado inteiro (força a re-atribuição sob o novo placar). O lado governado
-  // pelo `autores` já foi reescrito ≤ placar (Zod), então nunca cai aqui.
-  const { data: somas, error: somasErr } = await supabase
-    .from("match_goals")
-    .select("lado, gols")
-    .eq("match_id", matchId)
-  if (somasErr) {
-    // Não engolir: sem os somatórios não dá para garantir a invariante — um erro
-    // silencioso deixaria gols órfãos acima do teto (corrupção do hall da fama).
-    return {
-      ok: false,
-      error: "Placar salvo, mas não foi possível ajustar os autores dos gols ao novo placar.",
-    }
-  }
-  if (somas && somas.length > 0) {
-    const somaLado: Record<number, number> = {}
-    for (const g of somas) somaLado[g.lado] = (somaLado[g.lado] ?? 0) + g.gols
-    const placarLado: Record<number, number> = { 1: placar_1, 2: placar_2 }
-    const ladosOrfaos = [1, 2].filter((l) => (somaLado[l] ?? 0) > placarLado[l])
-    if (ladosOrfaos.length > 0) {
-      const { error: podaErr } = await supabase
-        .from("match_goals")
-        .delete()
-        .eq("match_id", matchId)
-        .in("lado", ladosOrfaos)
-      if (podaErr) {
-        return {
-          ok: false,
-          error: "Placar salvo, mas não foi possível ajustar os autores dos gols ao novo placar.",
-        }
-      }
-    }
+  // 3) Aplica placar + autores + poda de invariante ATOMICAMENTE numa RPC
+  //    SECURITY DEFINER (change fix-placar-replace-transacional). A RPC é o WRITER
+  //    AUTORITATIVO: repete a autz (participante do avulso OU árbitro), endurece o
+  //    parse dos autores e impõe a invariante `soma do lado ≤ placar` na MESMA
+  //    transação — fecha a janela do antigo caminho não-transacional (3 escritas
+  //    PostgREST), onde o placar salvava com artilharia inconsistente ou gol órfão
+  //    acima do novo teto (materializável na foto durável do hall da fama).
+  //    `p_autores`: undefined → null (PRESERVA os gols); array (incl. `[]`) →
+  //    REPLACE dos DOIS lados (o modal pré-carrega ambos; lado vazio limpa). O
+  //    array vai JÁ AGREGADO (agregarAutores casa os buckets do índice parcial); a
+  //    RPC re-endurece por ser alcançável por POST direto. `p_expected_status`:
+  //    guarda otimista contra edição concorrente (mata o last-write-wins).
+  const { error: rpcError } = await supabase.rpc("aplicar_placar_direto", {
+    p_match_id: matchId,
+    p_placar_1: placar_1,
+    p_placar_2: placar_2,
+    p_autores:
+      autores !== undefined ? (agregarAutores(autores) as unknown as Json) : null,
+    p_expected_status: match.status,
+  })
+  if (rpcError) {
+    return { ok: false, error: mensagemErroPlacar(rpcError.message) }
   }
 
   // A página do torneio também exibe placar ao vivo (partidas em aberto,
