@@ -6,7 +6,7 @@ import { Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { TournamentStatus } from "@/lib/supabase/database.types"
-import { useDemoStore } from "@/features/demo/store/useDemoStore"
+import { useDemoStore, usePerfilFlags } from "@/features/demo/store/useDemoStore"
 
 import { CardVitrineDemo, VitrineVaziaDemo } from "./CardVitrineDemo"
 
@@ -15,6 +15,7 @@ type Ordem = "recentes" | "nome" | "competidores"
 
 export function DemoExplorar() {
   const { state, dispatch } = useDemoStore()
+  const flags = usePerfilFlags()
   const [busca, setBusca] = React.useState("")
   const [tipo, setTipo] = React.useState<"todos" | "liga" | "torneio">("todos")
   const [status, setStatus] = React.useState<TournamentStatus | "todos">("todos")
@@ -129,8 +130,10 @@ export function DemoExplorar() {
             <CardVitrineDemo
               key={item.id}
               item={item}
-              onToggleListar={() =>
-                dispatch({ type: "TOGGLE_LISTAR", id: item.id })
+              onToggleListar={
+                flags.podeGerir
+                  ? () => dispatch({ type: "TOGGLE_LISTAR", id: item.id })
+                  : undefined
               }
             />
           ))}
