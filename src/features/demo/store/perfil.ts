@@ -22,8 +22,8 @@ export const ROTULO_PERFIL: Record<PerfilDemo, string> = {
 
 /** Descrição curta do que cada perfil enxerga (UI). */
 export const DESCRICAO_PERFIL: Record<PerfilDemo, string> = {
-  visitante: "Só visualiza — sem ações de gestão",
-  tecnico: "Acompanha e lança placares do próprio lado",
+  visitante: "Explora competições e experimenta placares, sem ações de gestão",
+  tecnico: "Experimenta placares e acompanha a visão de um técnico",
   gestor: "Gerencia o campeonato (iniciar, encerrar, moderar)",
   admin: "Acesso total, incluindo bastidores",
 }

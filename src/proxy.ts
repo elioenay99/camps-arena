@@ -1,4 +1,4 @@
-import { type NextRequest } from "next/server"
+import { NextResponse, type NextRequest } from "next/server"
 
 import { env } from "@/lib/env"
 import { buildContentSecurityPolicy } from "@/lib/security/csp"
@@ -14,13 +14,34 @@ export async function proxy(request: NextRequest) {
     isDev,
     supabaseUrl: env.NEXT_PUBLIC_SUPABASE_URL,
   })
-
-  // x-nonce + CSP nos request headers: o Next extrai o nonce do header de
-  // request e o aplica aos scripts; o RSC lê o x-nonce via headers().
-  const response = await updateSession(request, {
+  const extraRequestHeaders = {
+    // x-nonce + CSP nos request headers: o Next extrai o nonce do header de
+    // request e o aplica aos scripts; o RSC lê o x-nonce via headers().
     "x-nonce": nonce,
     "content-security-policy": csp,
-  })
+  }
+
+  // `/demo` (e filhos) é a vitrine pública 100% em memória: o visitante não tem
+  // sessão para renovar, então o refresh do Supabase (`updateSession` →
+  // `auth.getUser()`) seria um round-trip de rede inútil por navegação. Pulamos
+  // o refresh MAS preservamos nonce/CSP idênticos. Limite de segmento para não
+  // pegar `/demonstration`, `/demo-extra` etc. O matcher permanece intocado:
+  // `/demo` PRECISA passar pelo proxy justamente para receber nonce/CSP.
+  const { pathname } = request.nextUrl
+  const ehDemo = pathname === "/demo" || pathname.startsWith("/demo/")
+
+  if (ehDemo) {
+    // Espelha o `nextWithHeaders()` de middleware.ts, sem tocar o Supabase.
+    const headers = new Headers(request.headers)
+    for (const [key, value] of Object.entries(extraRequestHeaders)) {
+      headers.set(key, value)
+    }
+    const response = NextResponse.next({ request: { headers } })
+    response.headers.set("content-security-policy", csp)
+    return response
+  }
+
+  const response = await updateSession(request, extraRequestHeaders)
   // E na resposta (o browser aplica a política a partir daqui). Inclusive no
   // redirect de auth — header inócuo, defesa em profundidade.
   response.headers.set("content-security-policy", csp)

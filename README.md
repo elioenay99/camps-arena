@@ -10,10 +10,10 @@ O nome vem de "gol" + "Coliseu".
 
 ## Demonstração
 
-Há um modo de demonstração público e interativo em `/demo`, 100% em memória (nenhuma
-sessão, nenhuma chamada de rede). É a forma mais rápida de sentir o produto sem criar
-conta: edite um placar e veja classificação, forma, artilharia e Muralha recomputarem ao
-vivo.
+Há um modo de demonstração público e interativo em `/demo`, 100% em memória: nem a árvore
+de componentes nem o middleware consultam o Supabase em `/demo` — não há sessão nem
+chamada de rede. É a forma mais rápida de sentir o produto sem criar conta: edite um
+placar e veja classificação, forma, artilharia e Muralha recomputarem ao vivo.
 
 ## Stack
 
