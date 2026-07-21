@@ -521,6 +521,10 @@ describe("contenção de PII — fronteira RSC (guard de regressão)", () => {
     for (const arquivo of [
       "src/features/match/components/OpenMatchesList.tsx",
       "src/features/match/components/MatchCard.tsx",
+      // O disclosure do histórico é NATIVO (<details>) justamente para a lista
+      // e o bloco de identidade continuarem RSC.
+      "src/features/match/components/MatchHistoryList.tsx",
+      "src/features/match/components/PartidaIdentidade.tsx",
     ]) {
       const fonte = await fs.readFile(arquivo, "utf8")
       expect(fonte, `${arquivo} não pode virar client component`).not.toMatch(
@@ -645,5 +649,101 @@ describe("OpenMatchesList — editor de placar do organizador (modo direto)", ()
     expect(html).not.toContain("tel:")
     expect(html).not.toContain("11912345678")
     expect(html).not.toContain("11998887777")
+  })
+})
+
+describe("MatchHistoryList — disclosure nativo (mobile)", () => {
+  const TORNEIO = "11111111-1111-4111-8111-111111111111"
+
+  const encerrada = (over: Record<string, unknown> = {}) => ({
+    id: "m1",
+    nome_1: "Remo",
+    nome_2: "Botafogo",
+    placar_1: 2,
+    placar_2: 1,
+    encerradaEm: "2026-06-07T12:00:00Z",
+    rodada: 11,
+    perna: null,
+    grupo: null,
+    ...over,
+  })
+
+  it("a linha principal carrega rodada, escudo e o placar; as ações ficam no corpo", () => {
+    const { container } = render(
+      <MatchHistoryList
+        partidas={[encerrada({ escudo_1: "https://exemplo.test/remo.png" })]}
+        mostrarReabrir
+        tournamentId={TORNEIO}
+        titulo="Copa da Firma"
+      />
+    )
+    const summary = container.querySelector("summary")
+    expect(summary).toBeInTheDocument()
+    // Placar e rótulo de rodada continuam na linha SEMPRE visível.
+    expect(summary).toHaveTextContent("R11")
+    expect(summary).toHaveTextContent("2 x 1")
+    // Escudo do lado com escudo cadastrado; o outro cai nas iniciais.
+    expect(container.querySelectorAll("summary img")).toHaveLength(1)
+    // Nenhum controle interativo dentro do <summary> (aninhamento quebra o
+    // disclosure em vários navegadores).
+    expect(summary?.querySelectorAll("button, a")).toHaveLength(0)
+  })
+
+  it("recolhido NÃO expõe as ações; ao abrir, expõe", () => {
+    const { container } = render(
+      <MatchHistoryList
+        partidas={[encerrada()]}
+        mostrarReabrir
+        tournamentId={TORNEIO}
+        titulo="Copa da Firma"
+      />
+    )
+    const details = container.querySelector("details") as HTMLDetailsElement
+    expect(details.open).toBe(false)
+
+    const reabrir = screen.getByRole("button", { name: /reabrir/i })
+    const compartilhar = screen.getByRole("button", { name: /compartilhar/i })
+    // Estão no DOM (RSC, sem JS), mas escondidos pelo details fechado.
+    expect(reabrir).not.toBeVisible()
+    expect(compartilhar).not.toBeVisible()
+
+    details.open = true
+    expect(reabrir).toBeVisible()
+    expect(compartilhar).toBeVisible()
+  })
+
+  it("o texto acessível do resultado segue íntegro na linha principal", () => {
+    const { container } = render(<MatchHistoryList partidas={[encerrada()]} />)
+    const summary = container.querySelector("summary")
+    expect(summary).toHaveTextContent(
+      "Rodada 11: Placar final: Remo 2, Botafogo 1"
+    )
+  })
+
+  it("W.O. e W.O. duplo continuam sinalizados na linha principal (não no detalhe)", () => {
+    const { container, rerender } = render(
+      <MatchHistoryList
+        partidas={[encerrada({ placar_1: 0, placar_2: 0, wo: true, woVencedorLado: 1 })]}
+      />
+    )
+    expect(container.querySelector("summary")).toHaveTextContent("W.O.")
+    expect(screen.getByText(/W\.O\. — Remo venceu/)).toBeInTheDocument()
+
+    rerender(
+      <MatchHistoryList
+        partidas={[
+          encerrada({
+            placar_1: 0,
+            placar_2: 0,
+            wo: true,
+            woDuplo: true,
+            woVencedorLado: null,
+          }),
+        ]}
+      />
+    )
+    expect(container.querySelector("summary")).toHaveTextContent("W.O. duplo")
+    expect(screen.getByText(/W\.O\. duplo — ambos ausentes/)).toBeInTheDocument()
+    expect(screen.queryByText(/venceu/)).toBeNull()
   })
 })

@@ -1,16 +1,21 @@
+import { ChevronDown } from "lucide-react"
+
 import {
   ArtilheirosEncerrada,
   type LadoEditavel,
 } from "@/features/match/components/ArtilheirosEncerrada"
 import { CompartilharResultadoButton } from "@/features/match/components/CompartilharResultadoButton"
 import { MatchStatusButton } from "@/features/match/components/MatchStatusButton"
+import {
+  PartidaIdentidade,
+  rotuloRodada,
+} from "@/features/match/components/PartidaIdentidade"
 import { RoundPager } from "@/features/match/components/RoundPager"
 import {
   resumoDoLado,
   type GolCru,
 } from "@/features/match/data/getMatchGoals"
 import type { PartidaEncerrada } from "@/features/standings/data/getTournamentClassificacao"
-import { cn } from "@/lib/utils"
 import { mensagemResultado } from "@/lib/whatsapp"
 
 // Timezone fixo do produto (app pt-BR): sem ele o servidor formataria em UTC
@@ -88,107 +93,129 @@ export function MatchHistoryList({
           ? [{ lado: 2, nomeLado: p.nome_2, placar: p.placar_2, existentes: r2.autores }]
           : []
 
+    const dataFormatada = formatoData.format(new Date(p.encerradaEm))
+
     return (
       <li
         key={p.id}
-        className="flex items-center justify-between gap-4 rounded-lg border bg-card/40 px-4 py-3 text-sm motion-safe:transition-colors hover:border-primary/30"
+        className="rounded-lg border bg-card/40 text-sm motion-safe:transition-colors hover:border-primary/30"
       >
-        {/* min-w-0 + truncate: sem eles, nome longo não encolhe (min-width
-            auto do flex) e o grupo invade a data no mobile. */}
-        <span className="flex min-w-0 items-center gap-2" aria-hidden="true">
-          {/* Rodada/fase gerada; partida avulsa (rodada null) fica como
-              sempre. Perna identifica ida/volta do confronto de mata-mata. */}
-          {p.rodada !== null ? (
-            <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-              {p.grupo !== null ? `G${p.grupo} ` : ""}
-              R{p.rodada}
-              {p.perna !== null ? (p.perna === 1 ? " ida" : " volta") : ""}
-            </span>
-          ) : null}
-          <span className={cn("truncate", p.wo && p.woVencedorLado === 1 && "font-semibold")}>
-            {p.nome_1}
-          </span>
-          {p.wo ? (
-            <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold tracking-wide uppercase">
-              {p.woDuplo ? "W.O. duplo" : "W.O."}
-            </span>
-          ) : (
-            <span className="shrink-0 font-display font-semibold tabular-nums">
-              {p.placar_1} x {p.placar_2}
-            </span>
-          )}
-          <span className={cn("truncate", p.wo && p.woVencedorLado === 2 && "font-semibold")}>
-            {p.nome_2}
-          </span>
-        </span>
-        <span className="sr-only">
-          {p.wo
-            ? `${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}: ` : ""}${p.woDuplo ? `W.O. duplo — ambos ausentes, sem vencedor (${p.nome_1} e ${p.nome_2})` : `W.O. — ${p.woVencedorLado === 1 ? p.nome_1 : p.nome_2} venceu`}`
-            : `${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}${p.perna !== null ? ` (${p.perna === 1 ? "ida" : "volta"})` : ""}: ` : ""}Placar final: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2}`}
-        </span>
-        <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          {/* Detalhe (7.6): gol contra à parte, FORA do ranking de artilheiros. */}
-          {!p.wo && (r1.contra > 0 || r2.contra > 0) ? (
-            <span className="text-muted-foreground text-xs">
-              {r1.contra > 0 ? `${p.nome_1}: ${r1.contra} contra` : ""}
-              {r1.contra > 0 && r2.contra > 0 ? " • " : ""}
-              {r2.contra > 0 ? `${p.nome_2}: ${r2.contra} contra` : ""}
-            </span>
-          ) : null}
-          {/* Badge de descoberta (7.5): puxa o técnico ao editor "Meus artilheiros". */}
-          {mostrarArtilheiros && ladoDoTecnico !== null && faltamTecnico > 0 ? (
-            <span className="bg-amber-500/15 text-amber-700 dark:text-amber-400 rounded-full px-2 py-0.5 text-xs font-medium">
-              faltam {faltamTecnico} artilheiro{faltamTecnico > 1 ? "s" : ""}
-            </span>
-          ) : null}
-          {/* Editor do TÉCNICO (append) — só o próprio lado, existentes read-only. */}
-          {mostrarArtilheiros && ladoDoTecnico !== null && !podeArbitrar ? (
-            <ArtilheirosEncerrada
-              matchId={p.id}
-              modo="append"
-              lados={ladoTecnicoEdit}
-              triggerLabel="Meus artilheiros"
-              triggerVariant="outline"
-            />
-          ) : null}
-          {/* Editor do ORGANIZADOR (replace) — os DOIS lados, completo. */}
-          {mostrarArtilheiros && podeArbitrar ? (
-            <ArtilheirosEncerrada
-              matchId={p.id}
-              modo="replace"
-              lados={ladosArbitro}
-              triggerLabel="Artilheiros"
-              triggerVariant="outline"
-            />
-          ) : null}
-          <time dateTime={p.encerradaEm} className="text-muted-foreground text-xs">
-            {formatoData.format(new Date(p.encerradaEm))}
-          </time>
-          {/* Compartilhar resultado (change add-frente-compartilhavel): qualquer
-              logado que enxerga a partida. O texto é montado no servidor. */}
-          {tournamentId ? (
-            <CompartilharResultadoButton
-              tournamentId={tournamentId}
-              matchId={p.id}
+        {/* Disclosure NATIVO: a lista é RSC pura e assim continua. Estado React
+            exigiria "use client" (ou passar JSX de client component pela
+            fronteira RSC — padrão que já corrompeu o elemento neste projeto). */}
+        <details className="group">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2 [&::-webkit-details-marker]:hidden">
+            <PartidaIdentidade
+              rodadaLabel={rotuloRodada(p)}
               nome1={p.nome_1}
               nome2={p.nome_2}
-              texto={mensagemResultado({
-                titulo,
-                nome1: p.nome_1,
-                nome2: p.nome_2,
-                placar1: p.placar_1,
-                placar2: p.placar_2,
-                wo: p.wo,
-                woDuplo: p.woDuplo,
-                woVencedorLado: p.woVencedorLado ?? null,
-                tournamentId,
-              })}
-            />
-          ) : null}
-          {mostrarReabrir ? (
-            <MatchStatusButton matchId={p.id} acao="reabrir" />
-          ) : null}
-        </span>
+              escudo1={p.escudo_1}
+              escudo2={p.escudo_2}
+              destaque1={Boolean(p.wo && p.woVencedorLado === 1)}
+              destaque2={Boolean(p.wo && p.woVencedorLado === 2)}
+            >
+              {p.wo ? (
+                <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold tracking-wide uppercase">
+                  {p.woDuplo ? "W.O. duplo" : "W.O."}
+                </span>
+              ) : (
+                <span className="shrink-0 font-display text-base font-semibold tabular-nums sm:text-sm">
+                  {p.placar_1} x {p.placar_2}
+                </span>
+              )}
+            </PartidaIdentidade>
+            <span className="sr-only">
+              {p.wo
+                ? `${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}: ` : ""}${p.woDuplo ? `W.O. duplo — ambos ausentes, sem vencedor (${p.nome_1} e ${p.nome_2})` : `W.O. — ${p.woVencedorLado === 1 ? p.nome_1 : p.nome_2} venceu`}`
+                : `${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}${p.perna !== null ? ` (${p.perna === 1 ? "ida" : "volta"})` : ""}: ` : ""}Placar final: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2}`}
+            </span>
+            <span className="ml-auto flex shrink-0 items-center gap-2">
+              <time
+                dateTime={p.encerradaEm}
+                className="text-muted-foreground hidden text-xs sm:inline"
+              >
+                {dataFormatada}
+              </time>
+              <ChevronDown
+                className="text-muted-foreground size-4 shrink-0 motion-safe:transition-transform group-open:rotate-180"
+                aria-hidden="true"
+              />
+            </span>
+          </summary>
+          {/* Corpo do disclosure: nunca coloque controle interativo no
+              <summary> (aninhamento quebra em vários navegadores). */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t px-4 py-3 max-sm:[&_[data-slot=button]]:min-h-11">
+            <span className="basis-full sm:basis-auto">
+              {p.nome_1} x {p.nome_2}
+            </span>
+            <time
+              dateTime={p.encerradaEm}
+              className="text-muted-foreground text-xs sm:hidden"
+            >
+              {dataFormatada}
+            </time>
+            {/* Detalhe (7.6): gol contra à parte, FORA do ranking de artilheiros. */}
+            {!p.wo && (r1.contra > 0 || r2.contra > 0) ? (
+              <span className="text-muted-foreground text-xs">
+                {r1.contra > 0 ? `${p.nome_1}: ${r1.contra} contra` : ""}
+                {r1.contra > 0 && r2.contra > 0 ? " • " : ""}
+                {r2.contra > 0 ? `${p.nome_2}: ${r2.contra} contra` : ""}
+              </span>
+            ) : null}
+            {/* Badge de descoberta (7.5): puxa o técnico ao editor "Meus artilheiros". */}
+            {mostrarArtilheiros && ladoDoTecnico !== null && faltamTecnico > 0 ? (
+              <span className="bg-amber-500/15 text-amber-700 dark:text-amber-400 rounded-full px-2 py-0.5 text-xs font-medium">
+                faltam {faltamTecnico} artilheiro{faltamTecnico > 1 ? "s" : ""}
+              </span>
+            ) : null}
+            <span className="ml-auto flex flex-wrap items-center gap-2">
+              {/* Editor do TÉCNICO (append) — só o próprio lado, existentes read-only. */}
+              {mostrarArtilheiros && ladoDoTecnico !== null && !podeArbitrar ? (
+                <ArtilheirosEncerrada
+                  matchId={p.id}
+                  modo="append"
+                  lados={ladoTecnicoEdit}
+                  triggerLabel="Meus artilheiros"
+                  triggerVariant="outline"
+                />
+              ) : null}
+              {/* Editor do ORGANIZADOR (replace) — os DOIS lados, completo. */}
+              {mostrarArtilheiros && podeArbitrar ? (
+                <ArtilheirosEncerrada
+                  matchId={p.id}
+                  modo="replace"
+                  lados={ladosArbitro}
+                  triggerLabel="Artilheiros"
+                  triggerVariant="outline"
+                />
+              ) : null}
+              {/* Compartilhar resultado (change add-frente-compartilhavel): qualquer
+                  logado que enxerga a partida. O texto é montado no servidor. */}
+              {tournamentId ? (
+                <CompartilharResultadoButton
+                  tournamentId={tournamentId}
+                  matchId={p.id}
+                  nome1={p.nome_1}
+                  nome2={p.nome_2}
+                  texto={mensagemResultado({
+                    titulo,
+                    nome1: p.nome_1,
+                    nome2: p.nome_2,
+                    placar1: p.placar_1,
+                    placar2: p.placar_2,
+                    wo: p.wo,
+                    woDuplo: p.woDuplo,
+                    woVencedorLado: p.woVencedorLado ?? null,
+                    tournamentId,
+                  })}
+                />
+              ) : null}
+              {mostrarReabrir ? (
+                <MatchStatusButton matchId={p.id} acao="reabrir" />
+              ) : null}
+            </span>
+          </div>
+        </details>
       </li>
     )
   }

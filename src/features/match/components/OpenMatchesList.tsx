@@ -5,6 +5,10 @@ import { MatchScoreModalConnected } from "@/features/match/components/MatchScore
 import type { ParticipantePartida } from "@/features/match/components/MatchScoreModal"
 import { MatchStatusButton } from "@/features/match/components/MatchStatusButton"
 import {
+  PartidaIdentidade,
+  rotuloRodada,
+} from "@/features/match/components/PartidaIdentidade"
+import {
   MarcarWoButton,
   SolicitarWoButton,
 } from "@/features/match/components/WoButtons"
@@ -18,6 +22,7 @@ import type {
   TecnicoDoLado,
 } from "@/features/standings/data/getTournamentClassificacao"
 import type { MatchStatus } from "@/lib/supabase/database.types"
+import { cn } from "@/lib/utils"
 import { linkWhatsApp, mensagemConvocacao } from "@/lib/whatsapp"
 
 const LABEL_STATUS: Record<MatchStatus, string> = {
@@ -136,24 +141,34 @@ export function OpenMatchesList({
     const ehCompetitivo = p.vagaId_1 != null && p.vagaId_2 != null
     const podeMarcarWo = mostrarEncerrar && ehCompetitivo && !temPropostaPendente
     const podeSolicitarWo = !mostrarEncerrar && ehCompetitivo && jogaPartida(p)
+    const consoleOrganizador = mostrarEncerrar && !temPropostaPendente
+    // Quantas ações esta partida renderiza: define se a grade do mobile tem
+    // uma ou duas colunas (uma ação sozinha em meia largura fica torta).
+    const qtdAcoes = [
+      atalho != null,
+      podeSolicitarWo,
+      podeMarcarWo,
+      mostrarEncerrar && temPropostaPendente,
+      consoleOrganizador,
+      consoleOrganizador,
+    ].filter(Boolean).length
     return (
       <li
         key={p.id}
         className="flex flex-col items-stretch gap-3 rounded-lg border bg-card/40 px-4 py-3 text-sm motion-safe:transition-colors hover:border-primary/30 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
       >
-        <span className="flex min-w-0 items-center gap-2" aria-hidden="true">
-          {p.rodada !== null ? (
-            <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-              {p.grupo !== null ? `G${p.grupo} ` : ""}
-              R{p.rodada}
-              {p.perna !== null ? (p.perna === 1 ? " ida" : " volta") : ""}
+        <span className="flex min-w-0 flex-wrap items-center gap-2" aria-hidden="true">
+          <PartidaIdentidade
+            rodadaLabel={rotuloRodada(p)}
+            nome1={p.nome_1}
+            nome2={p.nome_2}
+            escudo1={p.escudo_1}
+            escudo2={p.escudo_2}
+          >
+            <span className="shrink-0 font-display text-base font-semibold tabular-nums sm:text-sm">
+              {p.placar_1} x {p.placar_2}
             </span>
-          ) : null}
-          <span className="truncate">{p.nome_1}</span>
-          <span className="shrink-0 font-display font-semibold tabular-nums">
-            {p.placar_1} x {p.placar_2}
-          </span>
-          <span className="truncate">{p.nome_2}</span>
+          </PartidaIdentidade>
           {/* Clube órfão (sem técnico): viraria W.O. ao fechar a rodada. */}
           {p.orfao_1 || p.orfao_2 ? (
             <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-xs">
@@ -169,10 +184,18 @@ export function OpenMatchesList({
         <span className="sr-only">
           {`${p.rodada !== null ? `${p.grupo !== null ? `Grupo ${p.grupo}, ` : ""}Rodada ${p.rodada}${p.perna !== null ? ` (${p.perna === 1 ? "ida" : "volta"})` : ""}: ` : ""}Placar atual: ${p.nome_1} ${p.placar_1}, ${p.nome_2} ${p.placar_2} — partida ${LABEL_STATUS[p.status]}`}
         </span>
-        {/* Cluster ÚNICO: empilha full-width no mobile, inline no desktop.
-            O seletor de descendente atinge todo shadcn Button do cluster sem
-            editar as folhas client; gap-x-6 (>=24px) só no desktop. */}
-        <span className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3 [&_[data-slot=button]]:w-full sm:[&_[data-slot=button]]:w-auto">
+        {/* Cluster ÚNICO: grade de 2 colunas no mobile (metade da altura do
+            empilhamento full-width anterior), inline no desktop. O seletor de
+            descendente atinge todo shadcn Button do cluster sem editar as
+            folhas client; gap-x-6 (>=24px) e o arranjo em linha só no desktop. */}
+        <span
+          className={cn(
+            "grid w-full gap-2 sm:flex sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3",
+            "[&_[data-slot=button]]:w-full sm:[&_[data-slot=button]]:w-auto",
+            "max-sm:[&_[data-slot=button]]:min-h-11",
+            qtdAcoes === 1 ? "grid-cols-1" : "grid-cols-2"
+          )}
+        >
           {atalho ? (
             <Button
               asChild
@@ -207,58 +230,62 @@ export function OpenMatchesList({
               aprovação. Só a quem arbitra (mostrarEncerrar) — para os demais o
               console nunca existiu. */}
           {mostrarEncerrar && temPropostaPendente ? (
-            <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground col-span-2 inline-flex items-center gap-1.5 text-xs sm:col-span-1">
               <Clock className="size-3.5" aria-hidden="true" />
               Aguardando aprovação — veja Resultados pendentes
             </span>
           ) : null}
-          {mostrarEncerrar && !temPropostaPendente ? (
-            <MatchScoreModalConnected
-              matchId={p.id}
-              tituloPartida={`${p.nome_1} x ${p.nome_2}`}
-              subtitulo={
-                p.rodada !== null
-                  ? `${p.grupo !== null ? `G${p.grupo} ` : ""}R${p.rodada}${
-                      p.perna !== null ? (p.perna === 1 ? " ida" : " volta") : ""
-                    } • ${LABEL_STATUS[p.status]}`
-                  : LABEL_STATUS[p.status]
-              }
-              descricao={`${p.nome_1} enfrenta ${p.nome_2}`}
-              participante1={ladoModal(
-                p.nome_1,
-                p.escudo_1,
-                p.tecnico_1,
-                p.orfao_1,
-                p.vagaId_1 != null
-              )}
-              participante2={ladoModal(
-                p.nome_2,
-                p.escudo_2,
-                p.tecnico_2,
-                p.orfao_2,
-                p.vagaId_2 != null
-              )}
-              placarInicial1={p.placar_1}
-              placarInicial2={p.placar_2}
-              // Vagas (competitivo) → habilitam a captura de autores + autocomplete.
-              vagaId1={p.vagaId_1 ?? null}
-              vagaId2={p.vagaId_2 ?? null}
-              // Preload EDITÁVEL: os autores JÁ gravados (partida reaberta) — a
-              // captura nunca abre vazia sobre gols existentes. Como o modal é
-              // REPLACE, esvaziar um lado no editor passa a APAGAR (intencional).
-              autoresIniciais={autoresIniciaisDaPartida(golsPorPartida?.get(p.id))}
-              permitirEscolherClube={false}
-              modoPlacar="direto"
-              // Gatilho por STRINGS (não JSX): este é um SERVER component; passar
-              // o <Button> pela fronteira RSC corrompia o elemento em algumas
-              // partidas (React.isValidElement=false) e o botão sumia. O modal
-              // (client) constrói o botão a partir destas strings.
-              triggerLabel="Editar placar"
-              triggerAriaLabel={`Editar placar de ${p.nome_1} contra ${p.nome_2}`}
-              triggerClassName="min-h-11 px-4"
-            />
+          {/* Ação primária: linha inteira no mobile. `sm:contents` dissolve o
+              wrapper no desktop, onde o cluster volta a ser o flex de sempre. */}
+          {consoleOrganizador ? (
+            <span className="col-span-2 sm:contents">
+              <MatchScoreModalConnected
+                matchId={p.id}
+                tituloPartida={`${p.nome_1} x ${p.nome_2}`}
+                subtitulo={
+                  p.rodada !== null
+                    ? `${p.grupo !== null ? `G${p.grupo} ` : ""}R${p.rodada}${
+                        p.perna !== null ? (p.perna === 1 ? " ida" : " volta") : ""
+                      } • ${LABEL_STATUS[p.status]}`
+                    : LABEL_STATUS[p.status]
+                }
+                descricao={`${p.nome_1} enfrenta ${p.nome_2}`}
+                participante1={ladoModal(
+                  p.nome_1,
+                  p.escudo_1,
+                  p.tecnico_1,
+                  p.orfao_1,
+                  p.vagaId_1 != null
+                )}
+                participante2={ladoModal(
+                  p.nome_2,
+                  p.escudo_2,
+                  p.tecnico_2,
+                  p.orfao_2,
+                  p.vagaId_2 != null
+                )}
+                placarInicial1={p.placar_1}
+                placarInicial2={p.placar_2}
+                // Vagas (competitivo) → habilitam a captura de autores + autocomplete.
+                vagaId1={p.vagaId_1 ?? null}
+                vagaId2={p.vagaId_2 ?? null}
+                // Preload EDITÁVEL: os autores JÁ gravados (partida reaberta) — a
+                // captura nunca abre vazia sobre gols existentes. Como o modal é
+                // REPLACE, esvaziar um lado no editor passa a APAGAR (intencional).
+                autoresIniciais={autoresIniciaisDaPartida(golsPorPartida?.get(p.id))}
+                permitirEscolherClube={false}
+                modoPlacar="direto"
+                // Gatilho por STRINGS (não JSX): este é um SERVER component; passar
+                // o <Button> pela fronteira RSC corrompia o elemento em algumas
+                // partidas (React.isValidElement=false) e o botão sumia. O modal
+                // (client) constrói o botão a partir destas strings.
+                triggerLabel="Editar placar"
+                triggerAriaLabel={`Editar placar de ${p.nome_1} contra ${p.nome_2}`}
+                triggerClassName="min-h-11 px-4"
+              />
+            </span>
           ) : null}
-          {mostrarEncerrar && !temPropostaPendente ? (
+          {consoleOrganizador ? (
             <MatchStatusButton matchId={p.id} acao="encerrar" />
           ) : null}
         </span>
