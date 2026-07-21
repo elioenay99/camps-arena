@@ -87,3 +87,25 @@ describe("ColorField — associação do erro de validação", () => {
     expect(onChange).toHaveBeenCalledWith("#ABCDEF")
   })
 })
+
+// O iOS amplia a página ao focar campo com fonte < 16px e não desfaz o zoom.
+describe("ColorField — piso de 16px de fonte no mobile", () => {
+  const classes = (el: Element) => (el.getAttribute("class") ?? "").split(/\s+/)
+
+  it("o campo hexadecimal usa text-base no mobile e volta a text-sm em md+", () => {
+    render(<ColorField label="Cor primária" value="#112233" onChange={vi.fn()} />)
+    const cls = classes(screen.getByRole("textbox", { name: "Cor primária" }))
+    expect(cls).toContain("text-base")
+    expect(cls).toContain("md:text-sm")
+    expect(cls).not.toContain("text-sm") // sem prefixo seria 14px no mobile
+  })
+
+  it("o seletor de cor NÃO precisa do piso: não recebe digitação", () => {
+    const { container } = render(
+      <ColorField label="Cor primária" value="#112233" onChange={vi.fn()} />
+    )
+    const swatch = container.querySelector('input[type="color"]')
+    expect(swatch).toBeInTheDocument()
+    expect(classes(swatch!)).not.toContain("text-base")
+  })
+})

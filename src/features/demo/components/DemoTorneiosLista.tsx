@@ -17,6 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { SelectNative } from "@/components/ui/select-native"
 import type { TournamentFormat, TournamentStatus } from "@/lib/supabase/database.types"
 import { ChampionshipBadge } from "@/features/championship/components/ChampionshipBadge"
 import { StatusPill } from "@/features/tournament/components/StatusPill"
@@ -87,17 +88,17 @@ function FormularioTorneio({
           </label>
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="font-medium">Formato</span>
-            <select
+            <SelectNative
               value={formato}
               onChange={(e) => setFormato(e.target.value as TournamentFormat)}
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              className="md:h-9"
             >
               {FORMATOS.map((f) => (
                 <option key={f} value={f}>
                   {FORMATO_META[f].label}
                 </option>
               ))}
-            </select>
+            </SelectNative>
           </label>
         </DialogBody>
         <DialogFooter>
@@ -230,14 +231,14 @@ export function DemoTorneiosLista() {
         </label>
         <label className="flex items-center gap-1.5 text-sm">
           <span className="sr-only">Filtrar por status</span>
-          <select
+          <SelectNative
             value={filtroStatus}
             onChange={(e) => {
               setFiltroStatus(e.target.value as TournamentStatus | "todos")
               setPagina(0)
             }}
             aria-label="Filtrar por status"
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            className="md:h-9"
           >
             <option value="todos">Todos os status</option>
             {STATUSES.map((s) => (
@@ -245,23 +246,23 @@ export function DemoTorneiosLista() {
                 {s === "rascunho" ? "Rascunho" : s === "ativo" ? "Ativo" : "Encerrado"}
               </option>
             ))}
-          </select>
+          </SelectNative>
         </label>
         <label className="flex items-center gap-1.5 text-sm">
           <span className="sr-only">Ordenar</span>
-          <select
+          <SelectNative
             value={ordem}
             onChange={(e) => {
               setOrdem(e.target.value as Ordem)
               setPagina(0)
             }}
             aria-label="Ordenar"
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            className="md:h-9"
           >
             <option value="recentes">Mais recentes</option>
             <option value="antigos">Mais antigos</option>
             <option value="nome">Nome (A–Z)</option>
-          </select>
+          </SelectNative>
         </label>
       </div>
 
@@ -298,7 +299,7 @@ export function DemoTorneiosLista() {
                   <>
                     <label className="text-xs">
                       <span className="sr-only">Mudar status de {t.nome}</span>
-                      <select
+                      <SelectNative
                         value={t.status}
                         onChange={(e) =>
                           dispatch({
@@ -308,7 +309,7 @@ export function DemoTorneiosLista() {
                           })
                         }
                         aria-label={`Mudar status de ${t.nome}`}
-                        className="h-8 rounded-md border border-input bg-background px-1.5 text-xs"
+                        className="px-1.5 md:text-xs"
                       >
                         {STATUSES.map((s) => (
                           <option key={s} value={s}>
@@ -319,7 +320,7 @@ export function DemoTorneiosLista() {
                                 : "Encerrado"}
                           </option>
                         ))}
-                      </select>
+                      </SelectNative>
                     </label>
                     <FormularioTorneio
                       inicial={t}

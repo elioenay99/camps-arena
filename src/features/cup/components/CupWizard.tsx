@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { ColorField } from "@/components/ui/color-field"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { SelectNative } from "@/components/ui/select-native"
 import { cn } from "@/lib/utils"
 import { MATA_MATA_MAX_PARTICIPANTES } from "@/features/knockout/gerarChaveMataMata"
 import {
@@ -35,9 +36,6 @@ export interface CupWizardProps {
   piramides: OrigemPiramide[]
   copas: OrigemCopa[]
 }
-
-const SELECT_CLASSE =
-  "border-input bg-transparent focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-9 w-full rounded-lg border px-2.5 text-sm outline-none focus-visible:ring-3"
 
 const DESEMPATE_ROTULO: Record<(typeof DESEMPATES_COPA_DISPONIVEIS)[number], string> = {
   cbf: "CBF (vitórias, saldo, gols pró)",
@@ -386,18 +384,18 @@ function PassoIdentidade(props: {
 
       <div className="grid gap-1.5">
         <Label htmlFor="copa-abrangencia">Abrangência</Label>
-        <select
+        <SelectNative
           id="copa-abrangencia"
           value={props.abrangencia}
           onChange={(e) => props.setAbrangencia(e.target.value as Abrangencia)}
-          className={SELECT_CLASSE}
+          className="md:h-9"
         >
           {ABRANGENCIAS_DISPONIVEIS.map((a) => (
             <option key={a} value={a}>
               {CUP_SCOPE_LABEL[a]}
             </option>
           ))}
-        </select>
+        </SelectNative>
         <p className="text-muted-foreground text-xs">
           Apenas um rótulo. Continental costuma reunir origens de várias pirâmides.
         </p>
@@ -447,35 +445,35 @@ function PassoIdentidade(props: {
               <Label htmlFor="copa-grupos" className="text-xs">
                 Grupos
               </Label>
-              <select
+              <SelectNative
                 id="copa-grupos"
                 value={props.qtdGrupos}
                 onChange={(e) => props.trocarGrupos(Number(e.target.value))}
-                className={SELECT_CLASSE}
+                className="md:h-9"
               >
                 {GRUPOS_OPCOES.map((g) => (
                   <option key={g} value={g}>
                     {g} grupos
                   </option>
                 ))}
-              </select>
+              </SelectNative>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="copa-classificados" className="text-xs">
                 Classificados por grupo
               </Label>
-              <select
+              <SelectNative
                 id="copa-classificados"
                 value={props.classificadosPorGrupo}
                 onChange={(e) => props.setClassificadosPorGrupo(Number(e.target.value))}
-                className={SELECT_CLASSE}
+                className="md:h-9"
               >
                 {ksOpcoes.map((k) => (
                   <option key={k} value={k}>
                     {k} {k === 1 ? "classificado" : "classificados"}
                   </option>
                 ))}
-              </select>
+              </SelectNative>
             </div>
           </div>
           <p className="text-muted-foreground text-xs">
@@ -487,18 +485,18 @@ function PassoIdentidade(props: {
 
       <div className="grid gap-1.5">
         <Label htmlFor="copa-desempate">Desempate da fase de grupos</Label>
-        <select
+        <SelectNative
           id="copa-desempate"
           value={props.desempateCriterio}
           onChange={(e) => props.setDesempateCriterio(e.target.value as Desempate)}
-          className={SELECT_CLASSE}
+          className="md:h-9"
         >
           {DESEMPATES_COPA_DISPONIVEIS.map((d) => (
             <option key={d} value={d}>
               {DESEMPATE_ROTULO[d]}
             </option>
           ))}
-        </select>
+        </SelectNative>
       </div>
 
       <fieldset className="m-0 grid min-w-0 gap-2.5 border-0 p-0">

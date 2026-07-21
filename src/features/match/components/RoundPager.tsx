@@ -70,7 +70,7 @@ export function RoundPager({
               aria-label="Ir para a rodada"
               value={atual.rodada}
               onChange={(e) => setRodadaSel(Number(e.target.value))}
-              className="min-h-11 appearance-none rounded-lg border border-input bg-transparent py-1.5 pr-8 pl-3 text-sm font-medium outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring md:min-h-0 dark:bg-input/30"
+              className="min-h-11 appearance-none rounded-lg border border-input bg-transparent py-1.5 pr-8 pl-3 text-base font-medium md:text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring md:min-h-0 dark:bg-input/30"
             >
               {rounds.map((r) => (
                 <option key={r.rodada} value={r.rodada}>{`Rodada ${r.rodada}`}</option>

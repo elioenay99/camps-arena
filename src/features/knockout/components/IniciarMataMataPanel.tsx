@@ -7,6 +7,7 @@ import { useFormStatus } from "react-dom"
 import { iniciarMataMata, type TournamentFormState } from "@/actions/tournaments"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { SelectNative } from "@/components/ui/select-native"
 import {
   MATA_MATA_MAX_PARTICIPANTES,
   previaMataMata,
@@ -186,23 +187,23 @@ export function IniciarMataMataPanel({
               </legend>
               {Array.from({ length: confrontos }, (_, i) => i + 1).map((slot) => (
                 <div key={slot} className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                  <select
+                  <SelectNative
                     name={`slot_${slot}_1`}
                     aria-label={`Confronto ${slot}, lado 1`}
-                    className="border-input bg-background h-9 min-w-0 rounded-md border px-2 text-sm"
+                    className="md:h-9"
                     defaultValue=""
                   >
                     {opcoes}
-                  </select>
+                  </SelectNative>
                   <span className="text-muted-foreground text-xs">×</span>
-                  <select
+                  <SelectNative
                     name={`slot_${slot}_2`}
                     aria-label={`Confronto ${slot}, lado 2`}
-                    className="border-input bg-background h-9 min-w-0 rounded-md border px-2 text-sm"
+                    className="md:h-9"
                     defaultValue=""
                   >
                     {opcoes}
-                  </select>
+                  </SelectNative>
                 </div>
               ))}
             </fieldset>

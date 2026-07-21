@@ -6,15 +6,13 @@ import { useFormStatus } from "react-dom"
 import { createMatch, type CreateMatchFormState } from "@/actions/match"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { SelectNative } from "@/components/ui/select-native"
 import type { ParticipanteDoTorneio } from "@/features/tournament/data/getParticipantesDoTorneio"
 
 const initialState: CreateMatchFormState = {}
 
 // Select nativo (projeto não usa shadcn Select — mesma decisão do checkbox
 // nativo do form de torneio), estilizado com os tokens do design system.
-const selectClassName =
-  "border-input bg-transparent h-9 w-full rounded-md border px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-
 function SubmitButton() {
   const { pending } = useFormStatus()
 
@@ -39,11 +37,11 @@ function ParticipanteSelect({
   return (
     <div className="grid gap-2">
       <Label htmlFor={campo}>{rotulo}</Label>
-      <select
+      <SelectNative
         id={campo}
         name={campo}
         defaultValue=""
-        className={selectClassName}
+        className="md:h-9"
         aria-invalid={Boolean(erro)}
         aria-describedby={erro ? `${campo}-erro` : undefined}
       >
@@ -55,7 +53,7 @@ function ParticipanteSelect({
             {p.nome?.trim() || "Sem nome"}
           </option>
         ))}
-      </select>
+      </SelectNative>
       {erro ? (
         <p id={`${campo}-erro`} role="alert" className="text-destructive text-sm">
           {erro}

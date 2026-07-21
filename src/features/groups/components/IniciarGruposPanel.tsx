@@ -7,6 +7,7 @@ import { useFormStatus } from "react-dom"
 import { iniciarTorneioGrupos, type TournamentFormState } from "@/actions/tournaments"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { SelectNative } from "@/components/ui/select-native"
 import {
   GRUPOS_VALIDOS,
   previaGrupos,
@@ -158,7 +159,7 @@ export function IniciarGruposPanel({
             {!faseLiga ? (
               <div className="grid gap-2">
                 <Label htmlFor="qtdGrupos">Grupos</Label>
-                <select
+                <SelectNative
                   id="qtdGrupos"
                   name="qtdGrupos"
                   value={gEfetivo}
@@ -172,33 +173,33 @@ export function IniciarGruposPanel({
                       if (k !== undefined) setClassificados(k)
                     }
                   }}
-                  className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+                  className="md:h-9"
                 >
                   {gruposDisponiveis.map((g) => (
                     <option key={g} value={g}>
                       {g}
                     </option>
                   ))}
-                </select>
+                </SelectNative>
               </div>
             ) : null}
             <div className="grid gap-2">
               <Label htmlFor="classificadosPorGrupo">
                 {faseLiga ? "Classificados" : "Classificam por grupo"}
               </Label>
-              <select
+              <SelectNative
                 id="classificadosPorGrupo"
                 name="classificadosPorGrupo"
                 value={kEfetivo}
                 onChange={(e) => setClassificados(Number(e.target.value))}
-                className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+                className="md:h-9"
               >
                 {ksDoGrupo.map((k) => (
                   <option key={k} value={k}>
                     {k}
                   </option>
                 ))}
-              </select>
+              </SelectNative>
             </div>
           </div>
 
@@ -295,18 +296,18 @@ export function IniciarGruposPanel({
                   <Label htmlFor={`grupo-${p.id}`} className="min-w-0 truncate font-normal">
                     {nomeOuFallback(p.nome)}
                   </Label>
-                  <select
+                  <SelectNative
                     id={`grupo-${p.id}`}
                     name={`grupo_de_${p.id}`}
                     defaultValue="1"
-                    className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+                    className="md:h-9"
                   >
                     {Array.from({ length: gEfetivo }, (_, i) => i + 1).map((g) => (
                       <option key={g} value={g}>
                         {rotuloGrupo(g)}
                       </option>
                     ))}
-                  </select>
+                  </SelectNative>
                 </div>
               ))}
             </fieldset>

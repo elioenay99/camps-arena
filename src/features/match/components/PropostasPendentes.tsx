@@ -126,7 +126,7 @@ function ItemProposta({
             placeholder="Motivo (opcional)"
             aria-label="Motivo da rejeição (opcional)"
             disabled={pendente}
-            className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full resize-none rounded-md border px-3 py-2 text-sm focus-visible:ring-1 focus-visible:outline-none disabled:opacity-50"
+            className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full resize-none rounded-md border px-3 py-2 text-base focus-visible:ring-1 md:text-sm focus-visible:outline-none disabled:opacity-50"
           />
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <Button

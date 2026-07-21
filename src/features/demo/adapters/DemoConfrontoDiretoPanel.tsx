@@ -2,6 +2,8 @@
 
 import * as React from "react"
 
+import { SelectNative } from "@/components/ui/select-native"
+
 import type { PartidaCronologica } from "@/features/standings/insights"
 import { confrontoDireto } from "@/features/standings/insights"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
@@ -65,18 +67,18 @@ export function DemoConfrontoDiretoPanel({
       </h2>
       <label className="flex flex-col gap-1.5 text-sm">
         <span className="text-muted-foreground">Escolha o {rotuloCandidato}</span>
-        <select
+        <SelectNative
           value={rivalId}
           onChange={(e) => setRivalId(e.target.value)}
           aria-label={`Escolher ${rotuloCandidato} do confronto`}
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          className="md:h-9"
         >
           {outros.map((id) => (
             <option key={id} value={id}>
               {identidades[id]?.nome ?? "Competidor"}
             </option>
           ))}
-        </select>
+        </SelectNative>
       </label>
 
       {confronto ? (

@@ -7,6 +7,7 @@ import { adicionarMembro, buscarUsuarios, type UsuarioBusca } from "@/actions/eq
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { SelectNative } from "@/components/ui/select-native"
 import { UserAvatar } from "@/features/profile/components/UserAvatar"
 import type { Escopo, PapelMembro } from "@/schema/equipe"
 import { cn } from "@/lib/utils"
@@ -15,9 +16,6 @@ const DEBOUNCE_MS = 350
 const MIN_CHARS = 2
 
 // Select nativo (o projeto não usa shadcn Select), com os tokens do design.
-const selectClassName =
-  "border-input bg-transparent h-10 w-full rounded-md border px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-
 type OpcaoPapel = { value: PapelMembro; label: string }
 
 const OPCOES_PAPEL: OpcaoPapel[] = [
@@ -249,9 +247,9 @@ export function AddMemberSearch({
 
         <div className="grid gap-2 sm:w-40">
           <Label htmlFor={papelId}>Papel</Label>
-          <select
+          <SelectNative
             id={papelId}
-            className={selectClassName}
+            className="md:h-10"
             value={papel}
             onChange={(e) => setPapel(e.target.value as PapelMembro)}
           >
@@ -260,7 +258,7 @@ export function AddMemberSearch({
                 {o.label}
               </option>
             ))}
-          </select>
+          </SelectNative>
         </div>
       </div>
 

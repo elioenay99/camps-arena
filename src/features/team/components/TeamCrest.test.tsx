@@ -2,15 +2,40 @@
 import "@testing-library/jest-dom/vitest"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type * as React from "react"
 
-// next/image → <img> simples (sem o otimizador, p/ assertir o src direto).
+// next/image → <img> simples (sem o otimizador, p/ assertir o src direto). O
+// `ref` é repassado porque o TeamCrest o usa para checar falha já ocorrida.
 vi.mock("next/image", () => ({
-  default: (props: { src: unknown; alt?: string; onError?: () => void }) => {
+  default: (props: {
+    src: unknown
+    alt?: string
+    onError?: () => void
+    ref?: React.Ref<HTMLImageElement>
+  }) => {
     const src = typeof props.src === "string" ? props.src : ""
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={src} alt={props.alt ?? ""} onError={props.onError} />
+    return <img src={src} alt={props.alt ?? ""} onError={props.onError} ref={props.ref} />
   },
 }))
+
+/**
+ * jsdom não carrega imagem: `complete`/`naturalWidth` são inertes. Fixa os dois
+ * no protótipo para simular o estado TERMINAL que o browser entregaria.
+ */
+function simularEstadoDaImagem(complete: boolean, naturalWidth: number) {
+  const proto = window.HTMLImageElement.prototype
+  const antes = {
+    complete: Object.getOwnPropertyDescriptor(proto, "complete"),
+    naturalWidth: Object.getOwnPropertyDescriptor(proto, "naturalWidth"),
+  }
+  Object.defineProperty(proto, "complete", { configurable: true, get: () => complete })
+  Object.defineProperty(proto, "naturalWidth", { configurable: true, get: () => naturalWidth })
+  return () => {
+    if (antes.complete) Object.defineProperty(proto, "complete", antes.complete)
+    if (antes.naturalWidth) Object.defineProperty(proto, "naturalWidth", antes.naturalWidth)
+  }
+}
 
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 
@@ -71,16 +96,62 @@ describe("TeamCrest", () => {
     expect(container.querySelector("img")).toBeNull()
   })
 
-  it("NÃO recupera o escudo se escudoUrl mudar depois de um erro (estado preso)", () => {
+  it("volta a tentar o escudo quando escudoUrl muda depois de um erro", () => {
     const a = "https://media.api-sports.io/football/teams/130.png"
     const b = "https://media.api-sports.io/football/teams/127.png"
     const { container, rerender } = render(<TeamCrest nome="Grêmio" escudoUrl={a} />)
     fireEvent.error(container.querySelector("img")!)
     expect(container.querySelector("img")).toBeNull()
+    // A falha é lembrada POR URL: a navegação entre rodadas reaproveita a
+    // instância, e uma falha antiga não pode prender a URL nova nas iniciais.
     rerender(<TeamCrest nome="Grêmio" escudoUrl={b} />)
-    // documenta o comportamento atual: o estado `erro` não reseta na troca de prop
+    expect(container.querySelector("img")).toHaveAttribute("src", b)
+    expect(screen.queryByText("G")).not.toBeInTheDocument()
+  })
+
+  it("mantém as iniciais se a MESMA url que falhou for reenviada", () => {
+    const url = "https://media.api-sports.io/football/teams/130.png"
+    const { container, rerender } = render(<TeamCrest nome="Grêmio" escudoUrl={url} />)
+    fireEvent.error(container.querySelector("img")!)
+    rerender(<TeamCrest nome="Grêmio" escudoUrl={url} />)
     expect(container.querySelector("img")).toBeNull()
     expect(screen.getByText("G")).toBeInTheDocument()
+  })
+
+  it("cai para o placeholder se a imagem já falhou ANTES da montagem", () => {
+    // Sem disparar nenhum evento: o componente lê `complete`/`naturalWidth`.
+    const restaurar = simularEstadoDaImagem(true, 0)
+    try {
+      const url = "https://media.api-sports.io/football/teams/130.png"
+      const { container } = render(<TeamCrest nome="Grêmio" escudoUrl={url} />)
+      expect(container.querySelector("img")).toBeNull()
+      expect(screen.getByText("G")).toBeInTheDocument()
+    } finally {
+      restaurar()
+    }
+  })
+
+  it("NÃO cai para o placeholder quando a imagem carregou bem antes da montagem", () => {
+    const restaurar = simularEstadoDaImagem(true, 64)
+    try {
+      const url = "https://media.api-sports.io/football/teams/127.png"
+      const { container } = render(<TeamCrest nome="Flamengo" escudoUrl={url} />)
+      expect(container.querySelector("img")).toHaveAttribute("src", url)
+      expect(screen.queryByText("F")).not.toBeInTheDocument()
+    } finally {
+      restaurar()
+    }
+  })
+
+  it("NÃO cai para o placeholder enquanto a imagem ainda está carregando", () => {
+    const restaurar = simularEstadoDaImagem(false, 0)
+    try {
+      const url = "https://media.api-sports.io/football/teams/127.png"
+      const { container } = render(<TeamCrest nome="Flamengo" escudoUrl={url} />)
+      expect(container.querySelector("img")).toHaveAttribute("src", url)
+    } finally {
+      restaurar()
+    }
   })
 
   it("aplica cor de fundo estável no placeholder e a remove quando há imagem", () => {

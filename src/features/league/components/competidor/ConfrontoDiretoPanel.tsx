@@ -3,6 +3,8 @@
 import { useId, useState, useTransition } from "react"
 import { Swords } from "lucide-react"
 
+import { SelectNative } from "@/components/ui/select-native"
+
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { carregarConfrontoDireto } from "@/actions/insights"
 import type { ConfrontoDireto } from "@/features/standings/insights"
@@ -59,11 +61,11 @@ export function ConfrontoDiretoPanel({
         <label htmlFor={selectId} className="text-muted-foreground text-sm">
           Escolha um rival para ver o histórico
         </label>
-        <select
+        <SelectNative
           id={selectId}
           value={rivalId}
           onChange={(e) => aoTrocar(e.target.value)}
-          className="h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none md:h-10"
+          className="md:h-10"
         >
           <option value="">Selecione um competidor…</option>
           {rivais.map((r) => (
@@ -71,7 +73,7 @@ export function ConfrontoDiretoPanel({
               {r.nome}
             </option>
           ))}
-        </select>
+        </SelectNative>
       </div>
 
       {pendente ? (

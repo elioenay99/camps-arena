@@ -6,6 +6,7 @@ import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { SelectNative } from "@/components/ui/select-native"
 import type { CupRuleInput } from "@/schema/cupSchema"
 
 /** Uma pirâmide do dono ofertada como origem (com seus níveis). */
@@ -34,9 +35,6 @@ export interface RegraRascunho {
   prioridade: number
   rotulo: string
 }
-
-const SELECT_CLASSE =
-  "border-input bg-transparent focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-9 w-full rounded-lg border px-2.5 text-sm outline-none focus-visible:ring-3"
 
 let regraSeq = 0
 
@@ -209,15 +207,15 @@ function CartaoRegra({
         <Label htmlFor={`r-tipo-${r.key}`} className="text-xs">
           Origem
         </Label>
-        <select
+        <SelectNative
           id={`r-tipo-${r.key}`}
           value={r.origemTipo}
           onChange={(e) => onAtualizar(idx, { origemTipo: e.target.value as "divisao" | "copa" })}
-          className={SELECT_CLASSE}
+          className="md:h-9"
         >
           {podeDivisao && <option value="divisao">Divisão de uma pirâmide</option>}
           {podeCopa && <option value="copa">Resultado de outra copa</option>}
-        </select>
+        </SelectNative>
       </div>
 
       {r.origemTipo === "divisao" ? (
@@ -226,37 +224,37 @@ function CartaoRegra({
             <Label htmlFor={`r-pir-${r.key}`} className="text-xs">
               Pirâmide
             </Label>
-            <select
+            <SelectNative
               id={`r-pir-${r.key}`}
               value={r.origemCompetitionId}
               onChange={(e) =>
                 onAtualizar(idx, { origemCompetitionId: e.target.value, origemNivel: 1 })
               }
-              className={SELECT_CLASSE}
+              className="md:h-9"
             >
               {piramides.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.nome}
                 </option>
               ))}
-            </select>
+            </SelectNative>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor={`r-niv-${r.key}`} className="text-xs">
               Nível (divisão)
             </Label>
-            <select
+            <SelectNative
               id={`r-niv-${r.key}`}
               value={r.origemNivel}
               onChange={(e) => onAtualizar(idx, { origemNivel: Number(e.target.value) })}
-              className={SELECT_CLASSE}
+              className="md:h-9"
             >
               {Array.from({ length: niveis }, (_, i) => i + 1).map((nivel) => (
                 <option key={nivel} value={nivel}>
                   Nível {nivel}
                 </option>
               ))}
-            </select>
+            </SelectNative>
           </div>
         </div>
       ) : (
@@ -264,18 +262,18 @@ function CartaoRegra({
           <Label htmlFor={`r-copa-${r.key}`} className="text-xs">
             Copa de origem
           </Label>
-          <select
+          <SelectNative
             id={`r-copa-${r.key}`}
             value={r.origemCupId}
             onChange={(e) => onAtualizar(idx, { origemCupId: e.target.value })}
-            className={SELECT_CLASSE}
+            className="md:h-9"
           >
             {copas.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.nome}
               </option>
             ))}
-          </select>
+          </SelectNative>
         </div>
       )}
 

@@ -23,7 +23,7 @@ export function DemoPerfilSelector() {
           dispatch({ type: "TROCAR_PERFIL", perfil: e.target.value as PerfilDemo })
         }
         aria-label="Trocar perfil simulado"
-        className="h-7 rounded-md border border-amber-500/40 bg-background/60 px-2 text-xs text-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+        className="h-9 rounded-md border border-amber-500/40 bg-background/60 px-2 text-base text-foreground md:h-7 md:text-xs focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
       >
         {PERFIS_DEMO.map((p) => (
           <option key={p} value={p}>

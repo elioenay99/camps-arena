@@ -280,7 +280,7 @@ function LadoEditor({
                     placeholder={linha.contra ? "Gol contra (nome opcional)" : "Nome do autor"}
                     aria-label={`Autor ${i + 1} de ${lado.nomeLado}`}
                     maxLength={60}
-                    className="border-input bg-background h-11 min-w-0 flex-1 rounded-md border px-3 text-sm md:h-9"
+                    className="border-input bg-background h-11 min-w-0 flex-1 rounded-md border px-3 text-base md:h-9 md:text-sm"
                   />
                   <div className="flex items-center gap-1">
                     <Button

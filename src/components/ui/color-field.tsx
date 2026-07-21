@@ -66,7 +66,7 @@ export function ColorField({
           aria-describedby={describedBy}
           onChange={(e) => onChange(e.target.value)}
           className={cn(
-            "border-input focus-visible:ring-ring h-11 w-full rounded-md border bg-transparent px-3 font-mono text-sm uppercase outline-none focus-visible:ring-2 md:h-9",
+            "border-input focus-visible:ring-ring h-11 w-full rounded-md border bg-transparent px-3 font-mono text-base uppercase outline-none focus-visible:ring-2 md:h-9 md:text-sm",
             !valido && "border-destructive focus-visible:ring-destructive",
           )}
         />

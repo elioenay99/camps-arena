@@ -36,8 +36,25 @@ function corDoNome(nome: string) {
  * o nome do clube acompanha o escudo em texto onde ele é usado.
  */
 export function TeamCrest({ nome, escudoUrl, size = 24, className }: TeamCrestProps) {
-  const [erro, setErro] = React.useState(false)
-  const mostrarImagem = Boolean(escudoUrl) && !erro
+  // Guarda a URL que falhou (não um booleano): assim a troca de prop reavalia
+  // sozinha, durante o render. Superfícies que trocam de conteúdo no lugar (a
+  // navegação entre rodadas) reaproveitam a instância — com um booleano, um
+  // escudo que falhou uma vez ficaria preso nas iniciais para sempre.
+  const [urlComErro, setUrlComErro] = React.useState<string | null>(null)
+  const mostrarImagem = Boolean(escudoUrl) && escudoUrl !== urlComErro
+
+  // Defesa em profundidade sobre o `onError`: lê o estado TERMINAL do elemento
+  // em vez de depender de o evento ter sido disparado, ouvido e não perdido.
+  // `complete && naturalWidth === 0` só é verdade para imagem que terminou de
+  // carregar e falhou (carregando ainda tem `complete` falso; boa tem largura).
+  const conferirFalha = React.useCallback(
+    (img: HTMLImageElement | null) => {
+      if (img?.complete && img.naturalWidth === 0 && escudoUrl) {
+        setUrlComErro(escudoUrl)
+      }
+    },
+    [escudoUrl]
+  )
 
   return (
     <span
@@ -59,7 +76,8 @@ export function TeamCrest({ nome, escudoUrl, size = 24, className }: TeamCrestPr
           width={size}
           height={size}
           className="size-full object-contain"
-          onError={() => setErro(true)}
+          ref={conferirFalha}
+          onError={() => setUrlComErro(escudoUrl as string)}
         />
       ) : (
         <span

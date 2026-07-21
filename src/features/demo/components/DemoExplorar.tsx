@@ -5,6 +5,7 @@ import { Search } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { SelectNative } from "@/components/ui/select-native"
 import type { TournamentStatus } from "@/lib/supabase/database.types"
 import { useDemoStore, usePerfilFlags } from "@/features/demo/store/useDemoStore"
 
@@ -79,37 +80,37 @@ export function DemoExplorar() {
             className="pl-8"
           />
         </label>
-        <select
+        <SelectNative
           value={tipo}
           onChange={(e) => comReset(setTipo)(e.target.value as "todos" | "liga" | "torneio")}
           aria-label="Filtrar por tipo"
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          className="md:h-9"
         >
           <option value="todos">Todos os tipos</option>
           <option value="liga">Pirâmides</option>
           <option value="torneio">Torneios</option>
-        </select>
-        <select
+        </SelectNative>
+        <SelectNative
           value={status}
           onChange={(e) => comReset(setStatus)(e.target.value as TournamentStatus | "todos")}
           aria-label="Filtrar por status"
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          className="md:h-9"
         >
           <option value="todos">Todos os status</option>
           <option value="ativo">Ativo</option>
           <option value="encerrado">Encerrado</option>
           <option value="rascunho">Rascunho</option>
-        </select>
-        <select
+        </SelectNative>
+        <SelectNative
           value={ordem}
           onChange={(e) => comReset(setOrdem)(e.target.value as Ordem)}
           aria-label="Ordenar"
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          className="md:h-9"
         >
           <option value="recentes">Mais recentes</option>
           <option value="nome">Nome (A–Z)</option>
           <option value="competidores">Mais competidores</option>
-        </select>
+        </SelectNative>
       </div>
 
       <label className="flex items-center gap-2 text-xs text-muted-foreground">

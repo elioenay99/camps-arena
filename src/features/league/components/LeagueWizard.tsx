@@ -23,6 +23,7 @@ import {
 } from "@/features/groups/gerarFaseDeGrupos"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { SelectNative } from "@/components/ui/select-native"
 import { Termo } from "@/features/glossario/Termo"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
 import { TeamSearchInput } from "@/features/team/components/TeamSearchInput"
@@ -141,10 +142,6 @@ const RANKING_BASE_ROTULO: Record<(typeof RANKING_BASES_DISPONIVEIS)[number], st
   posicao: "Posição (tabela do ano)",
   promedios: "Promédio (média plurianual)",
 }
-
-/** Classe compartilhada dos <select> nativos do wizard (espelha o de desempate). */
-const SELECT_CLASSE =
-  "border-input bg-transparent focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm outline-none focus-visible:ring-3"
 
 /** Rótulo do formato interno por divisão (Fase 5.2). */
 const FORMATO_ROTULO: Record<DivisaoRascunho["formato"], string> = {
@@ -1289,20 +1286,19 @@ function BlocoFormatoDivisao({
         <Label htmlFor={`fmt-${d.nivel}`} className="text-xs">
           Formato
         </Label>
-        <select
+        <SelectNative
           id={`fmt-${d.nivel}`}
           value={d.formato}
           onChange={(e) =>
             trocarFormato(e.target.value as DivisaoRascunho["formato"])
           }
-          className={SELECT_CLASSE}
         >
           {(Object.keys(FORMATO_ROTULO) as DivisaoRascunho["formato"][]).map((fmt) => (
             <option key={fmt} value={fmt}>
               {FORMATO_ROTULO[fmt]}
             </option>
           ))}
-        </select>
+        </SelectNative>
       </div>
 
       {!ehGrupos && (
@@ -1338,31 +1334,29 @@ function BlocoFormatoDivisao({
                 <Label htmlFor={`grp-${d.nivel}`} className="text-xs">
                   Grupos
                 </Label>
-                <select
+                <SelectNative
                   id={`grp-${d.nivel}`}
                   value={d.qtdGrupos ?? ""}
                   onChange={(e) => trocarGrupos(Number(e.target.value))}
-                  className={SELECT_CLASSE}
                 >
                   {gruposOpcoes.map((g) => (
                     <option key={g} value={g}>
                       {g} grupos
                     </option>
                   ))}
-                </select>
+                </SelectNative>
               </div>
 
               <div className="grid gap-1.5">
                 <Label htmlFor={`clf-${d.nivel}`} className="text-xs">
                   Classificados por grupo
                 </Label>
-                <select
+                <SelectNative
                   id={`clf-${d.nivel}`}
                   value={d.classificadosPorGrupo ?? ""}
                   onChange={(e) =>
                     onAtualizar(idx, { classificadosPorGrupo: Number(e.target.value) })
                   }
-                  className={SELECT_CLASSE}
                   disabled={ksOpcoes.length === 0}
                 >
                   {ksOpcoes.map((k) => (
@@ -1370,7 +1364,7 @@ function BlocoFormatoDivisao({
                       {k} {k === 1 ? "classificado" : "classificados"}
                     </option>
                   ))}
-                </select>
+                </SelectNative>
               </div>
             </div>
 
@@ -1458,7 +1452,7 @@ function PassoDivisoes({
                 <Label htmlFor={`des-${d.nivel}`} className="text-xs">
                   Desempate
                 </Label>
-                <select
+                <SelectNative
                   id={`des-${d.nivel}`}
                   value={d.desempate}
                   onChange={(e) =>
@@ -1466,21 +1460,20 @@ function PassoDivisoes({
                       desempate: e.target.value as DivisaoRascunho["desempate"],
                     })
                   }
-                  className="border-input bg-transparent focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm outline-none focus-visible:ring-3"
                 >
                   {DESEMPATES_DISPONIVEIS.map((des) => (
                     <option key={des} value={des}>
                       {DESEMPATE_ROTULO[des]}
                     </option>
                   ))}
-                </select>
+                </SelectNative>
               </div>
 
               <div className="grid gap-1.5 sm:col-span-2">
                 <Label htmlFor={`rank-${d.nivel}`} className="text-xs">
                   Base de sobe/cai
                 </Label>
-                <select
+                <SelectNative
                   id={`rank-${d.nivel}`}
                   value={d.rankingBase}
                   onChange={(e) =>
@@ -1488,14 +1481,13 @@ function PassoDivisoes({
                       rankingBase: e.target.value as DivisaoRascunho["rankingBase"],
                     })
                   }
-                  className="border-input bg-transparent focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-8 w-full rounded-lg border px-2.5 text-sm outline-none focus-visible:ring-3"
                 >
                   {RANKING_BASES_DISPONIVEIS.map((rb) => (
                     <option key={rb} value={rb}>
                       {RANKING_BASE_ROTULO[rb]}
                     </option>
                   ))}
-                </select>
+                </SelectNative>
                 {d.rankingBase === "promedios" ? (
                   <p className="text-muted-foreground text-xs">
                     Promédio: média de pontos por jogo de toda a história do competidor
@@ -1694,25 +1686,23 @@ function CartaoFronteira({
         {nomeInf}
       </p>
 
-      {/* Modo do corte — padrão visual do <select> de desempate. */}
-      <div className="grid gap-1.5">
+            <div className="grid gap-1.5">
         <Label htmlFor={`modo-${ns}`} className="text-xs">
           Como decide o sobe/cai
         </Label>
-        <select
+        <SelectNative
           id={`modo-${ns}`}
           value={f.modo}
           onChange={(e) =>
             onAtualizar(ns, patchModoFronteira(f, e.target.value as ModoFronteira))
           }
-          className={SELECT_CLASSE}
         >
           {(Object.keys(MODO_ROTULO) as ModoFronteira[]).map((m) => (
             <option key={m} value={m}>
               {MODO_ROTULO[m]}
             </option>
           ))}
-        </select>
+        </SelectNative>
       </div>
 
       {f.modo === "direto" && (
@@ -1823,11 +1813,10 @@ function CartaoFronteira({
                 ? "Participantes na barragem (par)"
                 : "Tamanho da chave"}
             </Label>
-            <select
+            <SelectNative
               id={`chave-${ns}`}
               value={f.playoffVagas ?? (f.playoffEstilo === "pares" ? 2 : 4)}
               onChange={(e) => onAtualizar(ns, { playoffVagas: Number(e.target.value) })}
-              className={SELECT_CLASSE}
             >
               {(f.playoffEstilo === "pares"
                 ? BARRAGEM_PARES_TAMANHOS
@@ -1837,7 +1826,7 @@ function CartaoFronteira({
                   {n} competidores
                 </option>
               ))}
-            </select>
+            </SelectNative>
             <p className="text-muted-foreground text-[0.7rem]">
               {f.playoffEstilo === "pares"
                 ? "Metade vem da divisão de cima, metade da de baixo, em duplas."
@@ -1983,13 +1972,12 @@ function CartaoFronteira({
             <Label htmlFor={`chave-${ns}`} className="text-xs">
               Tamanho da chave
             </Label>
-            <select
+            <SelectNative
               id={`chave-${ns}`}
               value={f.playoffVagas ?? 4}
               onChange={(e) =>
                 onAtualizar(ns, { playoffVagas: Number(e.target.value) })
               }
-              className={SELECT_CLASSE}
             >
               {(ehExtra ? CHAVE_TAMANHOS_EXTRA : PLAYOFF_VAGAS_COMPLETAS).map(
                 (n) => (
@@ -1998,7 +1986,7 @@ function CartaoFronteira({
                   </option>
                 )
               )}
-            </select>
+            </SelectNative>
           </div>
 
           {/* Leg format. */}
