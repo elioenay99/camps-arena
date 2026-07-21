@@ -523,11 +523,16 @@ alter table public.matches
 alter table public.teams drop constraint if exists teams_escudo_url_dominio;
 alter table public.teams
   add constraint teams_escudo_url_dominio
+  -- REGEX ancorada em `^`, não LIKE: com `like 'https://%.supabase.co/...'` o `%`
+  -- casa `/`, `?` e `#`, então `https://evil.com/?x=https://a.supabase.co/storage/
+  -- v1/object/public/escudos/y.png` passava com host REAL evil.com — e a URL é
+  -- buscada server-side em `escudoDataURL` (og/compartilhado.tsx) para os cards
+  -- OG, ou seja, SSRF. `[a-z0-9-]+` não casa separador, então o host fica preso.
   check (
     escudo_url is null
-    or escudo_url like 'https://media.api-sports.io/%'
-    or escudo_url like 'https://%.supabase.co/storage/v1/object/public/escudos/%'
-    or escudo_url like 'http://127.0.0.1:54321/storage/v1/object/public/escudos/%'
+    or escudo_url ~ '^https://media\.api-sports\.io/'
+    or escudo_url ~ '^https://[a-z0-9-]+\.supabase\.co/storage/v1/object/public/escudos/'
+    or escudo_url ~ '^http://127\.0\.0\.1:54321/storage/v1/object/public/escudos/'
   );
 
 -- ---------- updated_at automático em matches ----------
@@ -2197,10 +2202,13 @@ alter table public.league_competitors
   drop constraint if exists league_competitors_escudo_url_dominio;
 alter table public.league_competitors
   add constraint league_competitors_escudo_url_dominio
+  -- REGEX ancorada, não LIKE: ver a nota em teams_escudo_url_dominio. O `%` do
+  -- LIKE casa `/`/`?`/`#`, o que deixava passar host arbitrário com o trecho
+  -- esperado no query string (SSRF no sink server-side dos cards OG).
   check (
     escudo_url is null
-    or escudo_url like 'https://%.supabase.co/storage/v1/object/public/escudos/%'
-    or escudo_url like 'http://127.0.0.1:54321/storage/v1/object/public/escudos/%'
+    or escudo_url ~ '^https://[a-z0-9-]+\.supabase\.co/storage/v1/object/public/escudos/'
+    or escudo_url ~ '^http://127\.0\.0\.1:54321/storage/v1/object/public/escudos/'
   );
 
 -- ---------- Tabela: league_division_entries (histórico competidor × divisão) ----------
