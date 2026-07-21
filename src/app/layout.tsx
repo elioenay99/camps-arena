@@ -66,6 +66,10 @@ export const metadata: Metadata = {
 // A cor do chrome do navegador acompanha o tema: slate Dracula no escuro
 // (padrão), branco-quente Canarinho no claro.
 export const viewport: Viewport = {
+  // Contrapartida obrigatória do `statusBarStyle: "black-translucent"` acima: sem
+  // `cover`, todo `env(safe-area-inset-*)` resolve 0 — o app invadiria a área do
+  // notch sem ter como reservar espaço. Consumido pelos headers sticky e pelo body.
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: dark)", color: "#282a36" },
     { media: "(prefers-color-scheme: light)", color: "#fffdf2" },
@@ -96,7 +100,10 @@ export default async function RootLayout({
           nonce={nonce}
         >
           {children}
-          <Toaster richColors position="top-center" />
+          {/* Ancorado embaixo: no topo o toast cobria o header inteiro (marca,
+              menu, tema, conta) no mobile. Nenhuma tela tem barra de ação fixa
+              no rodapé, então não há disputa de espaço. */}
+          <Toaster richColors position="bottom-center" />
         </ThemeProvider>
         {/* Vercel Analytics + Web Vitals: injetam o script via createElement no
             bundle confiável (autorizado por strict-dynamic) e batem em endpoints

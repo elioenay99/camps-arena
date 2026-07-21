@@ -19,7 +19,8 @@ const LINKS: NavLink[] = [
  */
 export function DemoNav() {
   return (
-    <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
+    // pt da área segura: mesmo motivo do header do dashboard (`viewportFit: cover`).
+    <header className="sticky top-0 z-40 border-b bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur">
       <div className="mx-auto flex w-full max-w-2xl flex-wrap items-center gap-x-4 gap-y-2 px-6 py-3">
         <Link
           href="/demo"

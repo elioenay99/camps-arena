@@ -166,6 +166,13 @@
     /* Rede de segurança contra overflow horizontal da viewport no mobile — NÃO
        substitui os consertos por-elemento (break-words/cluster/min-w-0). */
     overflow-x: clip;
+    /* Na PWA instalada, puxar para baixo no topo recarregava o app inteiro
+       (perdia estado e refazia fetch). `contain` mata o pull-to-refresh sem
+       afetar o scroll interno de tabelas/bracket. */
+    overscroll-behavior-y: contain;
+    /* Barra de gestos do Android. Cabe DENTRO do `min-h-full` (border-box), então
+       não cria overflow. Resolve 0 fora da PWA/sem área segura. */
+    padding-bottom: env(safe-area-inset-bottom);
   }
   html {
     @apply font-sans;

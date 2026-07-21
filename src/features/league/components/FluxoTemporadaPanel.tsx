@@ -588,7 +588,10 @@ function LinhaCompetidor({
             type="button"
             variant="ghost"
             size="icon-xs"
-            className="size-7"
+            // 36px no mobile: o par é EMPILHADO, então 44px faria a coluna saltar
+            // para 88px por linha da lista de empates. Compromisso registrado na
+            // change mobile-alvos-toque-safe-area.
+            className="size-9 md:size-7"
             disabled={reordenavel.bloqueado || reordenavel.indice === 0}
             onClick={reordenavel.onSobe}
             aria-label={`Subir ${identidade.nome} no desempate`}
@@ -599,7 +602,10 @@ function LinhaCompetidor({
             type="button"
             variant="ghost"
             size="icon-xs"
-            className="size-7"
+            // 36px no mobile: o par é EMPILHADO, então 44px faria a coluna saltar
+            // para 88px por linha da lista de empates. Compromisso registrado na
+            // change mobile-alvos-toque-safe-area.
+            className="size-9 md:size-7"
             disabled={reordenavel.bloqueado || reordenavel.indice === reordenavel.total - 1}
             onClick={reordenavel.onDesce}
             aria-label={`Descer ${identidade.nome} no desempate`}
