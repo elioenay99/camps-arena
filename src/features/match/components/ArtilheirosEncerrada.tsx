@@ -158,7 +158,14 @@ export function ArtilheirosEncerrada({
   return (
     <Dialog open={open} onOpenChange={reset}>
       <DialogTrigger asChild>
-        <Button type="button" size="sm" variant={triggerVariant} className="min-h-9">
+        <Button
+          type="button"
+          size="sm"
+          variant={triggerVariant}
+          // Alvo de toque de 44px no mobile (padrão do projeto para ação);
+          // no desktop volta à altura compacta.
+          className="min-h-11 md:min-h-9"
+        >
           {triggerLabel}
         </Button>
       </DialogTrigger>
@@ -333,7 +340,7 @@ function LadoEditor({
         variant="outline"
         size="sm"
         onClick={adicionar}
-        className="min-h-9 self-start rounded-full"
+        className="min-h-11 self-start rounded-full md:min-h-9"
       >
         <Plus aria-hidden="true" />
         Adicionar autor
