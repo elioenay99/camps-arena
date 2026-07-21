@@ -38,13 +38,15 @@
 
 - [x] 3.1 Substituir o bloco de identidade por `PartidaIdentidade` (mesmo `rotuloRodada`),
   mantendo FORA dele o "(vaga aberta)" e a pill de status, e o `sr-only` intacto.
-- [x] 3.2 Cluster de ações: contar as ações efetivamente renderizadas (`qtdAcoes`) e usar
-  `grid gap-2` com `grid-cols-1` quando `qtdAcoes === 1`, `grid-cols-2` caso contrário;
-  de `sm:` para cima manter `sm:flex sm:w-auto sm:flex-row sm:flex-wrap sm:items-center
-  sm:gap-x-6 sm:gap-y-3` e os seletores de descendente atuais.
-- [x] 3.3 Envolver "Editar placar" e o indicador "Aguardando aprovação" em
-  `<span className="col-span-2 sm:contents">` — linha inteira no mobile, sem efeito no
-  desktop (`display: contents`).
+- [x] 3.2 Cluster de ações: `flex flex-wrap gap-2` com `flex-1` +
+  `basis-[calc(50%-0.25rem)]` nos FILHOS DIRETOS (`max-sm:[&>*]:…`) — pareia duas por
+  linha, e a ação ímpar sobra sozinha e é esticada por `flex-1`, sem buraco e sem contar
+  ações. De `sm:` para cima, `sm:w-auto sm:items-center sm:gap-x-6 sm:gap-y-3` e os
+  seletores de descendente atuais (o cluster já é `flex flex-wrap` na base).
+- [x] 3.3 Mirar o filho DIRETO (e não `[&_[data-slot=button]]`) é o que faz o gatilho do
+  modal esticar: `DialogTrigger asChild` NÃO carrega `data-slot="button"`, então o
+  seletor de descendente nunca o alcançava (media 117px num container de 293px). O
+  indicador "Aguardando aprovação" é texto corrido: `max-sm:basis-full`.
 - [x] 3.4 `max-sm:[&_[data-slot=button]]:min-h-11` no cluster (alvo de toque ≥44px).
 - [x] 3.5 NÃO tocar `mostrarEncerrar`, `temPropostaPendente`, `ehCompetitivo`,
   `podeMarcarWo`, `podeSolicitarWo`, `atalhoDe`/`jogaPartida` (PII) nem os props do
