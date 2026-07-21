@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { createClient } from "@/lib/supabase/server"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>
 
@@ -36,6 +37,8 @@ interface TenureComClube {
   competitor: {
     id: string
     rotulo: string | null
+    /** Override LOCAL do escudo nesta pirâmide (escudo-personalizado-liga). */
+    escudo_url: string | null
     team: { nome: string | null; escudo_url: string | null } | null
     competition: { id: string; nome: string } | null
   } | null
@@ -75,7 +78,7 @@ export async function getTecnicoProfile(
     .select(
       `competitor_id, season_id, encerrada_em,
        competitor:league_competitors!coach_tenures_competitor_id_fkey (
-         id, rotulo,
+         id, rotulo, escudo_url,
          team:teams ( nome, escudo_url ),
          competition:league_competitions ( id, nome )
        )`
@@ -98,7 +101,10 @@ export async function getTecnicoProfile(
       clube = {
         competitorId: t.competitor_id,
         nome: porNome ? (comp.rotulo as string) : (comp.team?.nome ?? "Competidor"),
-        escudoUrl: porNome ? null : (comp.team?.escudo_url ?? null),
+        // Competidor por NOME não tem clube de catálogo, mas PODE ter escudo
+        // próprio da liga (escudo-personalizado-liga) — daí o override entrar
+        // antes do ternário, e não depois.
+        escudoUrl: escudoEfetivo(comp.escudo_url, porNome ? null : comp.team?.escudo_url),
         competitionId: comp.competition.id,
         competitionNome: comp.competition.nome,
         temporadas: 0,

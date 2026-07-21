@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 import {
   computeStandings,
   type TiebreakerPreset,
@@ -30,6 +31,8 @@ interface SlotRow {
   competitor_id: string | null
   rotulo: string | null
   team: { nome: string | null; escudo_url: string | null } | null
+  /** Override LOCAL do escudo por liga (escudo-personalizado-liga). */
+  competidor: { escudo_url: string | null } | null
 }
 
 interface PartidaRow {
@@ -103,7 +106,9 @@ export async function getDivisionClassificacaoCombinada(
   const { data: slots, error: slotsErr } = await supabase
     .from("tournament_slots")
     .select(
-      "id, tournament_id, competitor_id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url )"
+      `id, tournament_id, competitor_id, rotulo,
+       team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ),
+       competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url )`
     )
     .in("tournament_id", [aperturaId, clausuraId])
   if (slotsErr) {
@@ -120,7 +125,7 @@ export async function getDivisionClassificacaoCombinada(
     if (s.tournament_id === aperturaId) {
       if (s.competitor_id) aperturaSlotPorCompetitor.set(s.competitor_id, s.id)
       nomes.set(s.id, nomeOuFallback(s.team?.nome ?? s.rotulo))
-      escudos.set(s.id, s.team?.escudo_url ?? null)
+      escudos.set(s.id, escudoEfetivo(s.competidor?.escudo_url, s.team?.escudo_url))
     } else if (s.competitor_id) {
       competitorPorClausuraSlot.set(s.id, s.competitor_id)
     }

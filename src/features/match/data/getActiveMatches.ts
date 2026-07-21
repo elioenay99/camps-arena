@@ -3,6 +3,7 @@ import "server-only"
 import { createClient } from "@/lib/supabase/server"
 import { carregarCelulares } from "@/lib/contatos"
 import { podeArbitrar } from "@/lib/autorizacao"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 import type { MatchStatus, TournamentStatus } from "@/lib/supabase/database.types"
 
 export interface ParticipanteResumo {
@@ -32,6 +33,13 @@ export interface VagaResumo {
   clube: ClubeResumo | null
   /** Rótulo livre (modo por-nome); null no modo clube. */
   rotulo: string | null
+  /**
+   * Competidor da pirâmide dono desta vaga (escudo-personalizado-liga): traz o
+   * override LOCAL do escudo. null em torneio avulso/legado. Consumido AQUI —
+   * o escudo já sai resolvido em `clube.escudo_url`, então é OPCIONAL para quem
+   * monta uma vaga (componentes e testes não precisam conhecê-lo).
+   */
+  competidor?: { escudo_url: string | null } | null
   /** Técnico ATUAL da vaga (substituível); null em vaga sem técnico/por nome. */
   tecnico: ParticipanteResumo | null
 }
@@ -71,8 +79,8 @@ const COLUNAS = `id, placar_1, placar_2, status, created_at,
    participante_2:users!matches_participante_2_fkey ( id, nome, avatar ),
    time_1:teams!matches_time_1_fkey ( nome, escudo_url ),
    time_2:teams!matches_time_2_fkey ( nome, escudo_url ),
-   vaga_1:tournament_slots!matches_vaga_1_fkey ( id, rotulo, clube:teams ( nome, escudo_url ), tecnico:users ( id, nome, avatar ) ),
-   vaga_2:tournament_slots!matches_vaga_2_fkey ( id, rotulo, clube:teams ( nome, escudo_url ), tecnico:users ( id, nome, avatar ) )`
+   vaga_1:tournament_slots!matches_vaga_1_fkey ( id, rotulo, clube:teams ( nome, escudo_url ), competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url ), tecnico:users ( id, nome, avatar ) ),
+   vaga_2:tournament_slots!matches_vaga_2_fkey ( id, rotulo, clube:teams ( nome, escudo_url ), competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url ), tecnico:users ( id, nome, avatar ) )`
 
 /**
  * Lista as partidas ativas (não encerradas) que dizem respeito ao usuário, em
@@ -170,6 +178,22 @@ export async function getActiveMatches(): Promise<PartidaAtiva[]> {
     ...((avulsas.data ?? []) as unknown as PartidaAtiva[]),
     ...((competitivas.data ?? []) as unknown as PartidaAtiva[]),
   ]
+
+  // Escudo EFETIVO por vaga (escudo-personalizado-liga). Este fetcher é
+  // cross-liga por natureza (partidas de várias pirâmides E de torneios avulsos
+  // na mesma lista), mas a resolução é POR LINHA: cada vaga carrega o próprio
+  // competidor, então nada precisa ser agrupado por liga. Vaga por-nome
+  // (`clube` null) segue sem escudo aqui — o card já a trata como sem clube.
+  for (const p of todas) {
+    for (const vaga of [p.vaga_1, p.vaga_2]) {
+      if (vaga?.clube) {
+        vaga.clube.escudo_url = escudoEfetivo(
+          vaga.competidor?.escudo_url,
+          vaga.clube.escudo_url
+        )
+      }
+    }
+  }
 
   // Reinjeta o `celular` dos lados via RPC gated (co-participação). Sempre
   // `?? null` para nunca deixar a chave `undefined` (o downstream lê null).

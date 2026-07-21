@@ -1137,7 +1137,11 @@ as $$
          t.titulo,
          t.status,
          coalesce(tm.nome, ts.rotulo),
-         tm.escudo_url,
+         -- Escudo EFETIVO (change escudo-personalizado-liga): o override da liga
+         -- ganha do catálogo global. Assinatura (returns table) INALTERADA, então
+         -- `create or replace` basta — mudar returns table daria 42P13 e exigiria
+         -- DROP + CREATE + re-emitir grants (lição de add-copa-tecnico).
+         coalesce(lc.escudo_url, tm.escudo_url),
          ts.user_id is not null,
          exists (
            select 1 from public.tournament_slots s2
@@ -1149,6 +1153,8 @@ as $$
     -- LEFT JOIN: vaga por NOME não tem clube (defensivo — vaga por nome nunca
     -- gera slot_invite, então o RPC não a alcança na prática).
     left join public.teams tm on tm.id = ts.team_id
+    -- LEFT JOIN: competitor_id é null em torneio avulso/legado ⇒ cai no catálogo.
+    left join public.league_competitors lc on lc.id = ts.competitor_id
     join public.tournaments t on t.id = ts.tournament_id
    where si.code = codigo;
 $$;
@@ -1759,6 +1765,72 @@ create policy "escudos insert autenticado" on storage.objects
   for insert to authenticated
   with check (bucket_id = 'escudos' and name ~ '^[0-9]+\.png$');
 
+-- ---------- Escudo PERSONALIZADO por liga (change escudo-personalizado-liga) ----------
+-- Segundo prefixo do MESMO bucket: `custom/<competitor_id>/<uuid>.<png|webp>`.
+-- Não colide com o catálogo (ancorado em `<external_id>.png`) nem o torna mutável:
+-- policies permissivas se somam por OR, e a de DELETE abaixo casa SÓ `custom/`.
+-- Nome novo a cada gravação (nunca upsert) porque o bucket serve com cache de 1
+-- ano — reusar o nome deixaria o escudo antigo preso no CDN e nos aparelhos.
+--
+-- Por que uma FUNÇÃO e não a expressão inline: autorizar exige ler o
+-- competition_id a partir do competitor_id embutido no path, ou seja converter
+-- `(storage.foldername(name))[2]` para uuid. Num `and` o Postgres NÃO garante a
+-- ordem de avaliação dos ramos, então um `name` arbitrário poderia atingir o cast
+-- antes do regex e levantar 22P02 em vez de devolver false. plpgsql avalia em
+-- sequência: valida o formato, só então converte.
+-- SECURITY DEFINER para ler league_competitors sem reentrar na RLS; devolve só um
+-- booleano já filtrado por pode_gerir_competition (dono OU admin) — não vaza dado.
+-- NOTA: o corpo referencia public.league_competitors e public.pode_gerir_competition,
+-- declarados adiante neste arquivo. Corpo plpgsql resolve em runtime, então a
+-- ordem de aplicação não importa; a POLICY abaixo, sim, e por isso vem depois.
+create or replace function public.pode_gerir_escudo_custom(p_name text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_competitor  uuid;
+  v_competition uuid;
+begin
+  -- uuid em hex MINÚSCULO (o que gen_random_uuid e crypto.randomUUID produzem).
+  if p_name !~ '^custom/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|webp)$' then
+    return false;
+  end if;
+
+  v_competitor := split_part(p_name, '/', 2)::uuid;
+
+  select lc.competition_id into v_competition
+    from public.league_competitors lc
+   where lc.id = v_competitor;
+
+  if v_competition is null then
+    return false;
+  end if;
+
+  return public.pode_gerir_competition(v_competition);
+end;
+$$;
+
+-- Grants: a policy de storage avalia a função COM O ROLE DA QUERY. Revogar o
+-- EXECUTE de authenticated quebraria a própria policy (lição de
+-- add-seguranca-supabase: revogar EXECUTE dos helpers de RLS quebrou matches).
+revoke execute on function public.pode_gerir_escudo_custom(text) from public;
+grant execute on function public.pode_gerir_escudo_custom(text) to authenticated;
+
+drop policy if exists "escudos custom insert gestor" on storage.objects;
+create policy "escudos custom insert gestor" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'escudos' and public.pode_gerir_escudo_custom(name));
+
+-- DELETE existe para trocar/remover o override sem acumular órfãos. Casa SÓ o
+-- prefixo `custom/`: `117.png` do catálogo continua inapagável por authenticated.
+drop policy if exists "escudos custom delete gestor" on storage.objects;
+create policy "escudos custom delete gestor" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'escudos' and public.pode_gerir_escudo_custom(name));
+
 -- ---------- Realtime ----------
 -- O painel (/dashboard) assina UPDATE de `matches` via Supabase Realtime para
 -- atualizar placar e status ao vivo (sem refresh). A emissão respeita a RLS de
@@ -2103,6 +2175,33 @@ create unique index if not exists league_competitors_team_unico
   on public.league_competitors (competition_id, team_id) where team_id is not null;
 create unique index if not exists league_competitors_rotulo_unico
   on public.league_competitors (competition_id, lower(trim(rotulo))) where rotulo is not null;
+
+-- ---------- league_competitors.escudo_url (override LOCAL por liga) ----------
+-- change escudo-personalizado-liga. O catálogo `public.teams` é GLOBAL (clubes
+-- brasileiros reais, compartilhados entre os usuários): editar o escudo lá muda
+-- para todo mundo. Este é o escudo do clube DENTRO desta pirâmide — o escudo
+-- efetivo é coalesce(league_competitors.escudo_url, teams.escudo_url).
+-- NÃO amarrado a team_id de propósito: competidor por `rotulo` (que hoje só tem
+-- monograma de iniciais) também pode ter escudo próprio.
+alter table public.league_competitors
+  add column if not exists escudo_url text;
+
+-- Espelha teams_escudo_url_dominio (schema.sql:523) e a lição do SSRF de escudos:
+-- o host é ANCORADO — `%` só na sub-referência do projeto e no path, NUNCA à
+-- frente do host, senão `http://169.254.169.254/x/storage/v1/object/public/
+-- escudos/y.png` passaria e abriria SSRF no sink server-side (escudoDataURL, em
+-- src/features/og/compartilhado.tsx). Sem o ramo media.api-sports.io: escudo
+-- customizado nasce sempre no NOSSO Storage. Como a policy de UPDATE não valida
+-- a URL, esta CHECK é a única defesa contra gravação direta via anon key.
+alter table public.league_competitors
+  drop constraint if exists league_competitors_escudo_url_dominio;
+alter table public.league_competitors
+  add constraint league_competitors_escudo_url_dominio
+  check (
+    escudo_url is null
+    or escudo_url like 'https://%.supabase.co/storage/v1/object/public/escudos/%'
+    or escudo_url like 'http://127.0.0.1:54321/storage/v1/object/public/escudos/%'
+  );
 
 -- ---------- Tabela: league_division_entries (histórico competidor × divisão) ----------
 -- A vaga concreta deste competidor na divisão (= um tournament_slots). slot_id

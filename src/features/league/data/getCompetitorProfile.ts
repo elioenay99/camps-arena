@@ -2,6 +2,7 @@ import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
 import { podeVerBastidores } from "@/lib/autorizacao"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 import { calcularPromedio } from "@/features/league/flowEngine"
 import { resolverCampeaoDivisaoSplit } from "@/features/league/data/getGrandeFinal"
 
@@ -81,7 +82,7 @@ export async function getCompetitorProfile(
   const { data: comp, error: compError } = await supabase
     .from("league_competitors")
     .select(
-      `id, rotulo, team_id,
+      `id, rotulo, team_id, escudo_url,
        team:teams ( nome, escudo_url ),
        competition:league_competitions!inner ( id, nome, status )`
     )
@@ -108,7 +109,9 @@ export async function getCompetitorProfile(
   const team = comp.team as unknown as { nome: string | null; escudo_url: string | null } | null
   const porNome = comp.rotulo != null
   const nome = porNome ? (comp.rotulo as string) : (team?.nome ?? "Competidor")
-  const escudoUrl = porNome ? null : (team?.escudo_url ?? null)
+  // Competidor por NOME pode ter escudo próprio da liga (escudo-personalizado-liga):
+  // o override entra ANTES do ternário do catálogo.
+  const escudoUrl = escudoEfetivo(comp.escudo_url, porNome ? null : team?.escudo_url)
 
   // Temporada corrente (maior numero) — alvo do back-link (a rota resolve um
   // league_seasons.id, não o competition.id). Sob a mesma RLS (status/dono).

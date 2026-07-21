@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { createClient } from "@/lib/supabase/server"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>
 
@@ -34,7 +35,7 @@ export async function getRivaisDoCompetidor(
 
   const { data: rivais, error: rivaisErr } = await supabase
     .from("league_competitors")
-    .select("id, rotulo, team:teams ( nome, escudo_url )")
+    .select("id, rotulo, escudo_url, team:teams ( nome, escudo_url )")
     .eq("competition_id", atual.competition_id)
     .neq("id", competitorId)
   if (rivaisErr || !rivais) return []
@@ -46,7 +47,7 @@ export async function getRivaisDoCompetidor(
         escudo_url: string | null
       } | null
       const nome = r.rotulo?.trim() || team?.nome?.trim() || "Competidor"
-      return { id: r.id, nome, escudoUrl: team?.escudo_url ?? null }
+      return { id: r.id, nome, escudoUrl: escudoEfetivo(r.escudo_url, team?.escudo_url) }
     })
     .sort((a, b) => a.nome.localeCompare(b.nome))
 }

@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { createClient } from "@/lib/supabase/server"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 import {
   calcularMuralha,
   type CompetidorMuralha,
@@ -50,9 +51,15 @@ export async function getMuralha(
   ]
   if (vagaIds.length === 0) return []
 
+  // `competidor` traz o override LOCAL do escudo (escudo-personalizado-liga): a
+  // vaga já aponta para o competidor da pirâmide, então é UM hop — sem query extra.
   const { data: slots, error: slotsErr } = await supabase
     .from("tournament_slots")
-    .select("id, competitor_id, rotulo, team:teams ( nome, escudo_url )")
+    .select(
+      `id, competitor_id, rotulo,
+       team:teams ( nome, escudo_url ),
+       competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url )`
+    )
     .in("id", vagaIds)
   if (slotsErr || !slots) return []
 
@@ -65,11 +72,12 @@ export async function getMuralha(
       nome: string | null
       escudo_url: string | null
     } | null
+    const competidor = s.competidor as unknown as { escudo_url: string | null } | null
     const nome = s.rotulo?.trim() || team?.nome?.trim() || "Competidor"
     mapaLadoCompetidor.set(s.id, {
       competitorId: s.competitor_id,
       nome,
-      escudoUrl: team?.escudo_url ?? null,
+      escudoUrl: escudoEfetivo(competidor?.escudo_url, team?.escudo_url),
     })
   }
 

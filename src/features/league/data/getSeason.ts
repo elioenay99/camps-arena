@@ -4,13 +4,17 @@ import { cache } from "react"
 
 import { createClient } from "@/lib/supabase/server"
 import { podeGerir } from "@/lib/autorizacao"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 import type { LeagueSeasonStatus } from "@/features/league/leagueStatus"
 
 /** Identidade exibível de um competidor persistente (clube OU rótulo livre). */
 export interface CompetidorIdentidade {
   id: string
   nome: string
+  /** Escudo EFETIVO: override da liga ?? catálogo global. */
   escudoUrl: string | null
+  /** Há override LOCAL nesta pirâmide (habilita "Remover" na tela de Identidade). */
+  temEscudoProprio: boolean
   avatarUrl: string | null
 }
 
@@ -115,6 +119,8 @@ interface FronteiraEmbed {
 interface CompetidorEmbed {
   id: string
   rotulo: string | null
+  /** Override LOCAL do escudo nesta pirâmide (escudo-personalizado-liga). */
+  escudo_url: string | null
   team: { nome: string | null; escudo_url: string | null } | null
   holder: { nome: string | null; avatar: string | null } | null
 }
@@ -205,7 +211,7 @@ export const getSeason = cache(async function getSeason(
   const { data: competidoresRaw, error: compsError } = await supabase
     .from("league_competitors")
     .select(
-      `id, rotulo,
+      `id, rotulo, escudo_url,
        team:teams ( nome, escudo_url ),
        holder:users!league_competitors_holder_user_id_fkey ( nome, avatar )`
     )
@@ -220,7 +226,10 @@ export const getSeason = cache(async function getSeason(
     competidores[c.id] = {
       id: c.id,
       nome: nomeDoCompetidor(c),
-      escudoUrl: c.team?.escudo_url ?? null,
+      escudoUrl: escudoEfetivo(c.escudo_url, c.team?.escudo_url),
+      // A tela de Identidade precisa distinguir "tem override" (mostra Remover)
+      // de "veio do catálogo" — o escudoUrl resolvido não carrega essa origem.
+      temEscudoProprio: c.escudo_url !== null,
       avatarUrl: c.holder?.avatar ?? null,
     }
   }

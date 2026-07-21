@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { renderTemporadaOg, type ClubeOg } from "@/features/og/temporada"
 import { createClient } from "@/lib/supabase/server"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 
 /**
  * Pôster "Temporada encerrada" (PNG) para o dono da liga compartilhar
@@ -64,13 +65,13 @@ export async function GET(
   if (idsNecessarios.length > 0) {
     const { data: comps } = await supabase
       .from("league_competitors")
-      .select("id, rotulo, team:teams ( nome, escudo_url )")
+      .select("id, rotulo, escudo_url, team:teams ( nome, escudo_url )")
       .in("id", idsNecessarios)
     for (const c of comps ?? []) {
       const team = c.team as unknown as { nome: string; escudo_url: string | null } | null
       clubePorId.set(c.id, {
         nome: team?.nome ?? c.rotulo ?? "Competidor",
-        escudoUrl: team?.escudo_url ?? null,
+        escudoUrl: escudoEfetivo(c.escudo_url, team?.escudo_url),
       })
     }
   }

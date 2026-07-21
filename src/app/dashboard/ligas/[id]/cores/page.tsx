@@ -1,4 +1,4 @@
-import { ArrowLeft, Layers, Palette } from "lucide-react"
+import { ArrowLeft, Layers, Palette, Shield } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
@@ -13,11 +13,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { ChampionshipColorsForm } from "@/features/championship/components/ChampionshipColorsForm"
+import { CompetitorCrestForm } from "@/features/league/components/CompetitorCrestForm"
 import { getSeason } from "@/features/league/data/getSeason"
 import { createClient } from "@/lib/supabase/server"
 
 export const metadata: Metadata = {
-  title: "Cores da liga · Goliseu",
+  title: "Identidade da liga · Goliseu",
 }
 
 export default async function CoresDaLigaPage({
@@ -53,6 +54,10 @@ export default async function CoresDaLigaPage({
   }
 
   const competitionId = temporada.competicao.id
+  // Competidores da PIRÂMIDE (todas as divisões), em ordem alfabética estável.
+  const competidores = Object.values(temporada.competidores).sort((a, b) =>
+    a.nome.localeCompare(b.nome)
+  )
   const nomePiramide = temporada.competicao.nome.trim() || "Pirâmide"
 
   return (
@@ -137,6 +142,45 @@ export default async function CoresDaLigaPage({
             </Card>
           )
         })}
+      </section>
+
+      {/* Escudo PERSONALIZADO por liga (change escudo-personalizado-liga). Fica
+          aqui, e não em rota nova: esta é a tela que o header da liga já chama de
+          "Identidade". O gate de GESTÃO da página vale para a seção inteira; a
+          action revalida a posse. */}
+      <section aria-labelledby="escudos-clubes" className="flex flex-col gap-4">
+        <h2
+          id="escudos-clubes"
+          className="text-muted-foreground flex items-center gap-2 border-t pt-6 text-xs font-semibold tracking-wide uppercase"
+        >
+          <Shield className="size-3.5" aria-hidden="true" />
+          Escudos dos clubes
+        </h2>
+        <p className="text-muted-foreground text-sm">
+          O escudo trocado aqui vale só nesta pirâmide — o catálogo e as outras
+          ligas continuam com o escudo original.
+        </p>
+        {competidores.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            Nenhum competidor cadastrado ainda.
+          </p>
+        ) : (
+          <Card className="elevate" size="sm">
+            <CardContent className="flex flex-col divide-y">
+              {competidores.map((c) => (
+                <div key={c.id} className="py-3 first:pt-0 last:pb-0">
+                  <CompetitorCrestForm
+                    competitorId={c.id}
+                    seasonId={id}
+                    nome={c.nome}
+                    escudoUrl={c.escudoUrl}
+                    temEscudoProprio={c.temEscudoProprio}
+                  />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
       </section>
     </main>
   )

@@ -980,6 +980,9 @@ export interface Database {
           team_id: string | null
           rotulo: string | null
           holder_user_id: string | null
+          // Override LOCAL do escudo, válido só nesta pirâmide (o catálogo
+          // global fica em teams.escudo_url). Ver src/lib/escudoEfetivo.ts.
+          escudo_url: string | null
           created_at: string
         }
         Insert: {
@@ -988,6 +991,7 @@ export interface Database {
           team_id?: string | null
           rotulo?: string | null
           holder_user_id?: string | null
+          escudo_url?: string | null
           created_at?: string
         }
         Update: {
@@ -996,6 +1000,7 @@ export interface Database {
           team_id?: string | null
           rotulo?: string | null
           holder_user_id?: string | null
+          escudo_url?: string | null
           created_at?: string
         }
         Relationships: [

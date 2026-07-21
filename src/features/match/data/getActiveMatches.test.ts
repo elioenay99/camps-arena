@@ -168,16 +168,51 @@ describe("getActiveMatches", () => {
     })
   })
 
+  it("escudo EFETIVO: o override da liga ganha do catálogo (escudo-personalizado-liga)", async () => {
+    const linha = {
+      id: "m9",
+      placar_1: 0,
+      placar_2: 0,
+      status: "agendada",
+      created_at: "2026-01-01T00:00:00Z",
+      tournament: { id: "t1", titulo: "Série A", status: "ativo" },
+      participante_1: null,
+      participante_2: null,
+      time_1: null,
+      time_2: null,
+      vaga_1: {
+        id: "s1",
+        rotulo: null,
+        clube: { nome: "Galo", escudo_url: "https://cdn/catalogo.png" },
+        competidor: { escudo_url: "https://cdn/override.png" },
+        tecnico: null,
+      },
+      // Vaga de torneio avulso/legado: competitor_id null ⇒ nada muda.
+      vaga_2: {
+        id: "s2",
+        rotulo: null,
+        clube: { nome: "Rival", escudo_url: "https://cdn/rival.png" },
+        competidor: null,
+        tecnico: null,
+      },
+    }
+    montarClient({ avulsas: [], minhasVagas: [{ id: "s1" }], competitivas: [linha] })
+
+    const r = await getActiveMatches()
+    expect(r[0].vaga_1?.clube?.escudo_url).toBe("https://cdn/override.png")
+    expect(r[0].vaga_2?.clube?.escudo_url).toBe("https://cdn/rival.png")
+  })
+
   it("embeda vagas com clube e técnico (shape do card competitivo)", async () => {
     const client = montarClient({ avulsas: [], minhasVagas: [{ id: "v1" }] })
     await getActiveMatches()
     // Whitespace normalizado (postgrest-js remove espaços não-citados).
     const cols = String(client.selectSpy.mock.calls[0][0]).replace(/\s+/g, "")
     expect(cols).toContain(
-      "vaga_1:tournament_slots!matches_vaga_1_fkey(id,rotulo,clube:teams(nome,escudo_url),tecnico:users(id,nome,avatar))"
+      "vaga_1:tournament_slots!matches_vaga_1_fkey(id,rotulo,clube:teams(nome,escudo_url),competidor:league_competitors!tournament_slots_competitor_id_fkey(escudo_url),tecnico:users(id,nome,avatar))"
     )
     expect(cols).toContain(
-      "vaga_2:tournament_slots!matches_vaga_2_fkey(id,rotulo,clube:teams(nome,escudo_url),tecnico:users(id,nome,avatar))"
+      "vaga_2:tournament_slots!matches_vaga_2_fkey(id,rotulo,clube:teams(nome,escudo_url),competidor:league_competitors!tournament_slots_competitor_id_fkey(escudo_url),tecnico:users(id,nome,avatar))"
     )
     // PII: `celular` NÃO entra no embed (a coluna perdeu o grant de SELECT).
     expect(cols).not.toContain("celular")

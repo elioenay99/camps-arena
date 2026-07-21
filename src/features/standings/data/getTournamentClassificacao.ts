@@ -4,6 +4,7 @@ import { cache } from "react"
 
 import { createClient } from "@/lib/supabase/server"
 import { carregarCelulares } from "@/lib/contatos"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 import { resolverCores } from "@/features/championship/championshipTheme"
 import {
   computeStandings,
@@ -229,6 +230,8 @@ interface VagaEmbed {
   id: string
   rotulo: string | null
   team: { nome: string | null; escudo_url: string | null } | null
+  /** Override LOCAL do escudo por liga (escudo-personalizado-liga). */
+  competidor: { escudo_url: string | null } | null
   // `celular` do técnico sai do embed; vem da RPC `celulares_de_contato` por id.
   tecnico: { id: string; nome: string | null } | null
 }
@@ -312,7 +315,7 @@ function projetarLado(
     return {
       nome: nomeDaVaga(vaga),
       ladoCru,
-      escudo: vaga?.team?.escudo_url ?? null,
+      escudo: escudoEfetivo(vaga?.competidor?.escudo_url, vaga?.team?.escudo_url),
       tecnico,
       // Convocação competitiva: o contato é o TÉCNICO da vaga (mesmo gate).
       contato: vaga?.tecnico
@@ -386,8 +389,8 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
        p2:users!matches_participante_2_fkey ( id, nome, avatar ),
        t1:teams!matches_time_1_fkey ( id, nome ),
        t2:teams!matches_time_2_fkey ( id, nome ),
-       v1:tournament_slots!matches_vaga_1_fkey ( id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome ) ),
-       v2:tournament_slots!matches_vaga_2_fkey ( id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome ) )`
+       v1:tournament_slots!matches_vaga_1_fkey ( id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome ) ),
+       v2:tournament_slots!matches_vaga_2_fkey ( id, rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url ), tecnico:users!tournament_slots_user_id_fkey ( id, nome ) )`
     )
     .eq("tournament_id", tournamentId)
     .order("updated_at", { ascending: false })
@@ -446,11 +449,11 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
     if (competitivo) {
       if (p.v1) {
         nomes.set(p.v1.id, nomeOuFallback(p.v1.team?.nome ?? p.v1.rotulo))
-        escudos.set(p.v1.id, p.v1.team?.escudo_url ?? null)
+        escudos.set(p.v1.id, escudoEfetivo(p.v1.competidor?.escudo_url, p.v1.team?.escudo_url))
       }
       if (p.v2) {
         nomes.set(p.v2.id, nomeOuFallback(p.v2.team?.nome ?? p.v2.rotulo))
-        escudos.set(p.v2.id, p.v2.team?.escudo_url ?? null)
+        escudos.set(p.v2.id, escudoEfetivo(p.v2.competidor?.escudo_url, p.v2.team?.escudo_url))
       }
     } else {
       if (p.p1) {

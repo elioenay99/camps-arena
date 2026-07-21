@@ -3,6 +3,7 @@ import "server-only"
 import { cache } from "react"
 
 import { createClient } from "@/lib/supabase/server"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 
 import type {
   CupCompetitionStatus,
@@ -77,6 +78,13 @@ interface EntryEmbed {
   posicao_final: number | null
   slot_id: string | null
   manual: boolean
+  /**
+   * Competidor de liga que originou esta entry (proveniência de
+   * add-copa-tecnico-heranca). Traz o override LOCAL do escudo: a copa é da
+   * MESMA pirâmide, então o escudo personalizado da liga vale aqui
+   * (escudo-personalizado-liga). null em entry manual/por-nome/origem-copa.
+   */
+  competidor: { escudo_url: string | null } | null
 }
 
 /**
@@ -97,7 +105,7 @@ export const getEdicao = cache(async function getEdicao(
     .select(
       `id, numero, status, tournament_id, config_snapshot, previous_season_id, montada_em, encerrada_em,
        cup_competitions!inner ( id, nome, formato, por_nome, status, qtd_grupos, classificados_por_grupo, created_by, cor_primaria, cor_secundaria ),
-       cup_entries ( id, team_id, rotulo, origem_rule_id, origem_season_id, origem_descricao, seed, posicao_final, slot_id, manual ),
+       cup_entries ( id, team_id, rotulo, origem_rule_id, origem_season_id, origem_descricao, seed, posicao_final, slot_id, manual, competidor:league_competitors!cup_entries_competitor_id_fkey ( escudo_url ) ),
        cup_season_exclusions ( id, team_id, rotulo )`
     )
     .eq("id", cupSeasonId)
@@ -171,7 +179,7 @@ export const getEdicao = cache(async function getEdicao(
         teamId: e.team_id,
         rotulo: e.rotulo,
         nome,
-        escudoUrl: team?.escudo_url ?? null,
+        escudoUrl: escudoEfetivo(e.competidor?.escudo_url, team?.escudo_url),
         origemRuleId: e.origem_rule_id,
         origemSeasonId: e.origem_season_id,
         origemDescricao: e.origem_descricao,

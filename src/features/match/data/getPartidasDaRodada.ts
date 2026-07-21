@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { createClient } from "@/lib/supabase/server"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 
 /** Um lado do confronto na imagem da rodada. */
 export interface LadoRodada {
@@ -20,6 +21,8 @@ export interface ConfrontoRodada {
 interface VagaEmbed {
   rotulo: string | null
   team: { nome: string | null; escudo_url: string | null } | null
+  /** Override LOCAL do escudo por liga (escudo-personalizado-liga). */
+  competidor: { escudo_url: string | null } | null
 }
 
 interface MatchRow {
@@ -35,10 +38,13 @@ interface MatchRow {
  * vaga não tem identidade (bye/TBD) — o confronto inteiro é descartado. */
 function ladoDaVaga(v: VagaEmbed | null): LadoRodada | null {
   if (!v) return null
+  // Escudo EFETIVO: o override da liga ganha do catálogo — inclusive no lado
+  // por-nome, que sem override segue no monograma (escudo-personalizado-liga).
+  const escudo = escudoEfetivo(v.competidor?.escudo_url, v.team?.escudo_url)
   const clube = v.team?.nome?.trim()
-  if (clube) return { nome: clube, escudoUrl: v.team?.escudo_url ?? null, porNome: false }
+  if (clube) return { nome: clube, escudoUrl: escudo, porNome: false }
   const rot = v.rotulo?.trim()
-  if (rot) return { nome: rot, escudoUrl: null, porNome: true }
+  if (rot) return { nome: rot, escudoUrl: escudoEfetivo(v.competidor?.escudo_url, null), porNome: true }
   return null
 }
 
@@ -63,8 +69,8 @@ export async function getPartidasDaRodada(
     .from("matches")
     .select(
       `id, posicao, perna, created_at,
-       v1:tournament_slots!matches_vaga_1_fkey ( rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ) ),
-       v2:tournament_slots!matches_vaga_2_fkey ( rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ) )`
+       v1:tournament_slots!matches_vaga_1_fkey ( rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url ) ),
+       v2:tournament_slots!matches_vaga_2_fkey ( rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url ) )`
     )
     .eq("tournament_id", tournamentId)
     .eq("rodada", rodada)

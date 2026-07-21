@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 
 /** Técnico ATUAL de uma vaga (anulável: clube órfão). */
 export interface TecnicoDaVaga {
@@ -39,6 +40,7 @@ export async function getVagasDoTorneio(
     .select(
       `id, rotulo,
        clube:teams!tournament_slots_team_id_fkey ( nome, escudo_url ),
+       competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url ),
        tecnico:users!tournament_slots_user_id_fkey ( id, nome, avatar )`
     )
     .eq("tournament_id", tournamentId)
@@ -54,6 +56,8 @@ export async function getVagasDoTorneio(
     id: string
     rotulo: string | null
     clube: { nome: string | null; escudo_url: string | null } | null
+    /** Override LOCAL do escudo por liga (escudo-personalizado-liga). */
+    competidor: { escudo_url: string | null } | null
     tecnico: { id: string; nome: string | null; avatar: string | null } | null
   }>
 
@@ -61,7 +65,7 @@ export async function getVagasDoTorneio(
     id: linha.id,
     // Modo clube → nome do time; modo por-nome → rótulo. Fallback final defensivo.
     clube: linha.clube?.nome?.trim() || linha.rotulo?.trim() || "Vaga",
-    escudoUrl: linha.clube?.escudo_url ?? null,
+    escudoUrl: escudoEfetivo(linha.competidor?.escudo_url, linha.clube?.escudo_url),
     // Vaga por nome (sem clube): sem técnico, sem convite.
     tecnico: linha.clube
       ? linha.tecnico

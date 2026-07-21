@@ -114,6 +114,49 @@ describe("getSeason — visão de leitura com flag de capacidade", () => {
     expect(temporada?.divisoes).toHaveLength(1)
   })
 
+  it("escudo EFETIVO por competidor: override da liga ganha, e marca temEscudoProprio", async () => {
+    createClientMock.mockResolvedValue(
+      fakeSupabase({
+        season: seasonRow(),
+        competidores: [
+          {
+            id: "c1",
+            rotulo: null,
+            escudo_url: "https://cdn/override.png",
+            team: { nome: "Galo", escudo_url: "https://cdn/catalogo.png" },
+            holder: null,
+          },
+          {
+            id: "c2",
+            rotulo: null,
+            escudo_url: null,
+            team: { nome: "Rival", escudo_url: "https://cdn/rival.png" },
+            holder: null,
+          },
+          // Competidor por NOME com escudo próprio (sem clube do catálogo).
+          { id: "c3", rotulo: "Time do Zé", escudo_url: "https://cdn/ze.png", team: null, holder: null },
+        ],
+      })
+    )
+    podeGerirMock.mockResolvedValue(true)
+
+    const temporada = await getSeason("season-1", OWNER)
+
+    expect(temporada?.competidores.c1).toMatchObject({
+      escudoUrl: "https://cdn/override.png",
+      temEscudoProprio: true,
+    })
+    expect(temporada?.competidores.c2).toMatchObject({
+      escudoUrl: "https://cdn/rival.png",
+      temEscudoProprio: false,
+    })
+    expect(temporada?.competidores.c3).toMatchObject({
+      nome: "Time do Zé",
+      escudoUrl: "https://cdn/ze.png",
+      temEscudoProprio: true,
+    })
+  })
+
   it("season invisível/inexistente (RLS): retorna null (sem checar capacidade)", async () => {
     createClientMock.mockResolvedValue(fakeSupabase({ season: null }))
     podeGerirMock.mockResolvedValue(true)

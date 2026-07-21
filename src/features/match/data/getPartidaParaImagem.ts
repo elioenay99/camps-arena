@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { createClient } from "@/lib/supabase/server"
+import { escudoEfetivo } from "@/lib/escudoEfetivo"
 import type { PartidaEncerrada } from "@/features/standings/data/getTournamentClassificacao"
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>
@@ -27,6 +28,8 @@ interface UserEmbed {
 interface SlotEmbed {
   rotulo: string | null
   team: { nome: string | null; escudo_url: string | null } | null
+  /** Override LOCAL do escudo por liga (escudo-personalizado-liga). */
+  competidor: { escudo_url: string | null } | null
 }
 
 interface MatchRow {
@@ -74,8 +77,8 @@ export async function getPartidaParaImagem(
       `id, tournament_id, vaga_1, vaga_2, participante_1, participante_2, placar_1, placar_2, rodada, perna, grupo, wo, wo_vencedor, wo_duplo, updated_at,
        p1:users!matches_participante_1_fkey ( nome, avatar ),
        p2:users!matches_participante_2_fkey ( nome, avatar ),
-       v1:tournament_slots!matches_vaga_1_fkey ( rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ) ),
-       v2:tournament_slots!matches_vaga_2_fkey ( rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ) )`
+       v1:tournament_slots!matches_vaga_1_fkey ( rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url ) ),
+       v2:tournament_slots!matches_vaga_2_fkey ( rotulo, team:teams!tournament_slots_team_id_fkey ( nome, escudo_url ), competidor:league_competitors!tournament_slots_competitor_id_fkey ( escudo_url ) )`
     )
     .eq("id", matchId)
     .eq("status", "encerrada")
@@ -127,8 +130,8 @@ export async function getPartidaParaImagem(
     rodada: m.rodada,
     perna: m.perna,
     grupo: m.grupo,
-    escudo_1: competitivo ? (m.v1?.team?.escudo_url ?? null) : null,
-    escudo_2: competitivo ? (m.v2?.team?.escudo_url ?? null) : null,
+    escudo_1: competitivo ? escudoEfetivo(m.v1?.competidor?.escudo_url, m.v1?.team?.escudo_url) : null,
+    escudo_2: competitivo ? escudoEfetivo(m.v2?.competidor?.escudo_url, m.v2?.team?.escudo_url) : null,
     wo: m.wo,
     woVencedorLado,
     woDuplo: m.wo === true && m.wo_duplo === true,

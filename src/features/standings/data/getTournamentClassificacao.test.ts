@@ -291,10 +291,10 @@ describe("getTournamentClassificacao", () => {
     expect(cols).toMatch(/(^|,)vaga_1(,|$)/)
     expect(cols).toMatch(/(^|,)vaga_2(,|$)/)
     expect(cols).toContain(
-      "v1:tournament_slots!matches_vaga_1_fkey(id,rotulo,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome))"
+      "v1:tournament_slots!matches_vaga_1_fkey(id,rotulo,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),competidor:league_competitors!tournament_slots_competitor_id_fkey(escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome))"
     )
     expect(cols).toContain(
-      "v2:tournament_slots!matches_vaga_2_fkey(id,rotulo,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome))"
+      "v2:tournament_slots!matches_vaga_2_fkey(id,rotulo,team:teams!tournament_slots_team_id_fkey(nome,escudo_url),competidor:league_competitors!tournament_slots_competitor_id_fkey(escudo_url),tecnico:users!tournament_slots_user_id_fkey(id,nome))"
     )
     // PII: `celular` NÃO entra no embed (coluna sem grant de SELECT) — vem da RPC
     // gated `celulares_de_contato`, validada no teste de convocação abaixo.
