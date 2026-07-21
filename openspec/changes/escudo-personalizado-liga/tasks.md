@@ -75,4 +75,4 @@
 - [x] 6.1 `pnpm typecheck`
 - [x] 6.2 `pnpm lint`
 - [x] 6.3 Subset afetado com `--maxWorkers=2`
-- [ ] 6.4 Commit pt-BR, Conventional Commits, sem coautoria de IA, SEM push.
+- [x] 6.4 Commit pt-BR, Conventional Commits, sem coautoria de IA, SEM push.
