@@ -569,82 +569,101 @@ function LinhaCompetidor({
   const { Icon } = estilo
   const temEscudo = Boolean(identidade.escudoUrl)
   return (
-    <li className="flex items-center gap-2.5 border-b px-3 py-2.5 last:border-b-0 motion-safe:transition-colors hover:bg-muted/30">
-      <span className="w-7 shrink-0 text-center font-display text-sm font-bold tabular-nums text-muted-foreground">
-        {item.posicaoFinal}º
+    // Duas faixas no mobile: a identidade tem a linha inteira em cima, os
+    // controles e as pílulas descem para baixo. Antes tudo dividia uma linha só
+    // e as pílulas (`shrink-0`, ~170px somadas) deixavam ~17px para o nome — na
+    // tela em que o dono decide quem sobe e quem cai. Em `sm:` volta à linha única.
+    <li className="flex flex-col gap-2 border-b px-3 py-2.5 last:border-b-0 motion-safe:transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:gap-2.5">
+      <span className="flex min-w-0 items-center gap-2.5 sm:flex-1">
+        <span className="w-7 shrink-0 text-center font-display text-sm font-bold tabular-nums text-muted-foreground">
+          {item.posicaoFinal}º
+        </span>
+        <span className="shrink-0" aria-hidden="true">
+          {temEscudo ? (
+            <TeamCrest nome={identidade.nome} escudoUrl={identidade.escudoUrl} size={24} />
+          ) : (
+            <UserAvatar nome={identidade.nome} avatarUrl={identidade.avatarUrl} size={24} />
+          )}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{identidade.nome}</span>
       </span>
-      <span className="shrink-0" aria-hidden="true">
-        {temEscudo ? (
-          <TeamCrest nome={identidade.nome} escudoUrl={identidade.escudoUrl} size={24} />
-        ) : (
-          <UserAvatar nome={identidade.nome} avatarUrl={identidade.avatarUrl} size={24} />
-        )}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">{identidade.nome}</span>
 
-      {reordenavel ? (
-        <span className="flex shrink-0 flex-col" role="group" aria-label="Reordenar empate">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            // 36px no mobile: o par é EMPILHADO, então 44px faria a coluna saltar
-            // para 88px por linha da lista de empates. Compromisso registrado na
-            // change mobile-alvos-toque-safe-area.
-            className="size-9 md:size-7"
-            disabled={reordenavel.bloqueado || reordenavel.indice === 0}
-            onClick={reordenavel.onSobe}
-            aria-label={`Subir ${identidade.nome} no desempate`}
+      <span className="flex flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap sm:gap-2.5">
+        {reordenavel ? (
+          // Lado a lado no mobile (empilhado só em `md:`): horizontal paga o
+          // alvo de 44px e o gap SEM alongar a linha. Empilhado com gap zero,
+          // "subir" e "descer" — ações opostas no desempate que decide
+          // rebaixamento — ficavam borda com borda sob o polegar.
+          <span
+            className="flex shrink-0 items-center gap-1.5 md:flex-col md:gap-0"
+            role="group"
+            aria-label="Reordenar empate"
           >
-            <ChevronUp aria-hidden="true" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            // 36px no mobile: o par é EMPILHADO, então 44px faria a coluna saltar
-            // para 88px por linha da lista de empates. Compromisso registrado na
-            // change mobile-alvos-toque-safe-area.
-            className="size-9 md:size-7"
-            disabled={reordenavel.bloqueado || reordenavel.indice === reordenavel.total - 1}
-            onClick={reordenavel.onDesce}
-            aria-label={`Descer ${identidade.nome} no desempate`}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="size-11 md:size-7"
+              disabled={reordenavel.bloqueado || reordenavel.indice === 0}
+              onClick={reordenavel.onSobe}
+              aria-label={`Subir ${identidade.nome} no desempate`}
+            >
+              <ChevronUp aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="size-11 md:size-7"
+              disabled={reordenavel.bloqueado || reordenavel.indice === reordenavel.total - 1}
+              onClick={reordenavel.onDesce}
+              aria-label={`Descer ${identidade.nome} no desempate`}
+            >
+              <ChevronDown aria-hidden="true" />
+            </Button>
+          </span>
+        ) : null}
+
+        <span
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
+            estilo.chip
+          )}
+        >
+          <Icon className="size-3" aria-hidden="true" />
+          {DESTINO_LABEL[destino]}
+        </span>
+
+        {/* O significado destes chips morava SÓ no `title` — tooltip nativo não
+            abre em toque, então no celular a informação não existia. O rótulo
+            longo aparece no mobile; o curto (e o `title`) ficam para o desktop. */}
+        {resolvidoPor === "playoff" ? (
+          // Decidido na CHAVE de playoff/playout — motivo distinto do sorteio
+          // (accent): gold (cor de chave/campeão, ver BracketView). Não há o que
+          // reordenar (a chave decidiu por jogo), então sem affordance de empate.
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-xs font-medium text-gold-ink"
+            title="Decidido na chave de playoff"
           >
-            <ChevronDown aria-hidden="true" />
-          </Button>
-        </span>
-      ) : null}
-
-      <span
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
-          estilo.chip
-        )}
-      >
-        <Icon className="size-3" aria-hidden="true" />
-        {DESTINO_LABEL[destino]}
+            <Swords className="size-3" aria-hidden="true" />
+            <span className="sm:hidden">Decidido na chave</span>
+            <span className="hidden sm:inline">Playoff</span>
+          </span>
+        ) : resolvidoPor === "sorteio" || resolvidoPor === "override" ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent-foreground"
+            title={resolvidoPor === "override" ? "Ajustado manualmente" : "Decidido por sorteio"}
+          >
+            <Dices className="size-3" aria-hidden="true" />
+            <span className="sm:hidden">
+              {resolvidoPor === "override" ? "Ajustado manualmente" : "Decidido por sorteio"}
+            </span>
+            <span className="hidden sm:inline">
+              {resolvidoPor === "override" ? "Ajuste" : "Sorteio"}
+            </span>
+          </span>
+        ) : null}
       </span>
-
-      {resolvidoPor === "playoff" ? (
-        // Decidido na CHAVE de playoff/playout — motivo distinto do sorteio
-        // (accent): gold (cor de chave/campeão, ver BracketView). Não há o que
-        // reordenar (a chave decidiu por jogo), então sem affordance de empate.
-        <span
-          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-xs font-medium text-gold-ink"
-          title="Decidido na chave de playoff"
-        >
-          <Swords className="size-3" aria-hidden="true" />
-          Playoff
-        </span>
-      ) : resolvidoPor === "sorteio" || resolvidoPor === "override" ? (
-        <span
-          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent-foreground"
-          title={resolvidoPor === "override" ? "Ajustado manualmente" : "Decidido por sorteio"}
-        >
-          <Dices className="size-3" aria-hidden="true" />
-          {resolvidoPor === "override" ? "Ajuste" : "Sorteio"}
-        </span>
-      ) : null}
     </li>
   )
 }

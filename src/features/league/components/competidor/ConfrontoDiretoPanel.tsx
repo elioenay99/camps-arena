@@ -119,10 +119,16 @@ function ConfrontoResultado({
   return (
     <div className="flex flex-col gap-4">
       {/* Agregado */}
-      <div className="elevate flex items-center justify-between gap-3 rounded-xl border bg-muted/20 px-4 py-3">
+      {/* No mobile os dois lados dividem a linha de cima (metade real cada) e os
+          empates descem para uma faixa central própria; o 3-up numa linha só
+          deixava ~83px por nome. Em `sm:` volta ao 3-up. Espelhado byte a byte
+          em ConfrontoTecnicosPanel — mexer num exige mexer no outro. */}
+      <div className="elevate flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/20 px-4 py-3 sm:flex-nowrap">
         <ConfrontoLado nome={aNome} escudo={aEscudo} valor={confronto.aVitorias} legenda="vitórias" />
-        <div className="flex flex-col items-center">
-          <span className="font-display text-sm font-bold tabular-nums">
+        <div className="order-last flex basis-full flex-col items-center sm:order-none sm:basis-auto">
+          {/* `text-base` como os lados: os três números do agregado são uma
+              comparação, e comparação exige escala única. */}
+          <span className="font-display text-base font-bold tabular-nums">
             {confronto.empates}
           </span>
           <span className="text-muted-foreground text-[0.7rem]">empates</span>

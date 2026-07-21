@@ -88,7 +88,10 @@ export function TeamSection({
             return (
               <li
                 key={m.userId}
-                className="flex items-center justify-between gap-3 rounded-lg border px-4 py-2"
+                // Papel + remover somam ~150px `shrink-0`; na mesma linha do
+                // nome sobravam ~120px em 390px. No mobile o cluster desce para
+                // uma faixa própria, recuada para alinhar sob o nome.
+                className="flex flex-col gap-2 rounded-lg border px-4 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
               >
                 <span className="flex min-w-0 items-center gap-2 text-sm">
                   <UserAvatar nome={m.nome} avatarUrl={m.avatar} size={28} />
@@ -99,7 +102,7 @@ export function TeamSection({
                     ) : null}
                   </span>
                 </span>
-                <span className="flex shrink-0 items-center gap-2">
+                <span className="flex shrink-0 items-center gap-2 pl-9 sm:pl-0">
                   <TeamRoleBadge papel={m.papel} />
                   {podeRemover(m) ? (
                     <RemoveMemberButton

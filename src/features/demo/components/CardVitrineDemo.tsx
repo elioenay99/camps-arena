@@ -35,26 +35,31 @@ export function CardVitrineDemo({
           {item.competidores} competidores
         </span>
       </div>
-      <StatusPill status={item.status} />
-      {onToggleListar ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={onToggleListar}
-          aria-pressed={item.listado}
-          aria-label={item.listado ? `Remover ${item.nome} da vitrine` : `Listar ${item.nome} na vitrine`}
-        >
-          {item.listado ? (
-            <>
-              <Eye aria-hidden className="size-3.5" /> Listada
-            </>
-          ) : (
-            <>
-              <EyeOff aria-hidden className="size-3.5" /> Não listada
-            </>
-          )}
-        </Button>
-      ) : null}
+      {/* Espelha a vitrine de produção (explorar/page.tsx): status e ação descem
+          para uma faixa própria no mobile. Com os três na mesma linha sobravam
+          ~58px para o nome — e esta é a superfície que a demo usa para VENDER. */}
+      <div className="order-last flex basis-full items-center gap-3 pl-[3.25rem] sm:order-none sm:basis-auto sm:pl-0">
+        <StatusPill status={item.status} />
+        {onToggleListar ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onToggleListar}
+            aria-pressed={item.listado}
+            aria-label={item.listado ? `Remover ${item.nome} da vitrine` : `Listar ${item.nome} na vitrine`}
+          >
+            {item.listado ? (
+              <>
+                <Eye aria-hidden className="size-3.5" /> Listada
+              </>
+            ) : (
+              <>
+                <EyeOff aria-hidden className="size-3.5" /> Não listada
+              </>
+            )}
+          </Button>
+        ) : null}
+      </div>
     </li>
   )
 }

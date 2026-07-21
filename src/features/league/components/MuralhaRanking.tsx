@@ -43,37 +43,42 @@ export function MuralhaRanking({
       {linhas.map((linha, i) => (
         <li
           key={linha.competitorId}
-          className="flex items-center gap-3 rounded-lg border bg-card/40 px-3 py-2.5 text-sm"
+          className="flex flex-col gap-1.5 rounded-lg border bg-card/40 px-3 py-2.5 text-sm sm:flex-row sm:items-center sm:gap-3"
         >
-          <span
-            className="text-muted-foreground w-5 shrink-0 text-center text-xs font-semibold tabular-nums"
-            aria-hidden="true"
-          >
-            {i + 1}
-          </span>
-          <TeamCrest
-            nome={linha.competitorNome}
-            escudoUrl={linha.escudoUrl}
-            size={28}
-          />
-          <span className="flex min-w-0 flex-1 flex-col leading-tight">
-            {/* Sem prefetch: a lista pode ter dezenas de links p/ rota RSC cara
-                (perfil do competidor) — a rajada estourava a borda da Vercel
-                (503). Ver add-liga-prefetch-fix. */}
-            <Link
-              href={`${hrefCompetidorBase}/${linha.competitorId}`}
-              prefetch={false}
-              className="truncate font-medium underline-offset-4 hover:underline focus-visible:underline"
+          <span className="flex min-w-0 items-center gap-3 sm:flex-1">
+            <span
+              className="text-muted-foreground w-5 shrink-0 text-center text-xs font-semibold tabular-nums"
+              aria-hidden="true"
             >
-              {linha.competitorNome}
-            </Link>
-            <span className="text-muted-foreground truncate text-xs">
-              {linha.golsSofridos}{" "}
-              {linha.golsSofridos === 1 ? "gol sofrido" : "gols sofridos"} em{" "}
-              {linha.jogos} {linha.jogos === 1 ? "jogo" : "jogos"}
+              {i + 1}
+            </span>
+            <TeamCrest
+              nome={linha.competitorNome}
+              escudoUrl={linha.escudoUrl}
+              size={28}
+            />
+            <span className="flex min-w-0 flex-1 flex-col leading-tight">
+              {/* Sem prefetch: a lista pode ter dezenas de links p/ rota RSC cara
+                  (perfil do competidor) — a rajada estourava a borda da Vercel
+                  (503). Ver add-liga-prefetch-fix. */}
+              <Link
+                href={`${hrefCompetidorBase}/${linha.competitorId}`}
+                prefetch={false}
+                className="truncate font-medium underline-offset-4 hover:underline focus-visible:underline"
+              >
+                {linha.competitorNome}
+              </Link>
+              <span className="text-muted-foreground truncate text-xs">
+                {linha.golsSofridos}{" "}
+                {linha.golsSofridos === 1 ? "gol sofrido" : "gols sofridos"} em{" "}
+                {linha.jogos} {linha.jogos === 1 ? "jogo" : "jogos"}
+              </span>
             </span>
           </span>
-          <span className="font-display flex shrink-0 items-baseline gap-1 text-base font-bold tabular-nums">
+          {/* O badge (~88px, `shrink-0`) comia o nome e, com ele, o "em N jogos"
+              — que é o DENOMINADOR sem o qual o clean sheet não significa nada.
+              No mobile ele desce, recuado para alinhar sob o nome. */}
+          <span className="font-display flex shrink-0 items-baseline gap-1 pl-[4.5rem] text-base font-bold tabular-nums sm:pl-0">
             {linha.cleanSheets}
             <span className="text-muted-foreground text-xs font-medium">
               {linha.cleanSheets === 1 ? "clean sheet" : "clean sheets"}

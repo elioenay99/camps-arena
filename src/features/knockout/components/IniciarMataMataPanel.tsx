@@ -186,7 +186,14 @@ export function IniciarMataMataPanel({
                 {`Confrontos da 1ª fase${byes > 0 ? ` (deixe ${byes} ${byes === 1 ? "lado vazio" : "lados vazios"} — bye)` : ""}`}
               </legend>
               {Array.from({ length: confrontos }, (_, i) => i + 1).map((slot) => (
-                <div key={slot} className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                // Empilha no mobile: lado a lado sobravam ~87px por select
+                // (~12 caracteres), e "Sport Club do Recife" ficava
+                // irreconhecível. `minmax(0,1fr)` no desktop porque `1fr` tem
+                // `min-width:auto` e NÃO encolhe.
+                <div
+                  key={slot}
+                  className="grid grid-cols-1 gap-1.5 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center sm:gap-2"
+                >
                   <SelectNative
                     name={`slot_${slot}_1`}
                     aria-label={`Confronto ${slot}, lado 1`}
@@ -195,7 +202,7 @@ export function IniciarMataMataPanel({
                   >
                     {opcoes}
                   </SelectNative>
-                  <span className="text-muted-foreground text-xs">×</span>
+                  <span className="text-muted-foreground text-center text-xs">×</span>
                   <SelectNative
                     name={`slot_${slot}_2`}
                     aria-label={`Confronto ${slot}, lado 2`}

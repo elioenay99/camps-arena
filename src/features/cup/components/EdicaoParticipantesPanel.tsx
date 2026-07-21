@@ -232,33 +232,40 @@ export function EdicaoParticipantesPanel({
           {participantes.map((p, i) => (
             <li
               key={p.id}
-              className="bg-card flex items-center gap-2 rounded-lg border px-3 py-2"
+              // Os 3 botões de 44px somam 132px `shrink-0`: na mesma linha do
+              // nome sobravam ~112px, e a linha de ORIGEM — única forma de
+              // conferir de onde veio uma vaga derivada — ficava ilegível.
+              className="bg-card flex flex-col gap-1.5 rounded-lg border px-3 py-2 sm:flex-row sm:items-center sm:gap-2"
             >
-              <span
-                aria-hidden="true"
-                className="bg-muted text-muted-foreground font-display flex size-7 shrink-0 items-center justify-center rounded-md text-xs font-bold tabular-nums"
-              >
-                {i + 1}
-              </span>
-              {p.teamId ? (
-                <TeamCrest nome={p.nome} escudoUrl={p.escudoUrl} size={22} />
-              ) : (
+              <span className="flex min-w-0 items-center gap-2 sm:flex-1">
                 <span
                   aria-hidden="true"
-                  className="bg-muted text-muted-foreground flex size-[22px] shrink-0 items-center justify-center rounded-full text-[0.65rem] font-bold"
+                  className="bg-muted text-muted-foreground font-display flex size-7 shrink-0 items-center justify-center rounded-md text-xs font-bold tabular-nums"
                 >
-                  {p.nome.slice(0, 2).toUpperCase()}
+                  {i + 1}
                 </span>
-              )}
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-sm">{p.nome}</span>
-                <span className="text-muted-foreground truncate text-xs">
-                  {p.manual
-                    ? "Adicionado manualmente"
-                    : (p.origemDescricao ?? "Derivado")}
+                {p.teamId ? (
+                  <TeamCrest nome={p.nome} escudoUrl={p.escudoUrl} size={22} />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="bg-muted text-muted-foreground flex size-[22px] shrink-0 items-center justify-center rounded-full text-[0.65rem] font-bold"
+                  >
+                    {p.nome.slice(0, 2).toUpperCase()}
+                  </span>
+                )}
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-sm">{p.nome}</span>
+                  <span className="text-muted-foreground truncate text-xs">
+                    {p.manual
+                      ? "Adicionado manualmente"
+                      : (p.origemDescricao ?? "Derivado")}
+                  </span>
                 </span>
               </span>
-              <div className="flex shrink-0 items-center">
+              {/* `gap-1` no mobile: "para cima" e "para baixo" são ações opostas
+                  e estavam borda com borda. Em `sm:` o par volta a colar. */}
+              <div className="flex shrink-0 items-center gap-1 self-end sm:gap-0 sm:self-auto">
                 <Button
                   type="button"
                   size="icon"

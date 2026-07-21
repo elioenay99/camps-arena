@@ -26,7 +26,7 @@ function CardVitrine({ item }: { item: ItemVitrine }) {
     <Link
       href={item.href}
       prefetch={false}
-      className="elevate-hover group flex items-center gap-3.5 rounded-xl border bg-card/80 px-4 py-3.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
+      className="elevate-hover group flex flex-wrap items-center gap-x-3.5 gap-y-2 rounded-xl border bg-card/80 px-4 py-3.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
     >
       <ChampionshipBadge
         icon={<Icone className="size-5" aria-hidden="true" />}
@@ -40,11 +40,17 @@ function CardVitrine({ item }: { item: ItemVitrine }) {
           {item.dono ? ` · por ${item.dono}` : ""}
         </span>
       </span>
-      {item.tipo === "liga" ? (
-        <SeasonStatusPill status={item.status} />
-      ) : (
-        <StatusPill status={item.status} />
-      )}
+      {/* A pílula desce para uma faixa própria no mobile (recuada sob o nome).
+          Disputando a linha com badge e chevron ela deixava ~120px para o
+          título e cortava o "por Fulano" — o único desempate entre competições
+          homônimas, nesta que é a tela de RECONHECER competições. */}
+      <span className="order-last basis-full pl-[3.375rem] sm:order-none sm:basis-auto sm:pl-0">
+        {item.tipo === "liga" ? (
+          <SeasonStatusPill status={item.status} />
+        ) : (
+          <StatusPill status={item.status} />
+        )}
+      </span>
       <ChevronRight
         aria-hidden="true"
         className="text-muted-foreground/40 size-4 shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
