@@ -55,6 +55,23 @@ describe("EmptyActiveMatches — 3 estados de onboarding", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("o CTA longo pode quebrar em vez de ser clipado", () => {
+    render(<EmptyActiveMatches semTorneios temAvulsoAberto={false} />)
+    const cta = screen.getByRole("link", {
+      name: /criar meu primeiro campeonato — leva 1 minuto/i,
+    })
+
+    // `buttonVariants` traz `whitespace-nowrap shrink-0` na base: essa dupla
+    // impede tanto a quebra quanto o truncamento, e em 390px o rótulo vazava do
+    // card e era cortado nos DOIS lados, sem reticências.
+    expect(cta.className).toContain("whitespace-normal")
+    expect(cta.className).toContain("max-w-full")
+    // `h-auto` é obrigatório junto: sem ele o `h-11` da variante corta a 2ª linha.
+    expect(cta.className).toContain("h-auto")
+    // ...sem abrir mão do piso de alvo de toque de 44px.
+    expect(cta.className).toContain("min-h-11")
+  })
+
   it("a11y: ícones decorativos são aria-hidden", () => {
     const { container } = render(
       <EmptyActiveMatches semTorneios temAvulsoAberto={false} />,

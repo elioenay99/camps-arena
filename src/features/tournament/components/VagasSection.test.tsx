@@ -124,6 +124,31 @@ describe("VagasSection", () => {
     expect(screen.queryByRole("button", { name: "Copiar link" })).toBeNull()
   })
 
+  it("o console de moderação e a URL nascem RECOLHIDOS, sem perder a capacidade de copiar", () => {
+    const { container } = renderSection({
+      userId: DONO,
+      podeModerar: true,
+      codigos: new Map([["s1", "aaaaaaaaaaaaaaaa"]]),
+    })
+
+    // Aberto, cada vaga custava ~260px (URL crua em 2 linhas + 3 botões
+    // empilhados): 20 clubes viravam ~11 telas de rolagem.
+    const disclosures = container.querySelectorAll("details")
+    expect(disclosures.length).toBeGreaterThan(0)
+    disclosures.forEach((d) => expect(d).not.toHaveAttribute("open"))
+
+    // Recolher ≠ remover: o <summary> nomeia o que está dentro, e a URL segue
+    // consultável ao abrir.
+    // Uma por vaga moderável (s1 e s2); só s1 tem code, logo só ela tem "Ver link".
+    expect(screen.getAllByText("Gerenciar vaga")).toHaveLength(2)
+    expect(screen.getByText("Ver link")).toBeInTheDocument()
+    expect(
+      screen.getByText("http://localhost:3000/convite/aaaaaaaaaaaaaaaa")
+    ).toBeInTheDocument()
+    // E o botão que torna a URL redundante continua existindo.
+    expect(screen.getAllByRole("button", { name: "Copiar link" })).toHaveLength(1)
+  })
+
   it("torneio ENCERRADO esconde todas as ações (moderação e técnico)", () => {
     renderSection({
       userId: TECNICO,

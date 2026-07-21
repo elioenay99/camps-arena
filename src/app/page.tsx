@@ -61,7 +61,10 @@ export default async function Home() {
 
   return (
     <div className="spotlight flex w-full flex-1 flex-col">
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-16 px-6 py-16">
+      {/* Espaçamento escalonado: `gap-16 px-6 py-16` sem passo responsivo custava
+          ~288px de rolagem extra em 390px, distribuídos por ~11 seções. Desktop
+          inalterado a partir de `sm:`. */}
+      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-10 px-4 py-10 sm:gap-16 sm:px-6 sm:py-16">
         <header
           className="animate-rise flex w-full items-center justify-between"
           style={{ "--stagger": "0ms" } as React.CSSProperties}

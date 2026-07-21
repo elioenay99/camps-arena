@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
 
@@ -24,12 +25,19 @@ function SubmitButton() {
 export function SignupForm({ redirectTo }: { redirectTo?: string }) {
   const [state, formAction] = useActionState(signup, initialState)
 
-  // Estado terminal: cadastro feito, confirmação pendente no e-mail.
+  // Estado terminal: cadastro feito, confirmação pendente no e-mail. O
+  // parágrafo sozinho deixava o usuário sem próximo passo — a mensagem diz o
+  // que aconteceu, não o que fazer agora.
   if (state.success) {
     return (
-      <p className="text-sm" role="status">
-        {state.success}
-      </p>
+      <div className="grid gap-4">
+        <p className="text-sm" role="status">
+          {state.success}
+        </p>
+        <Button asChild className="w-full">
+          <Link href="/login">Ir para o login</Link>
+        </Button>
+      </div>
     )
   }
 

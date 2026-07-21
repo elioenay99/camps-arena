@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { ChevronRight } from "lucide-react"
 
 import { env } from "@/lib/env"
 import { TeamCrest } from "@/features/team/components/TeamCrest"
@@ -130,28 +131,50 @@ export function VagasSection({
                     renderizado para quem modera — o code é segredo de gestão.
                     Modo por-nome NÃO tem convite/técnico: sem console. */}
                 {podeModerar && !torneioEncerrado && !vaga.porNome ? (
-                  <div className="flex flex-col gap-2 border-t pt-3">
-                    {url ? (
-                      <p className="bg-muted min-w-0 break-all rounded-md px-3 py-1.5 font-mono text-xs">
-                        {url}
-                      </p>
-                    ) : null}
-                    {/* Cluster ÚNICO: empilha full-width no mobile, inline no
-                        desktop; gap-x-6 (>=24px entre ações irreversíveis) só no
-                        desktop. */}
-                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3 [&_[data-slot=button]]:w-full sm:[&_[data-slot=button]]:w-auto">
-                      {url ? <CopyVagaLinkButton url={url} /> : null}
-                      <RegenerarConviteVagaButton
-                        slotId={vaga.id}
-                        temConvite={Boolean(code)}
+                  // Recolhido por padrão: aberto, cada vaga custava ~260px (URL
+                  // crua em 2 linhas + 3 botões empilhados), e um torneio de 20
+                  // clubes virava ~11 telas de rolagem. Moderar é pontual, rolar
+                  // é constante — o toque a mais só é pago por quem vai moderar.
+                  // <details> NATIVO mantém esta seção como RSC puro.
+                  <details className="group border-t pt-3">
+                    <summary className="text-muted-foreground hover:text-foreground flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-sm">
+                      <ChevronRight
+                        aria-hidden="true"
+                        className="size-4 transition-transform group-open:rotate-90"
                       />
-                      {vaga.tecnico ? (
-                        <ExpulsarTecnicoButton slotId={vaga.id} />
-                      ) : (
-                        <AssumirVagaButton slotId={vaga.id} />
-                      )}
+                      Gerenciar vaga
+                    </summary>
+                    <div className="flex flex-col gap-2 pt-2">
+                      {/* A URL é redundante com o botão de copiar ao lado, mas é
+                          a única forma de conferir o link a olho antes de mandar
+                          — recolhe, não some. */}
+                      {url ? (
+                        <details>
+                          <summary className="text-muted-foreground hover:text-foreground min-h-11 cursor-pointer text-xs">
+                            Ver link
+                          </summary>
+                          <p className="bg-muted mt-1 min-w-0 break-all rounded-md px-3 py-1.5 font-mono text-xs">
+                            {url}
+                          </p>
+                        </details>
+                      ) : null}
+                      {/* Cluster ÚNICO: empilha full-width no mobile, inline no
+                          desktop; gap-x-6 (>=24px entre ações irreversíveis) só no
+                          desktop. */}
+                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3 [&_[data-slot=button]]:w-full sm:[&_[data-slot=button]]:w-auto">
+                        {url ? <CopyVagaLinkButton url={url} /> : null}
+                        <RegenerarConviteVagaButton
+                          slotId={vaga.id}
+                          temConvite={Boolean(code)}
+                        />
+                        {vaga.tecnico ? (
+                          <ExpulsarTecnicoButton slotId={vaga.id} />
+                        ) : (
+                          <AssumirVagaButton slotId={vaga.id} />
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  </details>
                 ) : null}
               </li>
             )

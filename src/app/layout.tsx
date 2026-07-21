@@ -101,8 +101,10 @@ export default async function RootLayout({
         >
           {children}
           {/* Ancorado embaixo: no topo o toast cobria o header inteiro (marca,
-              menu, tema, conta) no mobile. Nenhuma tela tem barra de ação fixa
-              no rodapé, então não há disputa de espaço. */}
+              menu, tema, conta) no mobile. A subárvore autenticada PASSOU a ter
+              barra fixa no rodapé (change mobile-nav-densidade), então há
+              disputa de espaço: `globals.css` levanta o toast acima da barra —
+              só nas rotas que a têm, via `body:has(#nav-inferior)`. */}
           <Toaster richColors position="bottom-center" />
         </ThemeProvider>
         {/* Vercel Analytics + Web Vitals: injetam o script via createElement no

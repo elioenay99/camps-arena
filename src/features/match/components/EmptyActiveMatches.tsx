@@ -42,7 +42,16 @@ export function EmptyActiveMatches({
             minuto. A partir daí, os placares e a classificação rolam sozinhos.
           </p>
         </div>
-        <Button asChild className="rounded-full">
+        {/* CTA longo: `buttonVariants` declara `whitespace-nowrap shrink-0` na
+            base, combinação que impede tanto a quebra quanto o truncamento — em
+            390px o rótulo vazava do card e era cortado nos DOIS lados, sem
+            reticências. Desfeito localmente (a base segue certa para rótulo
+            curto). `h-auto` é obrigatório junto de `whitespace-normal`: sem ele
+            o `h-11` da variante cortaria a segunda linha. */}
+        <Button
+          asChild
+          className="h-auto min-h-11 max-w-full rounded-full py-2 whitespace-normal"
+        >
           <Link href="/dashboard/torneios/novo">
             <Plus aria-hidden="true" />
             Criar meu primeiro campeonato — leva 1 minuto

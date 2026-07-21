@@ -929,7 +929,15 @@ export function LeagueWizard() {
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-3 border-t pt-5">
+      {/* Sticky no mobile: no passo "Divisões" cada divisão empilha nome +
+          tamanho + desempate + base + formato + 2 ColorFields, e "Próximo" —
+          último elemento do documento — ficava a ~3 telas de rolagem.
+          Ancorada ACIMA da barra de navegação inferior (lendo o contrato
+          --nav-inferior-h, que mede da viewport como o `sticky`): as duas não
+          podem se sobrepor. Sem inset de área segura aqui — quem o paga é a
+          navegação, que está por baixo. Fundo opaco porque `sticky` sobre
+          conteúdo rolante sem fundo deixa o texto passar por baixo. */}
+      <div className="bg-background sticky bottom-[var(--nav-inferior-h)] z-30 flex items-center justify-between gap-3 border-t pt-5 pb-3 sm:static sm:pb-0">
         <Button
           type="button"
           variant="ghost"
@@ -975,7 +983,15 @@ export function LeagueWizard() {
 
 function PassosNav({ atual }: { atual: number }) {
   return (
-    <ol className="flex list-none items-center gap-1.5 p-0" aria-label="Progresso">
+    <div className="flex flex-col gap-1.5">
+      {/* Os rótulos por passo são `hidden ... sm:block` (não cabem lado a lado em
+          390px): sem esta linha, o mobile via só barrinhas coloridas e não sabia
+          em que passo estava nem quanto faltava. */}
+      <p className="text-xs font-medium sm:hidden">
+        Passo {atual + 1} de {PASSOS.length} ·{" "}
+        <span className="text-muted-foreground">{ROTULO_PASSO[PASSOS[atual]]}</span>
+      </p>
+      <ol className="flex list-none items-center gap-1.5 p-0" aria-label="Progresso">
       {PASSOS.map((passo, i) => {
         const ativo = i === atual
         const concluido = i < atual
@@ -1001,7 +1017,8 @@ function PassosNav({ atual }: { atual: number }) {
           </li>
         )
       })}
-    </ol>
+      </ol>
+    </div>
   )
 }
 

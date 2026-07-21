@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
 
@@ -23,12 +24,19 @@ function SubmitButton() {
 export function ForgotPasswordForm() {
   const [state, formAction] = useActionState(forgotPassword, initialState)
 
-  // Estado terminal: mesma mensagem exista ou não a conta (anti-enumeração).
+  // Estado terminal: mesma mensagem exista ou não a conta (anti-enumeração) —
+  // o TEXTO não muda, só ganha a ação seguinte ao lado, que também é idêntica
+  // nos dois casos e portanto não vaza a existência da conta.
   if (state.success) {
     return (
-      <p className="text-sm" role="status">
-        {state.success}
-      </p>
+      <div className="grid gap-4">
+        <p className="text-sm" role="status">
+          {state.success}
+        </p>
+        <Button asChild variant="outline" className="w-full">
+          <Link href="/login">Voltar ao login</Link>
+        </Button>
+      </div>
     )
   }
 

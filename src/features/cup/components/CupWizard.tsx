@@ -291,7 +291,15 @@ export function CupWizard({ piramides, copas }: CupWizardProps) {
 
 function PassosNav({ atual }: { atual: number }) {
   return (
-    <ol className="flex list-none items-center gap-1.5 p-0" aria-label="Progresso">
+    <div className="flex flex-col gap-1.5">
+      {/* Espelha LeagueWizard: os rótulos por passo são `hidden ... sm:block`
+          (não cabem lado a lado em 390px), então sem esta linha o mobile via só
+          barrinhas coloridas, sem saber em que passo estava. */}
+      <p className="text-xs font-medium sm:hidden">
+        Passo {atual + 1} de {PASSOS.length} ·{" "}
+        <span className="text-muted-foreground">{ROTULO_PASSO[PASSOS[atual]]}</span>
+      </p>
+      <ol className="flex list-none items-center gap-1.5 p-0" aria-label="Progresso">
       {PASSOS.map((passo, i) => {
         const ativo = i === atual
         const concluido = i < atual
@@ -317,7 +325,8 @@ function PassosNav({ atual }: { atual: number }) {
           </li>
         )
       })}
-    </ol>
+      </ol>
+    </div>
   )
 }
 

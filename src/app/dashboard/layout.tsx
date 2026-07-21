@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { StadiumBackdrop } from "@/components/stadium-backdrop";
 import { AccountMenu } from "@/features/nav/components/AccountMenu";
+import { BottomNav } from "@/features/nav/components/BottomNav";
 import { NavLinks, type NavLink } from "@/features/nav/components/NavLinks";
 import { getPerfil } from "@/features/profile/data/getPerfil";
 
@@ -70,7 +71,14 @@ export default async function DashboardLayout({
         </div>
       </header>
 
-      {children}
+      {/* Respiro para a barra inferior não cobrir o fim da página. Lê a FAIXA
+          (não o total): o body já paga `env(safe-area-inset-bottom)`, e somar o
+          inset duas vezes abriria uma faixa vazia. */}
+      <div className="flex flex-1 flex-col pb-[var(--nav-inferior-faixa)] sm:pb-0">
+        {children}
+      </div>
+
+      <BottomNav />
     </div>
   );
 }

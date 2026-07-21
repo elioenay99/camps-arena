@@ -110,6 +110,14 @@
   --sidebar-accent-foreground: #143d1d;
   --sidebar-border: #e8e3c6;
   --sidebar-ring: #008035;
+
+  /* Contrato da barra de navegação inferior do mobile (change mobile-nav-
+     densidade). São DUAS vars porque o `body` já paga `env(safe-area-inset-
+     bottom)` no @layer base: conteúdo em FLUXO só precisa da faixa tocável,
+     enquanto quem mede da VIEWPORT (`fixed`/`sticky` — barra do wizard, toast)
+     precisa do total. Trocar uma pela outra erra por um inset, em silêncio. */
+  --nav-inferior-faixa: 3.25rem;
+  --nav-inferior-h: calc(var(--nav-inferior-faixa) + env(safe-area-inset-bottom));
 }
 
 .dark {
@@ -633,5 +641,31 @@
     --primary: oklch(from var(--brand-primary) 0.74 c h);
     --primary-foreground: #1c1d26;
     --ring: oklch(from var(--brand-primary) 0.74 c h);
+  }
+}
+
+/* ==========================================================================
+ * Toast × barra de navegação inferior (change mobile-nav-densidade)
+ *
+ * O <Toaster> foi ancorado em `bottom-center` no lote 1 sob a premissa de que
+ * nenhuma tela tinha barra fixa no rodapé. A barra de navegação do mobile
+ * quebrou essa premissa: o container do sonner é `fixed` com z-index
+ * 999999999, então sem tratamento o toast COBRE a navegação — inclusive os
+ * alvos de toque — pelos segundos em que fica na tela.
+ *
+ * `body:has(#nav-inferior)` escopa o deslocamento às rotas que realmente têm a
+ * barra: landing e /demo seguem com o toast rente à borda. A media query é a
+ * NOSSA (`sm` = 40rem), não a do sonner (600px) — por isso as DUAS vars são
+ * sobrescritas de uma vez: acima de 600px o sonner lê `--offset-bottom` e
+ * abaixo lê `--mobile-offset-bottom`; cobrindo as duas, a faixa 601-639px (com
+ * a barra visível) também fica correta.
+ *
+ * O `!important` é necessário: o sonner escreve as duas vars como estilo INLINE
+ * no container, e estilo inline vence qualquer folha de estilo.
+ * ========================================================================== */
+@media (width < 40rem) {
+  body:has(#nav-inferior) [data-sonner-toaster][data-y-position="bottom"] {
+    --offset-bottom: calc(var(--nav-inferior-h) + 0.5rem) !important;
+    --mobile-offset-bottom: calc(var(--nav-inferior-h) + 0.5rem) !important;
   }
 }

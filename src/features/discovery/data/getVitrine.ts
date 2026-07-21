@@ -57,6 +57,10 @@ export async function getVitrine(): Promise<ItemVitrine[]> {
     )
     .eq("listada", true)
     .eq("status", "ativa")
+    // Teto DEFENSIVO (change mobile-nav-densidade): sem ORDER BY explícito aqui,
+    // o limite não tem semântica de "as 60 melhores" — só impede que o payload
+    // cresça sem limite. Não muda filtro nem ordenação.
+    .limit(60)
   if (ligasError) {
     throw new Error(`Falha ao carregar a vitrine (ligas): ${ligasError.message}`)
   }
@@ -69,6 +73,8 @@ export async function getVitrine(): Promise<ItemVitrine[]> {
     )
     .eq("listada", true)
     .eq("is_public", true)
+    // Mesmo teto defensivo da query de ligas acima.
+    .limit(60)
   if (torneiosError) {
     throw new Error(
       `Falha ao carregar a vitrine (torneios): ${torneiosError.message}`

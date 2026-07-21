@@ -13,10 +13,11 @@ import { getVitrine } from "@/features/discovery/data/getVitrine"
 
 type Row = Record<string, unknown>
 
-/** Query-builder mínimo que HONRA os filtros eq/in ao resolver (thenable). */
+/** Query-builder mínimo que HONRA os filtros eq/in e o teto `.limit` (thenable). */
 function makeChain(rows: Row[]) {
   const eqs: [string, unknown][] = []
   const ins: [string, unknown[]][] = []
+  let teto: number | null = null
   const chain: Record<string, unknown> = {
     select: () => chain,
     eq: (col: string, val: unknown) => {
@@ -27,6 +28,10 @@ function makeChain(rows: Row[]) {
       ins.push([col, vals])
       return chain
     },
+    limit: (n: number) => {
+      teto = n
+      return chain
+    },
     then: (
       onF: (v: { data: Row[]; error: null }) => unknown,
       onR?: (e: unknown) => unknown
@@ -34,6 +39,8 @@ function makeChain(rows: Row[]) {
       let data = rows
       for (const [col, val] of eqs) data = data.filter((r) => r[col] === val)
       for (const [col, vals] of ins) data = data.filter((r) => vals.includes(r[col]))
+      // O teto é aplicado DEPOIS dos filtros, como no PostgREST.
+      if (teto !== null) data = data.slice(0, teto)
       return Promise.resolve({ data, error: null }).then(onF, onR)
     },
   }
@@ -184,5 +191,30 @@ describe("getVitrine — vitrine pública", () => {
     )
 
     expect(await getVitrine()).toHaveLength(0)
+  })
+
+  it("teto defensivo: no máximo 60 ligas + 60 torneios (change mobile-nav-densidade)", async () => {
+    createClientMock.mockResolvedValue(
+      fakeSupabase({
+        league_competitions: Array.from({ length: 70 }, (_, i) =>
+          liga({ id: `comp-${i}` })
+        ),
+        tournaments: Array.from({ length: 70 }, (_, i) =>
+          torneio({ id: `t-${i}` })
+        ),
+        league_division_seasons: [],
+        users_public: [
+          { id: "u1", nome: "Ana" },
+          { id: "u2", nome: "Bruno" },
+        ],
+      })
+    )
+
+    // O teto não muda filtro nem ordenação — só impede o payload de crescer sem
+    // limite. 140 linhas elegíveis entram, 120 saem.
+    const itens = await getVitrine()
+    expect(itens).toHaveLength(120)
+    expect(itens.filter((i) => i.tipo === "liga")).toHaveLength(60)
+    expect(itens.filter((i) => i.tipo === "torneio")).toHaveLength(60)
   })
 })
