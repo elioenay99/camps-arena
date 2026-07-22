@@ -30,7 +30,7 @@ export const FORMATOS_COPA_DISPONIVEIS = ["mata_mata", "grupos_mata_mata"] as co
 export const DESEMPATES_COPA_DISPONIVEIS = ["cbf", "ingles", "espanhol", "fifa"] as const
 
 /** Tipos de origem de uma regra de qualificação. */
-export const ORIGEM_TIPOS_DISPONIVEIS = ["divisao", "copa"] as const
+export const ORIGEM_TIPOS_DISPONIVEIS = ["divisao", "copa", "divisao_todos"] as const
 
 /** true se `n` é uma potência de 2 positiva (1,2,4,8…). Espelha o bitwise do CHECK. */
 export function ehPotenciaDe2(n: number): boolean {
@@ -132,16 +132,17 @@ export type CupInput = z.infer<typeof cupSchema>
 /* -------------------------------------------------------------------------- */
 
 /**
- * Uma regra de qualificação (`cup_qualification_rules`). Origem XOR (divisão vs.
- * copa) amarrada ao `origemTipo`: divisão exige `origemCompetitionId` +
- * `origemNivel` (e proíbe `origemCupId`); copa exige `origemCupId` (e proíbe os
- * campos de divisão). Faixa `posicaoInicio..posicaoFim` com fim ≥ início ≥ 1.
- * Espelha `cup_qualification_rules_origem_xor` e `_faixa_valida`.
+ * Uma regra de qualificação (`cup_qualification_rules`). Origem XOR amarrada ao
+ * `origemTipo`: divisão e `divisao_todos` exigem `origemCompetitionId` +
+ * `origemNivel` (e proíbem `origemCupId`); copa exige `origemCupId` (e proíbe os
+ * campos de divisão). Faixa `posicaoInicio..posicaoFim` (fim ≥ início ≥ 1) é
+ * obrigatória em divisão/copa e IGNORADA/nula em `divisao_todos` (divisão inteira,
+ * sem posição). Espelha `cup_qualification_rules_origem_xor` e `_faixa_valida`.
  */
 export const cupRuleSchema = z
   .object({
     origemTipo: z.enum(ORIGEM_TIPOS_DISPONIVEIS, { error: "Tipo de origem inválido." }),
-    // Origem divisão: pirâmide + nível.
+    // Origem divisão / divisao_todos: pirâmide + nível.
     origemCompetitionId: z.uuid({ error: "Pirâmide de origem inválida." }).optional(),
     origemNivel: z
       .number({ error: "Nível inválido." })
@@ -150,15 +151,18 @@ export const cupRuleSchema = z
       .optional(),
     // Origem copa: outra copa.
     origemCupId: z.uuid({ error: "Copa de origem inválida." }).optional(),
-    // Faixa de posições (sobre o rank de seeding contíguo — D3).
+    // Faixa de posições (sobre o rank de seeding contíguo — D3). Opcional: NULA em
+    // divisao_todos; obrigatória (via superRefine) em divisão/copa.
     posicaoInicio: z
       .number({ error: "Posição inicial inválida." })
       .int("A posição deve ser inteira.")
-      .min(1, "A posição inicial começa em 1."),
+      .min(1, "A posição inicial começa em 1.")
+      .optional(),
     posicaoFim: z
       .number({ error: "Posição final inválida." })
       .int("A posição deve ser inteira.")
-      .min(1, "A posição final começa em 1."),
+      .min(1, "A posição final começa em 1.")
+      .optional(),
     prioridade: z
       .number({ error: "Prioridade inválida." })
       .int("A prioridade deve ser inteira.")
@@ -170,16 +174,39 @@ export const cupRuleSchema = z
       .optional(),
   })
   .superRefine((r, ctx) => {
-    // Faixa válida: fim >= inicio (ambos >= 1 já garantidos pelos campos).
-    if (r.posicaoFim < r.posicaoInicio) {
-      ctx.addIssue({
-        code: "custom",
-        message: "A posição final deve ser maior ou igual à inicial.",
-        path: ["posicaoFim"],
-      })
+    const ehTodos = r.origemTipo === "divisao_todos"
+
+    // Faixa: obrigatória e válida p/ divisão/copa; IGNORADA p/ divisao_todos.
+    if (!ehTodos) {
+      if (r.posicaoInicio == null) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Informe a posição inicial.",
+          path: ["posicaoInicio"],
+        })
+      }
+      if (r.posicaoFim == null) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Informe a posição final.",
+          path: ["posicaoFim"],
+        })
+      }
+      if (
+        r.posicaoInicio != null &&
+        r.posicaoFim != null &&
+        r.posicaoFim < r.posicaoInicio
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: "A posição final deve ser maior ou igual à inicial.",
+          path: ["posicaoFim"],
+        })
+      }
     }
 
-    if (r.origemTipo === "divisao") {
+    // Origem por divisão (clássica OU divisao_todos): exige pirâmide + nível.
+    if (r.origemTipo === "divisao" || ehTodos) {
       if (r.origemCompetitionId == null) {
         ctx.addIssue({
           code: "custom",

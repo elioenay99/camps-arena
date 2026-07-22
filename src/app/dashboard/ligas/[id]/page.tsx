@@ -1,11 +1,20 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
-import { ExternalLink, Goal, Layers, Palette, ShieldCheck, Users } from "lucide-react"
+import {
+  ExternalLink,
+  Goal,
+  Layers,
+  Palette,
+  ShieldCheck,
+  Trophy,
+  Users,
+} from "lucide-react"
 import { z } from "zod"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { getCopasDaPiramide } from "@/features/cup/data/getCopasDaPiramide"
 import { cn } from "@/lib/utils"
 import {
   champThemeProps,
@@ -162,6 +171,11 @@ export default async function TemporadaPage({
           Awaited<ReturnType<typeof getArtilharia>>,
           Awaited<ReturnType<typeof getMuralha>>,
         ])
+
+  // Copas alimentadas por esta pirâmide (change copa-todos-da-piramide): visão
+  // consolidada (ZERO-DDL). Independe de a temporada estar montada — a regra pode
+  // apontar para a pirâmide antes disso. A RLS gateia a visibilidade das copas.
+  const copasDaPiramide = await getCopasDaPiramide(supabase, temporada.competicao.id)
 
   // Mapa nível → nome (para o FluxoTemporadaPanel rotular as divisões).
   const nivelNomes: Record<number, string> = {}
@@ -384,6 +398,59 @@ export default async function TemporadaPage({
           <MuralhaRanking linhas={muralha} />
         </section>
       ) : null}
+
+      {/* Copas alimentadas por esta pirâmide (change copa-todos-da-piramide):
+          visão consolidada, leitura para qualquer logado (RLS filtra copa
+          privada de terceiro). Sempre renderiza — empty-state quando nenhuma. */}
+      <section
+        aria-labelledby="copas-titulo"
+        className="flex flex-col gap-4 border-t pt-6"
+      >
+        <h2
+          id="copas-titulo"
+          className="font-display flex items-center gap-2 text-lg font-bold tracking-tight"
+        >
+          <Trophy className="text-primary size-5" aria-hidden="true" />
+          Copas
+        </h2>
+        {copasDaPiramide.length === 0 ? (
+          <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-6 text-center text-sm">
+            Nenhuma copa alimentada por esta pirâmide.
+          </p>
+        ) : (
+          <ul className="grid list-none gap-2 p-0">
+            {copasDaPiramide.map((copa) => (
+              <li key={copa.id}>
+                <Button
+                  asChild
+                  variant="ghost"
+                  className="h-auto w-full justify-between gap-2 rounded-lg border px-3 py-3 text-left font-normal"
+                >
+                  <Link href={`/dashboard/copas/${copa.id}`} prefetch={false}>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Trophy
+                        className="text-muted-foreground size-4 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 break-words font-medium">
+                        {copa.nome.trim() || "Copa"}
+                      </span>
+                    </span>
+                    {copa.status === "arquivada" ? (
+                      <Chip>arquivada</Chip>
+                    ) : (
+                      <ExternalLink
+                        className="text-muted-foreground size-4 shrink-0"
+                        aria-hidden="true"
+                      />
+                    )}
+                  </Link>
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {/* Playoffs (Fase 2): entre as Divisões e o Fim-de-temporada. Aparece
           quando todas as divisões encerraram e há fronteira de playoff ainda

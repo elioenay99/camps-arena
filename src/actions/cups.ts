@@ -205,6 +205,29 @@ const criarCopaSchema = cupSchema
 const criarCopaRulesSchema = z.array(cupRuleSchema).max(64, { error: "Regras em excesso." })
 
 /**
+ * Monta a linha de INSERT de uma regra de qualificação (XOR por tipo). Divisão e
+ * `divisao_todos` gravam `competition_id` + `nivel` (cup null); copa grava
+ * `cup_id`. A faixa é NULA em `divisao_todos` (divisão inteira, sem posição) e
+ * obrigatória (validada pelo Zod) em divisão/copa. Compartilhada por
+ * `criarCopa`/`editarRegrasCopa` para não divergirem.
+ */
+function regraParaLinha(cupId: string, r: z.infer<typeof cupRuleSchema>) {
+  const ehDivisao = r.origemTipo === "divisao" || r.origemTipo === "divisao_todos"
+  const ehTodos = r.origemTipo === "divisao_todos"
+  return {
+    cup_competition_id: cupId,
+    origem_tipo: r.origemTipo,
+    origem_competition_id: ehDivisao ? (r.origemCompetitionId ?? null) : null,
+    origem_nivel: ehDivisao ? (r.origemNivel ?? null) : null,
+    origem_cup_id: r.origemTipo === "copa" ? (r.origemCupId ?? null) : null,
+    posicao_inicio: ehTodos ? null : (r.posicaoInicio ?? null),
+    posicao_fim: ehTodos ? null : (r.posicaoFim ?? null),
+    prioridade: r.prioridade,
+    rotulo: r.rotulo ?? null,
+  }
+}
+
+/**
  * Cria uma COPA (config-mãe) + suas regras de qualificação. `created_by` é do
  * SERVIDOR (a RLS é a 2ª barreira). Consentimento de origem (pública ou do próprio
  * dono) e homogeneidade `por_nome` são best-effort aqui — a autoridade do
@@ -286,17 +309,7 @@ export async function criarCopa(input: {
       return { error: consentimento.error }
     }
 
-    const linhas = parsedRegras.data.map((r) => ({
-      cup_competition_id: cupId,
-      origem_tipo: r.origemTipo,
-      origem_competition_id: r.origemTipo === "divisao" ? (r.origemCompetitionId ?? null) : null,
-      origem_nivel: r.origemTipo === "divisao" ? (r.origemNivel ?? null) : null,
-      origem_cup_id: r.origemTipo === "copa" ? (r.origemCupId ?? null) : null,
-      posicao_inicio: r.posicaoInicio,
-      posicao_fim: r.posicaoFim,
-      prioridade: r.prioridade,
-      rotulo: r.rotulo ?? null,
-    }))
+    const linhas = parsedRegras.data.map((r) => regraParaLinha(cupId, r))
     const { error: regrasError } = await supabase
       .from("cup_qualification_rules")
       .insert(linhas)
@@ -325,7 +338,8 @@ async function validarConsentimentoRegras(
   const competitionIds = [
     ...new Set(
       regras
-        .filter((r) => r.origemTipo === "divisao")
+        // `divisao_todos` também aponta para uma pirâmide (mesmo consentimento).
+        .filter((r) => r.origemTipo === "divisao" || r.origemTipo === "divisao_todos")
         .map((r) => r.origemCompetitionId)
         .filter((id): id is string => id != null)
     ),
@@ -430,17 +444,7 @@ export async function editarRegrasCopa(
   }
 
   if (parsedRegras.data.length > 0) {
-    const linhas = parsedRegras.data.map((r) => ({
-      cup_competition_id: parsedId.data,
-      origem_tipo: r.origemTipo,
-      origem_competition_id: r.origemTipo === "divisao" ? (r.origemCompetitionId ?? null) : null,
-      origem_nivel: r.origemTipo === "divisao" ? (r.origemNivel ?? null) : null,
-      origem_cup_id: r.origemTipo === "copa" ? (r.origemCupId ?? null) : null,
-      posicao_inicio: r.posicaoInicio,
-      posicao_fim: r.posicaoFim,
-      prioridade: r.prioridade,
-      rotulo: r.rotulo ?? null,
-    }))
+    const linhas = parsedRegras.data.map((r) => regraParaLinha(parsedId.data, r))
     const { error: insError } = await supabase
       .from("cup_qualification_rules")
       .insert(linhas)
@@ -655,6 +659,8 @@ export async function derivarVagasCopa(
       rotulo: e.rotulo,
       // Elo da herança de técnico: só a entry por-clube de origem-divisão o traz.
       competitor_id: e.competitor_id,
+      // Técnico vivo do slot (origem divisao_todos): montar_copa faz o coalesce.
+      tecnico_user_id: e.tecnico_user_id ?? null,
       origem_rule_id: e.origem_rule_id,
       origem_season_id: e.origem_season_id,
       origem_descricao: enriquecerDescricao(e.origem_descricao, e.origem_rule_id, nomesOrigem),
@@ -703,6 +709,25 @@ async function lerOrigemViaRpc(
       competitor_id: l.competitor_id,
     }))
   }
+  if (regra.origem_tipo === "divisao_todos") {
+    // Origem `divisao_todos` (copa-todos-da-piramide): TODOS os competidores da
+    // divisão da temporada corrente, com o técnico vivo resolvido do slot.
+    const { data, error } = await supabase.rpc("inscritos_divisao", {
+      p_competition_id: regra.origem_competition_id!,
+      p_nivel: regra.origem_nivel!,
+    })
+    if (error) throw new Error(error.message)
+    return (data ?? []).map((l) => ({
+      team_id: l.team_id,
+      rotulo: l.rotulo,
+      posicao_final: l.posicao_final,
+      rank: l.rank,
+      origem_season_id: l.origem_season_id,
+      competitor_id: l.competitor_id,
+      // Técnico dinâmico do slot (LEFT JOIN — órfão vem null).
+      tecnico_user_id: l.tecnico_user_id,
+    }))
+  }
   const { data, error } = await supabase.rpc("classificacao_final_copa", {
     p_cup_id: regra.origem_cup_id!,
   })
@@ -726,10 +751,12 @@ async function resolverNomesDeOrigem(
   regras: RegraQualificacao[]
 ): Promise<NomesDeOrigem> {
   const out: NomesDeOrigem = new Map()
+  const ehOrigemDivisao = (t: RegraQualificacao["origem_tipo"]) =>
+    t === "divisao" || t === "divisao_todos"
   const competitionIds = [
     ...new Set(
       regras
-        .filter((r) => r.origem_tipo === "divisao")
+        .filter((r) => ehOrigemDivisao(r.origem_tipo))
         .map((r) => r.origem_competition_id)
         .filter((id): id is string => id != null)
     ),
@@ -758,9 +785,16 @@ async function resolverNomesDeOrigem(
   }
 
   for (const r of regras) {
-    if (r.origem_tipo === "divisao" && r.origem_competition_id) {
+    if (ehOrigemDivisao(r.origem_tipo) && r.origem_competition_id) {
       const nome = nomePorComp.get(r.origem_competition_id)
-      if (nome) out.set(r.id, `${nome} (nível ${r.origem_nivel})`)
+      if (nome) {
+        // "todos os clubes" deixa claro que a origem leva a divisão inteira.
+        const sufixo =
+          r.origem_tipo === "divisao_todos"
+            ? `(todos os clubes · nível ${r.origem_nivel})`
+            : `(nível ${r.origem_nivel})`
+        out.set(r.id, `${nome} ${sufixo}`)
+      }
     } else if (r.origem_tipo === "copa" && r.origem_cup_id) {
       const nome = nomePorCup.get(r.origem_cup_id)
       if (nome) out.set(r.id, nome)

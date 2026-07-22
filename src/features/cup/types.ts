@@ -70,6 +70,14 @@ export interface OrigemClassificacao {
    * para a entry POR-CLUBE (a regra de herança é `team_id` presente).
    */
   competitor_id: string | null
+  /**
+   * Técnico VIVO do slot da temporada corrente (change copa-todos-da-piramide).
+   * Presente SÓ na origem `divisao_todos` (`inscritos_divisao` resolve do slot);
+   * `undefined` nas origens clássicas (`classificacao_final_divisao/_copa` não o
+   * expõem). `null` = clube órfão (slot sem técnico). A derivação só o propaga
+   * para a entry POR-CLUBE.
+   */
+  tecnico_user_id?: string | null
 }
 
 /**
@@ -100,6 +108,12 @@ export interface EntradaPool {
    * faz `montar_copa` herdar o técnico do competidor.
    */
   competitor_id: string | null
+  /**
+   * Técnico vivo do slot (change copa-todos-da-piramide): gravado SÓ na entry
+   * POR-CLUBE de origem `divisao_todos`; `undefined` para clássica/por-nome/copa/
+   * âncora. `montar_copa` usa `coalesce(tecnico_user_id, holder_user_id)`.
+   */
+  tecnico_user_id?: string | null
   /** Seed sequencial 1-based na ordem final do pool. */
   seed: number
   /** Regra que originou esta entrada (NULL em âncora manual). */

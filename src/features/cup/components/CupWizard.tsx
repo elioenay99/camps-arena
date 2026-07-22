@@ -619,9 +619,10 @@ function PassoRevisao({
   copas: OrigemCopa[]
 }) {
   function descreverOrigem(r: RegraRascunho): string {
-    if (r.origemTipo === "divisao") {
+    if (r.origemTipo === "divisao" || r.origemTipo === "divisao_todos") {
       const p = piramides.find((x) => x.id === r.origemCompetitionId)
-      return `${p?.nome ?? "Pirâmide"} · nível ${r.origemNivel}`
+      const base = `${p?.nome ?? "Pirâmide"} · nível ${r.origemNivel}`
+      return r.origemTipo === "divisao_todos" ? `${base} · todos os clubes` : base
     }
     const c = copas.find((x) => x.id === r.origemCupId)
     return c?.nome ?? "Copa"
@@ -655,6 +656,7 @@ function PassoRevisao({
         ) : (
           <ul className="grid list-none gap-2 p-0">
             {regras.map((r) => {
+              const ehTodos = r.origemTipo === "divisao_todos"
               const numVagas = Math.max(0, r.posicaoFim - r.posicaoInicio + 1)
               return (
                 <li
@@ -664,7 +666,9 @@ function PassoRevisao({
                   <span className="min-w-0">
                     <span className="font-medium">{descreverOrigem(r)}</span>
                     <span className="text-muted-foreground">
-                      {` · ${r.posicaoInicio}º a ${r.posicaoFim}º (${numVagas} ${numVagas === 1 ? "vaga" : "vagas"})`}
+                      {ehTodos
+                        ? " · divisão inteira"
+                        : ` · ${r.posicaoInicio}º a ${r.posicaoFim}º (${numVagas} ${numVagas === 1 ? "vaga" : "vagas"})`}
                     </span>
                   </span>
                   <span className="text-muted-foreground shrink-0 text-xs tabular-nums">

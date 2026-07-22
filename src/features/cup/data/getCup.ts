@@ -19,8 +19,9 @@ export interface RegraCopa {
   origemCompetitionId: string | null
   origemNivel: number | null
   origemCupId: string | null
-  posicaoInicio: number
-  posicaoFim: number
+  /** Faixa: null em `divisao_todos` (divisão inteira, sem posição). */
+  posicaoInicio: number | null
+  posicaoFim: number | null
   prioridade: number
   rotulo: string | null
   /** Nome legível da origem (pirâmide/copa), resolvido no servidor. */
@@ -67,8 +68,8 @@ interface RegraEmbed {
   origem_competition_id: string | null
   origem_nivel: number | null
   origem_cup_id: string | null
-  posicao_inicio: number
-  posicao_fim: number
+  posicao_inicio: number | null
+  posicao_fim: number | null
   prioridade: number
   rotulo: string | null
 }
@@ -172,7 +173,11 @@ export const getCup = cache(async function getCup(
   }
 
   const regras: RegraCopa[] = [...linha.cup_qualification_rules]
-    .sort((a, b) => a.prioridade - b.prioridade || a.posicao_inicio - b.posicao_inicio)
+    .sort(
+      (a, b) =>
+        a.prioridade - b.prioridade ||
+        (a.posicao_inicio ?? 0) - (b.posicao_inicio ?? 0)
+    )
     .map((r) => ({
       id: r.id,
       origemTipo: r.origem_tipo,
@@ -184,7 +189,7 @@ export const getCup = cache(async function getCup(
       prioridade: r.prioridade,
       rotulo: r.rotulo,
       origemNome:
-        r.origem_tipo === "divisao"
+        r.origem_tipo === "divisao" || r.origem_tipo === "divisao_todos"
           ? (r.origem_competition_id
               ? (nomePorCompetition.get(r.origem_competition_id) ?? null)
               : null)

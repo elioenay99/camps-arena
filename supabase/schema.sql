@@ -4022,10 +4022,12 @@ begin
   if not exists (select 1 from pg_type where typname = 'cup_scope') then
     create type public.cup_scope as enum ('nacional', 'continental');
   end if;
-  -- Tipo de origem de uma regra de qualificacao: divisao de liga OU resultado
-  -- de outra copa (XOR por CHECK na tabela).
+  -- Tipo de origem de uma regra de qualificacao: divisao de liga (faixa da
+  -- classificacao final encerrada), TODOS os competidores de uma divisao da
+  -- temporada corrente (divisao_todos — sem faixa, sem encerramento) OU o
+  -- resultado de outra copa (XOR por CHECK na tabela).
   if not exists (select 1 from pg_type where typname = 'cup_origin_type') then
-    create type public.cup_origin_type as enum ('divisao', 'copa');
+    create type public.cup_origin_type as enum ('divisao', 'copa', 'divisao_todos');
   end if;
   -- Ciclo de vida da edicao: 'rascunho' (montando o pool/ajuste manual),
   -- 'montada' (tournament criado, slots semeados, antes de iniciar), 'ativa'
@@ -4039,6 +4041,13 @@ begin
     create type public.cup_competition_status as enum ('ativa', 'arquivada');
   end if;
 end$$;
+
+-- Idempotencia do valor 'divisao_todos' para bancos que ja tinham o enum com os
+-- dois valores originais (a criacao acima so vale em banco novo). ADD VALUE nao
+-- pode rodar dentro de DO/funcao — top-level e obrigatorio; IF NOT EXISTS o torna
+-- reaplicavel. Em producao aplicar este passo ISOLADO antes dos DDLs seguintes
+-- (o novo rotulo nao pode ser usado na mesma transacao em que e criado).
+alter type public.cup_origin_type add value if not exists 'divisao_todos';
 
 -- ---------- Tabela: cup_competitions (a copa imortal — config-mae) ----------
 -- Espelha league_competitions (schema.sql:1721): created_by anulavel + ON DELETE
@@ -4116,16 +4125,19 @@ create table if not exists public.cup_qualification_rules (
   origem_nivel          integer,
   -- Auto-referencia a outra copa (forward-ref resolvida: cup_competitions ja existe).
   origem_cup_id         uuid references public.cup_competitions (id) on delete restrict,
-  posicao_inicio        integer not null,
-  posicao_fim           integer not null,
+  -- Faixa opcional: obrigatoria em divisao/copa, NULA em divisao_todos (que leva a
+  -- divisao inteira, sem posicao). CHECK _faixa_valida amarra isso ao tipo.
+  posicao_inicio        integer,
+  posicao_fim           integer,
   prioridade            integer not null default 0,
   rotulo                text,
   created_at            timestamptz not null default now(),
-  -- XOR de origem amarrado ao tipo: divisao => competition_id + nivel not null,
-  -- cup_id null; copa => cup_id not null, competition_id + nivel null.
+  -- XOR de origem amarrado ao tipo: divisao/divisao_todos => competition_id +
+  -- nivel not null, cup_id null; copa => cup_id not null, competition_id + nivel
+  -- null. divisao_todos compartilha o par (competition_id, nivel) com divisao.
   constraint cup_qualification_rules_origem_xor
     check (
-      (origem_tipo = 'divisao'
+      (origem_tipo in ('divisao', 'divisao_todos')
          and origem_competition_id is not null and origem_nivel is not null
          and origem_cup_id is null)
       or (origem_tipo = 'copa'
@@ -4134,9 +4146,17 @@ create table if not exists public.cup_qualification_rules (
     ),
   constraint cup_qualification_rules_nivel_positivo
     check (origem_nivel is null or origem_nivel >= 1),
-  -- Faixa valida: fim >= inicio >= 1 (num_vagas = fim - inicio + 1).
+  -- Faixa valida: NULA p/ divisao_todos (divisao inteira, sem posicao);
+  -- obrigatoria e valida (fim >= inicio >= 1) p/ divisao/copa.
   constraint cup_qualification_rules_faixa_valida
-    check (posicao_inicio >= 1 and posicao_fim >= posicao_inicio),
+    check (
+      case
+        when origem_tipo = 'divisao_todos'
+          then posicao_inicio is null and posicao_fim is null
+        else posicao_inicio is not null and posicao_fim is not null
+             and posicao_inicio >= 1 and posicao_fim >= posicao_inicio
+      end
+    ),
   -- Uma copa nao pode ter origem nela mesma (caso trivial; ciclos transitivos
   -- sao barrados pelo trigger anti-ciclo).
   constraint cup_qualification_rules_nao_auto
@@ -4205,6 +4225,13 @@ create table if not exists public.cup_entries (
   -- quando o participante POR-CLUBE veio de uma DIVISAO. NULL para por-nome/origem-
   -- copa/manual. SET NULL: apagar o competidor nao apaga a entry ja derivada.
   competitor_id   uuid references public.league_competitors (id) on delete set null,
+  -- Tecnico VIVO resolvido do SLOT da temporada corrente na derivacao de uma
+  -- origem 'divisao_todos' (league_division_entries.slot_id -> tournament_slots.
+  -- user_id), NAO do holder_user_id vestigial. montar_copa semeia o slot da copa
+  -- com coalesce(tecnico_user_id, holder_user_id). NULL para clube orfao (slot sem
+  -- user_id) e para origem classica/por-nome/manual (cai no holder de sempre).
+  -- SET NULL: apagar o usuario nao apaga a entry ja derivada.
+  tecnico_user_id uuid references public.users (id) on delete set null,
   -- Regra que derivou esta entry (NULL em entry manual). SET NULL: apagar a regra
   -- nao apaga a entry ja derivada (preserva a edicao montada).
   origem_rule_id  uuid references public.cup_qualification_rules (id) on delete set null,
@@ -4399,6 +4426,112 @@ $$;
 -- publico e re-expoe a classificacao da piramide ao anon).
 revoke execute on function public.classificacao_final_divisao(uuid, integer) from public, anon;
 grant execute on function public.classificacao_final_divisao(uuid, integer) to authenticated;
+
+-- ---------- RPC: inscritos_divisao (SECURITY DEFINER, leitura gated) ----------
+-- Origem 'divisao_todos' (change copa-todos-da-piramide): clone de
+-- classificacao_final_divisao SEM o gate de encerramento e SEM filtro de
+-- posicao_final. Le TODOS os competidores de uma divisao da temporada EM DISPUTA
+-- (maior numero com status <> 'rascunho') e resolve o tecnico VIVO de cada clube
+-- do SLOT (league_division_entries.slot_id -> tournament_slots.user_id) via LEFT
+-- JOIN (clube orfao => tecnico_user_id NULL). rank deterministico por
+-- (created_at, id) do competidor; posicao_final := rank (so texto de descricao).
+-- Mantem o gate de consentimento (is_public OR created_by = auth.uid()).
+--   CRITICO (achado MEDIUM da revisao): a temporada EXCLUI 'rascunho'. Ao avancar a
+--   piramide, montarProximaTemporada (leaguePyramid.ts:2008-2040) cria a N+1
+--   rascunho de MAIOR numero com slots frescos (user_id NULL); sem esse filtro a
+--   RPC leria a rascunho vazia e ZERARIA todos os tecnicos ao re-derivar.
+-- DEFINER + set search_path='' (licao das 22 DEFINER). Criada via CREATE limpo, os
+-- grants sao emitidos logo abaixo.
+create or replace function public.inscritos_divisao(
+  p_competition_id uuid,
+  p_nivel          integer
+)
+returns table (
+  team_id          uuid,
+  rotulo           text,
+  posicao_final    integer,
+  rank             integer,
+  origem_season_id uuid,
+  competitor_id    uuid,
+  tecnico_user_id  uuid
+)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid       uuid := (select auth.uid());
+  v_is_public boolean;
+  v_dono      uuid;
+  v_season    uuid;
+  v_div       uuid;
+begin
+  -- (1) Gate de consentimento: piramide publica OU do proprio dono da copa.
+  select lc.is_public, lc.created_by
+    into v_is_public, v_dono
+    from public.league_competitions lc
+   where lc.id = p_competition_id;
+
+  if v_is_public is null then
+    raise exception 'ORIGEM_INVISIVEL';
+  end if;
+  if not (v_is_public or v_dono = v_uid) then
+    raise exception 'ORIGEM_INVISIVEL';
+  end if;
+
+  -- (2) Temporada EM DISPUTA = maior numero com status <> 'rascunho'. NAO exige
+  --     'encerrada' (a diferenca central desta origem), mas EXCLUI a rascunho
+  --     (senao zeraria os tecnicos ao ler a N+1 fresca — ver comentario acima).
+  select ls.id into v_season
+    from public.league_seasons ls
+   where ls.competition_id = p_competition_id
+     and ls.status <> 'rascunho'
+   order by ls.numero desc
+   limit 1;
+
+  -- (3) Divisao do nivel pedido na temporada corrente. Sem temporada em disputa
+  --     v_season fica NULL e nenhuma divisao casa => NIVEL_INEXISTENTE.
+  select lds.id into v_div
+    from public.league_division_seasons lds
+   where lds.season_id = v_season
+     and lds.nivel = p_nivel;
+
+  if v_div is null then
+    raise exception 'NIVEL_INEXISTENTE';
+  end if;
+
+  -- Todos os competidores da divisao corrente, rank deterministico por
+  -- (created_at, id) do competidor (sem classificacao), tecnico do slot (LEFT JOIN
+  -- — clube orfao entra com tecnico_user_id NULL). posicao_final := rank.
+  return query
+    with base as (
+      select lcomp.team_id,
+             lcomp.rotulo,
+             lcomp.id            as competitor_id,
+             ts.user_id          as tecnico_user_id,
+             (row_number() over (
+               order by lcomp.created_at asc, lcomp.id asc
+             ))::integer         as rank
+        from public.league_division_entries lde
+        join public.league_competitors lcomp on lcomp.id = lde.competitor_id
+        left join public.tournament_slots ts on ts.id = lde.slot_id
+       where lde.division_season_id = v_div
+    )
+    select b.team_id,
+           b.rotulo,
+           b.rank             as posicao_final,
+           b.rank,
+           v_season           as origem_season_id,
+           b.competitor_id,
+           b.tecnico_user_id
+      from base b
+     order by b.rank asc;
+end;
+$$;
+
+revoke execute on function public.inscritos_divisao(uuid, integer) from public, anon;
+grant  execute on function public.inscritos_divisao(uuid, integer) to authenticated;
 
 -- ---------- RPC: classificacao_final_copa (SECURITY DEFINER, leitura gated) ----------
 -- Simetrico a classificacao_final_divisao, mas a fonte e cup_entries.posicao_final
@@ -4671,7 +4804,7 @@ begin
   -- NULOS. O trigger de coach_tenures decide o resto (tenure de copa, season nula).
   v_holders_usados := array[]::uuid[];
   foreach v_eid in array p_seeded_entry_ids loop
-    select ce.id, ce.team_id, ce.rotulo, ce.competitor_id
+    select ce.id, ce.team_id, ce.rotulo, ce.competitor_id, ce.tecnico_user_id
       into v_entry
       from public.cup_entries ce
      where ce.id = v_eid;
@@ -4690,9 +4823,15 @@ begin
       returning id into v_slot;
     elsif v_entry.competitor_id is not null then
       -- Entry POR-CLUBE de origem-DIVISAO: herda o competidor + o tecnico-ancora.
-      select lc.holder_user_id into v_holder
-        from public.league_competitors lc
-       where lc.id = v_entry.competitor_id;
+      -- Tecnico DINAMICO (copa-todos-da-piramide): prefere o tecnico vivo do slot
+      -- resolvido na derivacao (tecnico_user_id, origem 'divisao_todos') e cai no
+      -- holder_user_id classico (vestigial/NULL) para as origens 'divisao'/'copa'.
+      v_holder := coalesce(
+        v_entry.tecnico_user_id,
+        (select lc.holder_user_id
+           from public.league_competitors lc
+          where lc.id = v_entry.competitor_id)
+      );
       -- Degradacao do user_id na colisao com slots_um_clube_por_tecnico (mesmo
       -- tecnico ja usado nesta edicao => 2a vaga sem user_id, mantendo competitor_id).
       if v_holder is not null

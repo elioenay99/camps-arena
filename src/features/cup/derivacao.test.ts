@@ -105,6 +105,50 @@ function origemRotulos(rotulos: string[], seasonId = "season-r"): OrigemClassifi
   }))
 }
 
+/** Regra origem `divisao_todos` (divisão inteira, sem faixa). */
+function regraDivisaoTodos(over: {
+  id: string
+  competition: string
+  nivel: number
+  prioridade?: number
+  rotulo?: string | null
+}): RegraQualificacao {
+  return {
+    id: over.id,
+    cup_competition_id: "copa-1",
+    origem_tipo: "divisao_todos",
+    origem_competition_id: over.competition,
+    origem_nivel: over.nivel,
+    origem_cup_id: null,
+    // Faixa NULA (divisão inteira).
+    posicao_inicio: null,
+    posicao_fim: null,
+    prioridade: over.prioridade ?? 0,
+    rotulo: over.rotulo ?? null,
+    created_at: "2026-01-01T00:00:00Z",
+  }
+}
+
+/**
+ * Origem `divisao_todos` (RPC `inscritos_divisao`): clubes com competitor_id e o
+ * técnico VIVO do slot em `tecnico_user_id` (null = clube órfão). rank = ordem.
+ */
+function origemTodos(
+  ids: string[],
+  tecnicos?: (string | null)[],
+  seasonId = "season-t"
+): OrigemClassificacao[] {
+  return ids.map((id, i) => ({
+    team_id: id,
+    rotulo: null,
+    posicao_final: i + 1,
+    rank: i + 1,
+    origem_season_id: seasonId,
+    competitor_id: `comp-${id}`,
+    tecnico_user_id: tecnicos?.[i] ?? null,
+  }))
+}
+
 /** `lerOrigem` injetado: roteia por chave de origem. */
 function lerOrigemDe(mapa: Record<string, OrigemClassificacao[]>): LerOrigem {
   return (regra) => mapa[chaveDaOrigem(regra)] ?? []
@@ -198,6 +242,18 @@ describe("chaveDaOrigem", () => {
       chaveDaOrigem(regraDivisao({ id: "r1", competition: "p1", nivel: 1, inicio: 1, fim: 4 }))
     ).toBe("div:p1:1")
     expect(chaveDaOrigem(regraCopa({ id: "r2", cupId: "c9", inicio: 1, fim: 1 }))).toBe("cup:c9")
+  })
+
+  it("divisao_todos = todos:competition:nivel — DISTINTA de div:… (RPC diferente)", () => {
+    expect(
+      chaveDaOrigem(regraDivisaoTodos({ id: "t1", competition: "p1", nivel: 1 }))
+    ).toBe("todos:p1:1")
+    // Mesma competição+nível, mas chave separada da origem clássica.
+    expect(
+      chaveDaOrigem(regraDivisaoTodos({ id: "t1", competition: "p1", nivel: 1 }))
+    ).not.toBe(
+      chaveDaOrigem(regraDivisao({ id: "r1", competition: "p1", nivel: 1, inicio: 1, fim: 4 }))
+    )
   })
 })
 
@@ -503,5 +559,136 @@ describe("derivarPool — determinístico", () => {
     expect(pool.entradas.map((e) => e.team_id)).toEqual(["team-01", "team-02"])
     const e01 = pool.entradas.find((e) => e.team_id === "team-01")!
     expect(e01.origem_rule_id).toBe("rAlta")
+  })
+})
+
+/* -------------------------------------------------------------------------- */
+/* derivarPool — origem `divisao_todos` (change copa-todos-da-piramide)         */
+/* -------------------------------------------------------------------------- */
+
+describe("derivarPool — divisao_todos (divisão inteira, sem faixa, sem lacuna)", () => {
+  it("leva a divisão INTEIRA: N = tamanho da lista, ZERO lacunas, seed contíguo", () => {
+    const liga = origemTodos(teams(20))
+    const regras = [regraDivisaoTodos({ id: "t1", competition: "p1", nivel: 1 })]
+    const pool = derivarPool(
+      regras,
+      lerOrigemDe({ "todos:p1:1": liga }),
+      semManuais,
+      semExclusoes
+    )
+    expect(pool.entradas).toHaveLength(20)
+    expect(pool.lacunas).toHaveLength(0)
+    expect(pool.entradas.map((e) => e.seed)).toEqual(
+      Array.from({ length: 20 }, (_, i) => i + 1)
+    )
+    // Todas por-clube com competitor_id (elo do técnico).
+    expect(pool.entradas.every((e) => e.competitor_id != null)).toBe(true)
+  })
+
+  it("clube órfão entra com tecnico_user_id null (LEFT JOIN do slot); técnico vivo propaga", () => {
+    const liga = origemTodos(
+      ["team-01", "team-02", "team-03"],
+      ["tec-a", null, "tec-c"] // team-02 órfão (slot sem user_id)
+    )
+    const regras = [regraDivisaoTodos({ id: "t1", competition: "p1", nivel: 1 })]
+    const pool = derivarPool(
+      regras,
+      lerOrigemDe({ "todos:p1:1": liga }),
+      semManuais,
+      semExclusoes
+    )
+    expect(pool.entradas).toHaveLength(3)
+    expect(pool.entradas.map((e) => e.tecnico_user_id)).toEqual(["tec-a", null, "tec-c"])
+    expect(pool.lacunas).toHaveLength(0)
+  })
+
+  it("regra `divisao` (faixa) + `divisao_todos` da mesma competição+nível: caches distintos, sem duplicar clube, sem lacuna", () => {
+    // Mesmos 20 clubes, RPCs diferentes: div:p1:1 (classificação, faixa 1..4) e
+    // todos:p1:1 (inscritos). A regra de faixa processa antes; o `todos` varre a
+    // lista inteira e só PULA os já alocados (não gera lacunas fantasma).
+    const classificacao = origemClubes(teams(20))
+    const inscritos = origemTodos(
+      teams(20),
+      teams(20).map((_, i) => `tec-${i + 1}`)
+    )
+    const regras = [
+      regraDivisao({ id: "d1", competition: "p1", nivel: 1, inicio: 1, fim: 4 }),
+      regraDivisaoTodos({ id: "t1", competition: "p1", nivel: 1 }),
+    ]
+    const pool = derivarPool(
+      regras,
+      lerOrigemDe({ "div:p1:1": classificacao, "todos:p1:1": inscritos }),
+      semManuais,
+      semExclusoes
+    )
+    const ids = pool.entradas.map((e) => e.team_id)
+    expect(ids).toHaveLength(20)
+    expect(new Set(ids).size).toBe(20) // nenhum clube duplicado
+    expect(pool.lacunas).toHaveLength(0)
+    // Os 4 primeiros vieram da regra de faixa (processada antes do sweep de todos).
+    const daFaixa = pool.entradas.filter((e) => e.origem_rule_id === "d1")
+    expect(daFaixa.map((e) => e.team_id)).toEqual([
+      "team-01",
+      "team-02",
+      "team-03",
+      "team-04",
+    ])
+    // O restante (16) veio do sweep `divisao_todos`.
+    expect(pool.entradas.filter((e) => e.origem_rule_id === "t1")).toHaveLength(16)
+  })
+
+  it("mistura `todos` Série A (20) + `todos` Série B (20) = 40 participantes distintos", () => {
+    const serieA = origemTodos(teams(20))
+    const serieB = origemTodos(Array.from({ length: 20 }, (_, i) => `b-${i + 1}`))
+    const regras = [
+      regraDivisaoTodos({ id: "ta", competition: "pA", nivel: 1 }),
+      regraDivisaoTodos({ id: "tb", competition: "pB", nivel: 1 }),
+    ]
+    const pool = derivarPool(
+      regras,
+      lerOrigemDe({ "todos:pA:1": serieA, "todos:pB:1": serieB }),
+      semManuais,
+      semExclusoes
+    )
+    expect(pool.entradas).toHaveLength(40)
+    expect(pool.lacunas).toHaveLength(0)
+    expect(new Set(pool.entradas.map((e) => e.team_id)).size).toBe(40)
+  })
+
+  it("`divisao_todos` + âncora manual SOBREPOSTA ⇒ N entradas e ZERO lacunas (regressão do achado LOW)", () => {
+    // Divisão com 5 clubes; um deles (team-03) já é âncora manual. O sweep de
+    // `todos` pula team-03 (já alocado) e adiciona os outros 4 — total 5 entradas,
+    // ZERO lacunas (a máquina de N vagas fixas geraria uma lacuna fantasma aqui).
+    const liga = origemTodos(teams(5))
+    const manuais: AncoraManual[] = [{ team_id: "team-03", rotulo: null }]
+    const regras = [regraDivisaoTodos({ id: "t1", competition: "p1", nivel: 1 })]
+    const pool = derivarPool(
+      regras,
+      lerOrigemDe({ "todos:p1:1": liga }),
+      manuais,
+      semExclusoes
+    )
+    expect(pool.entradas).toHaveLength(5)
+    expect(pool.lacunas).toHaveLength(0)
+    expect(new Set(pool.entradas.map((e) => e.team_id)).size).toBe(5)
+    // A âncora entra manual (sem técnico); os outros 4 são derivados do sweep.
+    const ancora = pool.entradas.find((e) => e.manual)
+    expect(ancora?.team_id).toBe("team-03")
+    expect(ancora?.tecnico_user_id ?? null).toBeNull()
+    expect(pool.entradas.filter((e) => !e.manual)).toHaveLength(4)
+  })
+
+  it("exclusão persistente aplica ao sweep de todos (clube excluído não reaparece, sem virar lacuna)", () => {
+    const liga = origemTodos(teams(4))
+    const exclusoes = new Set<IdentidadeParticipante>([identidadeDe("team-02", null)])
+    const regras = [regraDivisaoTodos({ id: "t1", competition: "p1", nivel: 1 })]
+    const pool = derivarPool(
+      regras,
+      lerOrigemDe({ "todos:p1:1": liga }),
+      semManuais,
+      exclusoes
+    )
+    expect(pool.entradas.map((e) => e.team_id)).toEqual(["team-01", "team-03", "team-04"])
+    expect(pool.lacunas).toHaveLength(0)
   })
 })

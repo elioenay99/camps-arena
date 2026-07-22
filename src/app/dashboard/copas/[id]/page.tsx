@@ -206,11 +206,16 @@ export default async function CopaPage({
         ) : (
           <ul className="grid list-none gap-2 p-0">
             {copa.regras.map((r) => {
-              const numVagas = Math.max(0, r.posicaoFim - r.posicaoInicio + 1)
-              const origem =
-                r.origemTipo === "divisao"
-                  ? `${r.origemNome ?? "Pirâmide"}${r.origemNivel != null ? ` · nível ${r.origemNivel}` : ""}`
-                  : (r.origemNome ?? "Copa")
+              const ehTodos = r.origemTipo === "divisao_todos"
+              const numVagas =
+                r.posicaoInicio != null && r.posicaoFim != null
+                  ? Math.max(0, r.posicaoFim - r.posicaoInicio + 1)
+                  : 0
+              const ehDivisaoOrigem =
+                r.origemTipo === "divisao" || r.origemTipo === "divisao_todos"
+              const origem = ehDivisaoOrigem
+                ? `${r.origemNome ?? "Pirâmide"}${r.origemNivel != null ? ` · nível ${r.origemNivel}` : ""}${ehTodos ? " · todos os clubes" : ""}`
+                : (r.origemNome ?? "Copa")
               return (
                 <li
                   key={r.id}
@@ -219,8 +224,9 @@ export default async function CopaPage({
                   <span className="min-w-0">
                     <span className="font-medium">{r.rotulo?.trim() || origem}</span>
                     <span className="text-muted-foreground block text-xs">
-                      {origem} · {r.posicaoInicio}º a {r.posicaoFim}º ({numVagas}{" "}
-                      {numVagas === 1 ? "vaga" : "vagas"})
+                      {ehTodos
+                        ? `${origem} · divisão inteira (temporada em disputa)`
+                        : `${origem} · ${r.posicaoInicio}º a ${r.posicaoFim}º (${numVagas} ${numVagas === 1 ? "vaga" : "vagas"})`}
                     </span>
                   </span>
                 </li>

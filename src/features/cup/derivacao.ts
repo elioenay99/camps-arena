@@ -58,6 +58,13 @@ export function chaveDaOrigem(regra: RegraQualificacao): string {
   if (regra.origem_tipo === "divisao") {
     return `div:${regra.origem_competition_id}:${regra.origem_nivel}`
   }
+  // `divisao_todos` compartilha (competition_id, nivel) com `divisao`, mas a leitura
+  // vem de OUTRA RPC (`inscritos_divisao` vs `classificacao_final_divisao`): a chave
+  // `todos:…` é DISTINTA de `div:…` (load-bearing — compartilhar o cache serviria a
+  // lista errada). O dedup global por identidade evita duplicar um clube entre elas.
+  if (regra.origem_tipo === "divisao_todos") {
+    return `todos:${regra.origem_competition_id}:${regra.origem_nivel}`
+  }
   return `cup:${regra.origem_cup_id}`
 }
 
@@ -231,12 +238,22 @@ export function derivarPool(
     return lista
   }
 
-  /* 2b) Expande regras em vagas atômicas e ordena a varredura. */
+  /* 2b) Expande regras de FAIXA (divisao/copa) em vagas atômicas e ordena a
+   *     varredura. `divisao_todos` NÃO entra aqui: é um ramo dedicado (passo 3)
+   *     que consome a lista inteira sem contagem-alvo nem lacunas — reusar a
+   *     máquina de N vagas 1..N geraria lacunas fantasma quando o dedup (âncora
+   *     ou regra clássica sobreposta) esgota o alvo. */
   const vagas: VagaRegra[] = []
   regras.forEach((regra) => {
     // Garante o cache populado (também para regras que possam ficar todas vazias).
     lerCache(regra)
-    for (let rank = regra.posicao_inicio; rank <= regra.posicao_fim; rank++) {
+    if (regra.origem_tipo === "divisao_todos") return
+    const inicio = regra.posicao_inicio
+    const fim = regra.posicao_fim
+    // Faixa nula numa regra de faixa não deveria ocorrer (CHECK _faixa_valida a
+    // exige); guarda defensiva para o tipo nullable do banco.
+    if (inicio == null || fim == null) return
+    for (let rank = inicio; rank <= fim; rank++) {
       vagas.push({
         regra,
         chaveOrigem: chaveDaOrigem(regra),
@@ -303,12 +320,56 @@ export function derivarPool(
       // rótulo (team_id null) e fica sem técnico. Origem-copa já vem competitor_id
       // null de `lerOrigemViaRpc`.
       competitor_id: escolhido.team_id != null ? escolhido.competitor_id : null,
+      // Técnico dinâmico só na origem `divisao_todos` (aqui sempre undefined — as
+      // RPCs clássicas não o expõem). Guardado por team_id (só por-clube).
+      tecnico_user_id:
+        escolhido.team_id != null ? (escolhido.tecnico_user_id ?? null) : null,
       seed: 0, // renumerado no fim
       origem_rule_id: vaga.regra.id,
       origem_season_id: escolhido.origem_season_id,
       origem_descricao: descricaoOrigem(vaga.regra, escolhido),
       manual: false,
     })
+  }
+
+  /* 3) Ramo DEDICADO `divisao_todos`: consome a LISTA INTEIRA de cada origem e
+   *    adiciona toda identidade ainda LIVRE (dedup global + exclusões), SEM
+   *    contagem-alvo e SEM emitir LacunaPool — "divisão inteira" não tem "vaga
+   *    vazia por origem esgotada". Roda DEPOIS das regras de faixa: assim um clube
+   *    já pego por uma âncora ou por uma regra clássica sobreposta é só pulado
+   *    (não vira lacuna fantasma), e o clube ainda entra pela promessa "todos". A
+   *    ordem entre regras `divisao_todos` é (prioridade, ordem de declaração). */
+  const regrasTodos = regras
+    .filter((r) => r.origem_tipo === "divisao_todos")
+    .sort((a, b) => {
+      if (a.prioridade !== b.prioridade) return a.prioridade - b.prioridade
+      const oa = ordemRegra.get(a.id) ?? 0
+      const ob = ordemRegra.get(b.id) ?? 0
+      if (oa !== ob) return oa - ob
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    })
+  for (const regra of regrasTodos) {
+    const lista = cacheOrigem.get(chaveDaOrigem(regra)) ?? []
+    // A lista vem em rank crescente (ordem determinística da RPC).
+    for (const linha of lista) {
+      const id = identidadeDe(linha.team_id, linha.rotulo)
+      if (alocados.has(id) || exclusoes.has(id)) continue
+      alocados.add(id)
+      entradas.push({
+        identidade: id,
+        team_id: linha.team_id,
+        rotulo: linha.rotulo,
+        competitor_id: linha.team_id != null ? linha.competitor_id : null,
+        // Técnico vivo do slot (LEFT JOIN — órfão vem null); só por-clube.
+        tecnico_user_id:
+          linha.team_id != null ? (linha.tecnico_user_id ?? null) : null,
+        seed: 0, // renumerado no fim
+        origem_rule_id: regra.id,
+        origem_season_id: linha.origem_season_id,
+        origem_descricao: descricaoOrigem(regra, linha),
+        manual: false,
+      })
+    }
   }
 
   /* 4) Seed sequencial contíguo (1-based) na ORDEM final do pool: âncoras primeiro

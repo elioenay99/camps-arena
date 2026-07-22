@@ -33,7 +33,7 @@ export type LeagueBoundaryMode =
   | "barragem_cruzada"
 export type CupFormat = "mata_mata" | "grupos_mata_mata"
 export type CupScope = "nacional" | "continental"
-export type CupOriginType = "divisao" | "copa"
+export type CupOriginType = "divisao" | "copa" | "divisao_todos"
 export type CupSeasonStatus = "rascunho" | "montada" | "ativa" | "encerrada"
 export type CupCompetitionStatus = "ativa" | "arquivada"
 
@@ -1308,8 +1308,8 @@ export interface Database {
           origem_competition_id: string | null
           origem_nivel: number | null
           origem_cup_id: string | null
-          posicao_inicio: number
-          posicao_fim: number
+          posicao_inicio: number | null
+          posicao_fim: number | null
           prioridade: number
           rotulo: string | null
           created_at: string
@@ -1321,8 +1321,8 @@ export interface Database {
           origem_competition_id?: string | null
           origem_nivel?: number | null
           origem_cup_id?: string | null
-          posicao_inicio: number
-          posicao_fim: number
+          posicao_inicio?: number | null
+          posicao_fim?: number | null
           prioridade?: number
           rotulo?: string | null
           created_at?: string
@@ -1334,8 +1334,8 @@ export interface Database {
           origem_competition_id?: string | null
           origem_nivel?: number | null
           origem_cup_id?: string | null
-          posicao_inicio?: number
-          posicao_fim?: number
+          posicao_inicio?: number | null
+          posicao_fim?: number | null
           prioridade?: number
           rotulo?: string | null
           created_at?: string
@@ -1432,6 +1432,7 @@ export interface Database {
           team_id: string | null
           rotulo: string | null
           competitor_id: string | null
+          tecnico_user_id: string | null
           origem_rule_id: string | null
           origem_season_id: string | null
           origem_descricao: string | null
@@ -1447,6 +1448,7 @@ export interface Database {
           team_id?: string | null
           rotulo?: string | null
           competitor_id?: string | null
+          tecnico_user_id?: string | null
           origem_rule_id?: string | null
           origem_season_id?: string | null
           origem_descricao?: string | null
@@ -1462,6 +1464,7 @@ export interface Database {
           team_id?: string | null
           rotulo?: string | null
           competitor_id?: string | null
+          tecnico_user_id?: string | null
           origem_rule_id?: string | null
           origem_season_id?: string | null
           origem_descricao?: string | null
@@ -1505,6 +1508,13 @@ export interface Database {
             columns: ["competitor_id"]
             isOneToOne: false
             referencedRelation: "league_competitors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_entries_tecnico_user_id_fkey"
+            columns: ["tecnico_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -1833,6 +1843,18 @@ export interface Database {
           posicao_final: number
           rank: number
           origem_season_id: string
+        }[]
+      }
+      inscritos_divisao: {
+        Args: { p_competition_id: string; p_nivel: number }
+        Returns: {
+          team_id: string
+          rotulo: string
+          posicao_final: number
+          rank: number
+          origem_season_id: string
+          competitor_id: string
+          tecnico_user_id: string | null
         }[]
       }
       montar_copa: {

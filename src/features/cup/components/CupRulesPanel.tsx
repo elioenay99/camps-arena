@@ -33,8 +33,9 @@ function regraCopaParaRascunho(r: RegraCopa): RegraRascunho {
     origemCompetitionId: r.origemCompetitionId ?? "",
     origemNivel: r.origemNivel ?? 1,
     origemCupId: r.origemCupId ?? "",
-    posicaoInicio: r.posicaoInicio,
-    posicaoFim: r.posicaoFim,
+    // Faixa nula (divisao_todos) volta ao default do editor (ignorada no submit).
+    posicaoInicio: r.posicaoInicio ?? 1,
+    posicaoFim: r.posicaoFim ?? 4,
     prioridade: r.prioridade,
     rotulo: r.rotulo ?? "",
   }
@@ -80,9 +81,10 @@ export function CupRulesPanel({ cupId, regras, piramides, copas }: CupRulesPanel
   }
 
   function descreverOrigem(r: RegraCopa): string {
-    if (r.origemTipo === "divisao") {
+    if (r.origemTipo === "divisao" || r.origemTipo === "divisao_todos") {
       const nome = r.origemNome ?? "Pirâmide"
-      return r.origemNivel != null ? `${nome} · nível ${r.origemNivel}` : nome
+      const base = r.origemNivel != null ? `${nome} · nível ${r.origemNivel}` : nome
+      return r.origemTipo === "divisao_todos" ? `${base} · todos os clubes` : base
     }
     return r.origemNome ?? "Copa"
   }
@@ -130,7 +132,11 @@ export function CupRulesPanel({ cupId, regras, piramides, copas }: CupRulesPanel
       ) : (
         <ul className="grid list-none gap-2 p-0">
           {regras.map((r) => {
-            const numVagas = Math.max(0, r.posicaoFim - r.posicaoInicio + 1)
+            const ehTodos = r.origemTipo === "divisao_todos"
+            const numVagas =
+              r.posicaoInicio != null && r.posicaoFim != null
+                ? Math.max(0, r.posicaoFim - r.posicaoInicio + 1)
+                : 0
             return (
               <li
                 key={r.id}
@@ -141,8 +147,9 @@ export function CupRulesPanel({ cupId, regras, piramides, copas }: CupRulesPanel
                     {r.rotulo?.trim() || descreverOrigem(r)}
                   </span>
                   <span className="text-muted-foreground block text-xs">
-                    {descreverOrigem(r)} · {r.posicaoInicio}º a {r.posicaoFim}º (
-                    {numVagas} {numVagas === 1 ? "vaga" : "vagas"})
+                    {ehTodos
+                      ? `${descreverOrigem(r)} · divisão inteira (temporada em disputa)`
+                      : `${descreverOrigem(r)} · ${r.posicaoInicio}º a ${r.posicaoFim}º (${numVagas} ${numVagas === 1 ? "vaga" : "vagas"})`}
                   </span>
                 </span>
                 <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
