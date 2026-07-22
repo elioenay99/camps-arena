@@ -338,7 +338,11 @@ export function derivarPool(
    *    vazia por origem esgotada". Roda DEPOIS das regras de faixa: assim um clube
    *    já pego por uma âncora ou por uma regra clássica sobreposta é só pulado
    *    (não vira lacuna fantasma), e o clube ainda entra pela promessa "todos". A
-   *    ordem entre regras `divisao_todos` é (prioridade, ordem de declaração). */
+   *    ordem entre regras `divisao_todos` é (prioridade, ordem de declaração).
+   *    NOTA (config redundante): se uma regra de FAIXA e uma `divisao_todos`
+   *    apontam para a MESMA divisão, o clube capturado pela faixa mantém o técnico
+   *    daquela regra (holder clássico/vestigial), não o técnico vivo do slot — a
+   *    faixa roda antes e vence. Caso incomum; o uso normal é só `divisao_todos`. */
   const regrasTodos = regras
     .filter((r) => r.origem_tipo === "divisao_todos")
     .sort((a, b) => {

@@ -1848,8 +1848,8 @@ export interface Database {
       inscritos_divisao: {
         Args: { p_competition_id: string; p_nivel: number }
         Returns: {
-          team_id: string
-          rotulo: string
+          team_id: string | null
+          rotulo: string | null
           posicao_final: number
           rank: number
           origem_season_id: string

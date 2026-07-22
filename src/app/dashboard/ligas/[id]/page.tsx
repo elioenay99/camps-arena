@@ -159,6 +159,12 @@ export default async function TemporadaPage({
       (t): t is string => t !== null
     )
   )
+  // Copas alimentadas por esta pirâmide (change copa-todos-da-piramide): visão
+  // consolidada (ZERO-DDL). Independe de a temporada estar montada — a regra pode
+  // apontar para a pirâmide antes disso. A RLS gateia a visibilidade das copas.
+  // Disparada aqui (sem await) para correr EM PARALELO com artilharia/muralha.
+  const copasDaPiramidePromise = getCopasDaPiramide(supabase, temporada.competicao.id)
+
   // Muralha (defesas) da PIRÂMIDE (change add-muralha-defesas): mesma agregação
   // e RLS da artilharia. Em paralelo (consultas independentes).
   const [artilharia, muralha] =
@@ -172,10 +178,7 @@ export default async function TemporadaPage({
           Awaited<ReturnType<typeof getMuralha>>,
         ])
 
-  // Copas alimentadas por esta pirâmide (change copa-todos-da-piramide): visão
-  // consolidada (ZERO-DDL). Independe de a temporada estar montada — a regra pode
-  // apontar para a pirâmide antes disso. A RLS gateia a visibilidade das copas.
-  const copasDaPiramide = await getCopasDaPiramide(supabase, temporada.competicao.id)
+  const copasDaPiramide = await copasDaPiramidePromise
 
   // Mapa nível → nome (para o FluxoTemporadaPanel rotular as divisões).
   const nivelNomes: Record<number, string> = {}
