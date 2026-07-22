@@ -212,9 +212,11 @@ export function CupWizard({ piramides, copas }: CupWizardProps) {
         {passoAtual === "regras" && (
           <div className="flex flex-col gap-3">
             <p className="text-muted-foreground text-sm">
-              As vagas saem da classificação final encerrada das suas origens. Cada
-              regra pega uma faixa de posições de uma divisão de pirâmide ou de outra
-              copa. A prioridade resolve disputas de vaga (menor primeiro).
+              As vagas saem das suas origens. Uma regra pode pegar uma faixa de
+              posições (exige a temporada/edição encerrada) ou{" "}
+              <strong>todos os clubes de uma divisão</strong> — que vale com a
+              temporada ainda em disputa. A prioridade resolve disputas de vaga
+              (menor primeiro).
             </p>
             <RuleListEditor
               regras={regras}

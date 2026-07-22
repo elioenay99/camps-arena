@@ -391,7 +391,7 @@ function CartaoRegra({
       ) : (
         <p className="text-muted-foreground text-[0.7rem]">
           {numVagas} {numVagas === 1 ? "vaga" : "vagas"} (posições {r.posicaoInicio} a{" "}
-          {r.posicaoFim} da classificação final).
+          {r.posicaoFim} da classificação final — exige a temporada/edição encerrada).
         </p>
       )}
     </li>

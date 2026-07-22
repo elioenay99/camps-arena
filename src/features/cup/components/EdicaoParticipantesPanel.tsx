@@ -185,7 +185,8 @@ export function EdicaoParticipantesPanel({
           {derivando ? "Derivando…" : n > 0 ? "Re-derivar vagas" : "Derivar vagas"}
         </Button>
         <p className="text-muted-foreground text-xs">
-          Lê a classificação final encerrada das origens e monta o pool.
+          Lê as origens e monta o pool: por faixa de classificação (temporada
+          encerrada) ou todos os clubes da divisão (mesmo em disputa).
         </p>
       </div>
 
