@@ -484,9 +484,23 @@ create index if not exists matches_wo_vencedor_idx on public.matches (wo_vencedo
 -- mas o resultado fica PENDENTE (não pontua — ehElegivel exige 'encerrada').
 -- Colunas nullable, sem backfill (legado nasce com os três nulos).
 alter table public.matches add column if not exists adiada_em timestamptz;
+-- `on delete restrict` (não `set null`): a CHECK matches_adiamento_coerente
+-- (abaixo) exige adiada_por NÃO-nulo sempre que status='adiada' — mesmo
+-- raciocínio já usado em wo_vencedor/matches_wo_coerente (linha ~440), que
+-- também usa restrict por colidir com sua própria CHECK condicional. Um
+-- `set null` aqui faria a exclusão de um usuário com adiamento PENDENTE (não
+-- resolvido) violar a CHECK e falhar a transação de exclusão inteira.
 alter table public.matches add column if not exists adiada_por uuid
-  references public.users (id) on delete set null;
+  references public.users (id) on delete restrict;
 alter table public.matches add column if not exists adiamento_motivo text;
+
+-- Corrige instalações que já rodaram a definição acima com `on delete set
+-- null` (idempotente — sem-op se a constraint já for restrict): dropa e
+-- recria o FK de adiada_por como restrict.
+alter table public.matches drop constraint if exists matches_adiada_por_fkey;
+alter table public.matches
+  add constraint matches_adiada_por_fkey
+  foreign key (adiada_por) references public.users (id) on delete restrict;
 
 -- CHECK UNIDIRECIONAL: só exige adiada_em/adiada_por quando status = 'adiada' —
 -- de propósito NÃO exige que fiquem nulos fora disso. Os três campos SOBREVIVEM
