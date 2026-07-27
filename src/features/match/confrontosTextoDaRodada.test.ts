@@ -95,4 +95,17 @@ describe("confrontosTextoDaRodada", () => {
     const r = confrontosTextoDaRodada(1, [aberta({ rodada: 1, tecnico_1: null })], [])
     expect(r[0].lado1.comandante).toBeNull()
   })
+
+  it("partida adiada NÃO entra na mensagem de WhatsApp da rodada (add-partida-adiada)", () => {
+    const r = confrontosTextoDaRodada(
+      1,
+      [
+        aberta({ id: "p1", rodada: 1, status: "adiada", nome_1: "Adiada", nome_2: "X" }),
+        aberta({ id: "p2", rodada: 1, status: "agendada", nome_1: "Normal", nome_2: "Y" }),
+      ],
+      []
+    )
+    expect(r).toHaveLength(1)
+    expect(r[0].lado1.clube).toBe("Normal")
+  })
 })

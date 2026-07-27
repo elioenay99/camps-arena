@@ -6,4 +6,5 @@ export const LABEL_STATUS: Record<MatchStatus, string> = {
   agendada: "agendada",
   em_andamento: "em andamento",
   encerrada: "encerrada",
+  adiada: "adiada",
 }

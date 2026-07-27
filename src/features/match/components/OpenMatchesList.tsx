@@ -9,6 +9,10 @@ import {
   rotuloRodada,
 } from "@/features/match/components/PartidaIdentidade"
 import {
+  AdiarButton,
+  DesfazerAdiamentoButton,
+} from "@/features/match/components/PostponeButtons"
+import {
   MarcarWoButton,
   SolicitarWoButton,
 } from "@/features/match/components/WoButtons"
@@ -22,12 +26,14 @@ import type {
   TecnicoDoLado,
 } from "@/features/standings/data/getTournamentClassificacao"
 import type { MatchStatus } from "@/lib/supabase/database.types"
+import { cn } from "@/lib/utils"
 import { linkWhatsApp, mensagemConvocacao } from "@/lib/whatsapp"
 
 const LABEL_STATUS: Record<MatchStatus, string> = {
   agendada: "agendada",
   em_andamento: "em andamento",
   encerrada: "encerrada",
+  adiada: "adiada",
 }
 
 /**
@@ -141,6 +147,18 @@ export function OpenMatchesList({
     const podeMarcarWo = mostrarEncerrar && ehCompetitivo && !temPropostaPendente
     const podeSolicitarWo = !mostrarEncerrar && ehCompetitivo && jogaPartida(p)
     const consoleOrganizador = mostrarEncerrar && !temPropostaPendente
+    // Adiar (add-partida-adiada): só liga/fase de grupos (`ehCompetitivo`
+    // cobre o escopo da capability — avulso não tem esse botão), NUNCA em
+    // chave (`posicao == null`, mesmo sinal de `permiteDuplo`), e some quando
+    // já `adiada` OU quando há proposta pendente (mesmo gate de `podeMarcarWo`
+    // — a resolução de pendência mora só em "Resultados pendentes").
+    const podeAdiar =
+      mostrarEncerrar &&
+      ehCompetitivo &&
+      p.posicao == null &&
+      p.status !== "adiada" &&
+      !temPropostaPendente
+    const podeDesfazerAdiamento = mostrarEncerrar && p.status === "adiada"
     return (
       <li
         key={p.id}
@@ -165,8 +183,22 @@ export function OpenMatchesList({
             </span>
           ) : null}
           {/* Pill de status: mora na linha de info (não no cluster de ações),
-              para os botões empilharem limpos no mobile. */}
-          <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs">
+              para os botões empilharem limpos no mobile. Adiada ganha âmbar
+              (mesmo tom do badge de pendência do histórico) e, quando há
+              motivo registrado, um tooltip nativo com o texto. */}
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2 py-0.5 text-xs",
+              p.status === "adiada"
+                ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                : "bg-muted text-muted-foreground"
+            )}
+            title={
+              p.status === "adiada" && p.adiamentoMotivo
+                ? `Motivo: ${p.adiamentoMotivo}`
+                : undefined
+            }
+          >
             {LABEL_STATUS[p.status]}
           </span>
         </span>
@@ -210,6 +242,8 @@ export function OpenMatchesList({
               permiteDuplo={p.posicao == null}
             />
           ) : null}
+          {podeAdiar ? <AdiarButton matchId={p.id} /> : null}
+          {podeDesfazerAdiamento ? <DesfazerAdiamentoButton matchId={p.id} /> : null}
           {/* Editor de placar do ORGANIZADOR (modo direto → updateMatchScore).
               Mesmo gate de "Encerrar" (mostrarEncerrar = podeArbitrarPartidas);
               autorização real é servidor/RLS. placarInicial é OBRIGATÓRIO aqui:

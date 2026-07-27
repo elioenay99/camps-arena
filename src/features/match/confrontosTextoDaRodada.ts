@@ -23,7 +23,11 @@ export function confrontosTextoDaRodada(
   encerradas: PartidaEncerrada[]
 ): ConfrontoTexto[] {
   const deAbertas = abertas
-    .filter((p) => p.rodada === rodada && p.perna !== 2)
+    // `status !== "adiada"` (add-partida-adiada): uma partida adiada não deve
+    // convocar os técnicos a combinar um jogo que já foi adiado
+    // administrativamente — a pendência é sinalizada por outro canal (a pílula
+    // de status).
+    .filter((p) => p.rodada === rodada && p.perna !== 2 && p.status !== "adiada")
     .map((p) => ({
       lado1: {
         clube: p.nome_1,

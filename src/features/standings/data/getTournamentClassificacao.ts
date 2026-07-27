@@ -105,6 +105,9 @@ export interface PartidaAberta {
   placar_1: number
   placar_2: number
   status: MatchStatus
+  /** Motivo do adiamento (add-partida-adiada), texto livre opcional; presente
+   * só quando `status === "adiada"`. Ausente/null nas demais partidas. */
+  adiamentoMotivo?: string | null
   /** Rodada/fase gerada; null em partida avulsa (sem rótulo na UI). */
   rodada: number | null
   /** Posição na chave (mata-mata); null fora de chave (liga/grupos/avulso). Gate
@@ -254,6 +257,7 @@ interface PartidaComNomes {
   wo: boolean
   wo_vencedor: string | null
   wo_duplo: boolean
+  adiamento_motivo: string | null
   liberada_em: string | null
   created_at: string
   updated_at: string
@@ -384,7 +388,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const { data: partidas, error: partidasError } = await supabase
     .from("matches")
     .select(
-      `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, wo, wo_vencedor, wo_duplo, liberada_em, created_at, updated_at,
+      `id, participante_1, participante_2, vaga_1, vaga_2, time_1, time_2, placar_1, placar_2, status, rodada, posicao, perna, grupo, wo, wo_vencedor, wo_duplo, adiamento_motivo, liberada_em, created_at, updated_at,
        p1:users!matches_participante_1_fkey ( id, nome, avatar ),
        p2:users!matches_participante_2_fkey ( id, nome, avatar ),
        t1:teams!matches_time_1_fkey ( id, nome ),
@@ -638,6 +642,7 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
         placar_1: p.placar_1,
         placar_2: p.placar_2,
         status: p.status,
+        adiamentoMotivo: p.adiamento_motivo,
         rodada: p.rodada,
         posicao: p.posicao,
         perna: p.perna,

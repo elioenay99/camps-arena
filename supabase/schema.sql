@@ -35,6 +35,13 @@ alter type public.tournament_format add value if not exists 'mata_mata';
 alter type public.tournament_format add value if not exists 'grupos_mata_mata';
 alter type public.tournament_format add value if not exists 'fase_liga';
 
+-- Quarto valor de match_status (add-partida-adiada): partida ADIADA
+-- administrativamente em liga/fase de grupos (a chave nunca adia — motor de
+-- avanço de fase exige 'encerrada'). Mesmo padrão de isolamento: num banco
+-- pré-existente, rode este ALTER TYPE num Run SEPARADO antes das colunas/CHECK
+-- que usam o literal 'adiada' (schema.sql, seção "Adiamento de partida").
+alter type public.match_status add value if not exists 'adiada';
+
 -- ---------- Tabela: users (perfil público, 1:1 com auth.users) ----------
 create table if not exists public.users (
   id         uuid primary key references auth.users (id) on delete cascade,
@@ -472,6 +479,29 @@ alter table public.matches
 
 create index if not exists matches_wo_vencedor_idx on public.matches (wo_vencedor);
 
+-- ---------- Adiamento de partida (liga/fase de grupos; add-partida-adiada) --
+-- `status = 'adiada'` (enum, ver topo do arquivo): a rodada segue em frente,
+-- mas o resultado fica PENDENTE (não pontua — ehElegivel exige 'encerrada').
+-- Colunas nullable, sem backfill (legado nasce com os três nulos).
+alter table public.matches add column if not exists adiada_em timestamptz;
+alter table public.matches add column if not exists adiada_por uuid
+  references public.users (id) on delete set null;
+alter table public.matches add column if not exists adiamento_motivo text;
+
+-- CHECK UNIDIRECIONAL: só exige adiada_em/adiada_por quando status = 'adiada' —
+-- de propósito NÃO exige que fiquem nulos fora disso. Os três campos SOBREVIVEM
+-- como metadado histórico quando a partida sai de 'adiada' direto pra
+-- 'encerrada' pelos caminhos normais de placar/W.O. (marcarWO/marcarWoDuplo/
+-- aplicar_placar_direto/aprovar_proposta_placar — nenhum deles muda nesta
+-- feature, todos guardam por `status <> 'encerrada'`, negativo). Só a reversão
+-- explícita do adiamento (`desfazerAdiamento`) limpa os três campos. Se um
+-- caminho novo algum dia passar a ESCREVER `status = 'adiada'`, ele precisa
+-- setar `adiada_em`/`adiada_por` no mesmo UPDATE (senão a CHECK rejeita).
+alter table public.matches drop constraint if exists matches_adiamento_coerente;
+alter table public.matches
+  add constraint matches_adiamento_coerente
+  check (status <> 'adiada' or (adiada_em is not null and adiada_por is not null));
+
 -- ---------- Tabela: match_wo_requests (solicitação de W.O. pelo adversário) --
 -- Decisão 8: o adversário SOLICITA o W.O. e o dono aceita/recusa. Padrão do
 -- slot_invites (tabela própria, fora de matches). O vencedor pretendido é o
@@ -620,12 +650,15 @@ begin
       end if;
     end if;
 
-    -- Partida que CONTINUA encerrada (não está reabrindo): placar, clube e
-    -- W.O. são imutáveis. `wo`/`wo_vencedor` entram aqui para fechar o furo de
-    -- o técnico do lado perdedor trocar o vencedor de um W.O. já gravado (a RLS
-    -- matches_update_participant permite o UPDATE da linha; o lock é a defesa
-    -- de COLUNA). O `new.status = 'encerrada'` permite a REABERTURA (status sai
-    -- de encerrada, gated ao dono acima) limpar o W.O. no mesmo UPDATE.
+    -- Partida que CONTINUA encerrada (não está reabrindo): placar, clube, W.O.
+    -- e o rastro de adiamento são imutáveis. `wo`/`wo_vencedor` entram aqui para
+    -- fechar o furo de o técnico do lado perdedor trocar o vencedor de um W.O.
+    -- já gravado (a RLS matches_update_participant permite o UPDATE da linha; o
+    -- lock é a defesa de COLUNA). `adiada_em`/`adiada_por`/`adiamento_motivo`
+    -- (add-partida-adiada) entram pelo MESMO motivo — travar um POST direto que
+    -- reescrevesse o metadado histórico do adiamento numa partida já fechada. O
+    -- `new.status = 'encerrada'` permite a REABERTURA (status sai de encerrada,
+    -- gated ao dono acima) limpar o W.O./adiamento no mesmo UPDATE.
     if old.status = 'encerrada' and new.status = 'encerrada'
        and (new.placar_1 is distinct from old.placar_1
             or new.placar_2 is distinct from old.placar_2
@@ -633,7 +666,10 @@ begin
             or new.time_2 is distinct from old.time_2
             or new.wo is distinct from old.wo
             or new.wo_vencedor is distinct from old.wo_vencedor
-            or new.wo_duplo is distinct from old.wo_duplo)
+            or new.wo_duplo is distinct from old.wo_duplo
+            or new.adiada_em is distinct from old.adiada_em
+            or new.adiada_por is distinct from old.adiada_por
+            or new.adiamento_motivo is distinct from old.adiamento_motivo)
     then
       raise exception 'Partida encerrada não aceita alteração de placar, clube ou W.O.';
     end if;
@@ -5420,6 +5456,81 @@ grant execute on function public.rejeitar_proposta_placar(uuid, text) to authent
 
 -- =====================================================================
 -- Fim — PROPOSTA DE RESULTADO COM FOTO
+-- =====================================================================
+
+-- =====================================================================
+-- ADIAMENTO DE PARTIDA (add-partida-adiada)
+-- Liga/fase de grupos (NUNCA chave — posicao is not null é recusado). Muda a
+-- partida para 'adiada' e cancela (rejeita/recusa) qualquer proposta de placar
+-- ou solicitação de W.O. pendente da MESMA partida, numa única transação —
+-- evita que uma pendência anterior ao adiamento seja aprovada depois com um
+-- resultado desatualizado (decisão de produto). Espelha aprovar_proposta_placar
+-- (autorização por pode_arbitrar_torneio, UPDATE guardado por filtro de estado,
+-- `raise exception` com código curto).
+-- =====================================================================
+
+create or replace function public.adiar_partida(p_match_id uuid, p_motivo text default null)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_tid    uuid;
+  v_pos    integer;
+  v_linhas integer;
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  select tournament_id, posicao into v_tid, v_pos
+    from public.matches
+   where id = p_match_id
+   for update;
+
+  if v_tid is null then
+    raise exception 'PARTIDA_INVALIDA';
+  end if;
+  if not public.pode_arbitrar_torneio(v_tid) then
+    raise exception 'NAO_AUTORIZADO';
+  end if;
+  if v_pos is not null then
+    raise exception 'CHAVE_NAO_ADIA';
+  end if;
+
+  update public.matches
+     set status = 'adiada',
+         adiada_em = now(),
+         adiada_por = v_uid,
+         adiamento_motivo = nullif(btrim(p_motivo), '')
+   where id = p_match_id
+     and status <> 'encerrada';
+  get diagnostics v_linhas = row_count;
+  if v_linhas = 0 then
+    raise exception 'PARTIDA_INDISPONIVEL';
+  end if;
+
+  -- Cancela pendências da MESMA partida (decisão de produto): evita aprovação
+  -- tardia de um resultado que já não vale mais.
+  update public.match_score_proposals
+     set status = 'rejeitada', resolvido_em = now(), resolvido_por = v_uid
+   where match_id = p_match_id and status = 'pendente';
+
+  update public.match_wo_requests
+     set status = 'recusado', resolved_at = now()
+   where match_id = p_match_id and status = 'pendente';
+
+  return p_match_id;
+end;
+$$;
+
+revoke execute on function public.adiar_partida(uuid, text) from public, anon;
+grant execute on function public.adiar_partida(uuid, text) to authenticated;
+
+-- =====================================================================
+-- Fim — ADIAMENTO DE PARTIDA
 -- =====================================================================
 
 -- =====================================================================

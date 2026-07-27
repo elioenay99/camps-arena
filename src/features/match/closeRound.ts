@@ -20,7 +20,10 @@ interface PartidaAbertaDaRodada {
  * Varre as partidas ABERTAS de uma rodada e resolve por W.O. AUTOMÁTICO as que
  * são órfão×técnico (um lado é clube sem técnico, o outro tem) — o lado com
  * técnico vence (0x0, wo_vencedor = a vaga com técnico). Partidas jogáveis
- * (ambos com técnico) e órfão×órfão NÃO são tocadas.
+ * (ambos com técnico) e órfão×órfão NÃO são tocadas. Partidas `adiada`
+ * (add-partida-adiada) também NÃO são tocadas — foram adiadas por decisão
+ * humana explícita, não por ausência de técnico, e permanecem `adiada` até
+ * serem resolvidas manualmente.
  *
  * `somenteSeRodadaCompleta` (fechamento AUTOMÁTICO, decisão 6): só varre quando
  * NÃO resta nenhuma partida jogável aberta — a rodada "fecha sozinha" quando o
@@ -48,6 +51,7 @@ export async function varrerOrfaosDaRodada(
     .eq("tournament_id", tournamentId)
     .eq("rodada", rodada)
     .neq("status", "encerrada")
+    .neq("status", "adiada")
 
   if (error || !data) {
     if (error) {

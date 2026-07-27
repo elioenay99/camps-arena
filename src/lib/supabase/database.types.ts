@@ -16,7 +16,7 @@ export type TournamentFormat =
   | "mata_mata"
   | "grupos_mata_mata"
   | "fase_liga"
-export type MatchStatus = "agendada" | "em_andamento" | "encerrada"
+export type MatchStatus = "agendada" | "em_andamento" | "encerrada" | "adiada"
 export type WoRequestStatus = "pendente" | "aceito" | "recusado"
 export type ScoreProposalStatus = "pendente" | "aprovada" | "rejeitada"
 export type LeagueCompetitionStatus = "ativa" | "arquivada"
@@ -181,6 +181,9 @@ export interface Database {
           wo: boolean
           wo_vencedor: string | null
           wo_duplo: boolean
+          adiada_em: string | null
+          adiada_por: string | null
+          adiamento_motivo: string | null
           liberada_em: string | null
           created_at: string
           updated_at: string
@@ -204,6 +207,9 @@ export interface Database {
           wo?: boolean
           wo_vencedor?: string | null
           wo_duplo?: boolean
+          adiada_em?: string | null
+          adiada_por?: string | null
+          adiamento_motivo?: string | null
           liberada_em?: string | null
           created_at?: string
           updated_at?: string
@@ -227,6 +233,9 @@ export interface Database {
           wo?: boolean
           wo_vencedor?: string | null
           wo_duplo?: boolean
+          adiada_em?: string | null
+          adiada_por?: string | null
+          adiamento_motivo?: string | null
           liberada_em?: string | null
           created_at?: string
           updated_at?: string
@@ -1745,6 +1754,10 @@ export interface Database {
       }
       aprovar_proposta_placar: {
         Args: { p_proposal_id: string }
+        Returns: string
+      }
+      adiar_partida: {
+        Args: { p_match_id: string; p_motivo?: string | null }
         Returns: string
       }
       aplicar_placar_direto: {

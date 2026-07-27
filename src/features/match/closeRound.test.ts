@@ -21,22 +21,33 @@ interface Cenario {
 
 /**
  * Cliente falso da varredura. Em `matches` distingue:
- *  - select(...).eq(tournament).eq(rodada).neq(status) → leitura (terminal neq)
- *  - update(...).eq(id).neq(status).select(id)         → W.O. (terminal select)
+ *  - select(...).eq(tournament).eq(rodada).neq(encerrada).neq(adiada) → leitura
+ *    (thenable: DOIS `.neq()` encadeados, sem terminal explícito — mesmo
+ *    formato do builder real do supabase-js)
+ *  - update(...).eq(id).neq(status).select(id)                        → W.O.
+ *    (terminal select)
  * O updateSpy captura cada payload de W.O. gravado.
  */
 function montarClient(c: Cenario) {
   const updateSpy = vi.fn()
   const updateFiltroSpy = vi.fn()
+  const selectNeqSpy = vi.fn()
 
   const matchesFrom = {
     select: vi.fn(() => {
       const cadeia: Record<string, unknown> = {}
       cadeia.eq = vi.fn(() => cadeia)
-      cadeia.neq = vi.fn(async () => ({
-        data: c.selectError ? null : c.abertas,
-        error: c.selectError ? { message: "down" } : null,
-      }))
+      cadeia.neq = vi.fn((col: string, val: unknown) => {
+        selectNeqSpy(col, val)
+        return cadeia
+      })
+      // Thenable: `await` na cadeia (sem chamada terminal) resolve para o
+      // resultado da leitura — espelha o builder real do supabase-js.
+      cadeia.then = (resolve: (v: unknown) => void) =>
+        resolve({
+          data: c.selectError ? null : c.abertas,
+          error: c.selectError ? { message: "down" } : null,
+        })
       return cadeia
     }),
     update: vi.fn((vals: unknown) => {
@@ -59,6 +70,7 @@ function montarClient(c: Cenario) {
     from: vi.fn(() => matchesFrom),
     updateSpy,
     updateFiltroSpy,
+    selectNeqSpy,
   }
   return client
 }
@@ -235,5 +247,25 @@ describe("varrerOrfaosDaRodada", () => {
     const r = await varrerOrfaosDaRodada(client as never, TORNEIO, 1)
     expect(r.marcadas).toBe(0)
     consoleSpy.mockRestore()
+  })
+
+  it("o SELECT exclui 'encerrada' E 'adiada' (add-partida-adiada)", async () => {
+    const client = montarClient({ abertas: [] })
+    await varrerOrfaosDaRodada(client as never, TORNEIO, 1)
+    expect(client.selectNeqSpy).toHaveBeenCalledWith("status", "encerrada")
+    expect(client.selectNeqSpy).toHaveBeenCalledWith("status", "adiada")
+  })
+
+  it("somenteSeRodadaCompleta: uma partida adiada pendente não impede o fechamento automático (não é 'jogo real pendente')", async () => {
+    // Como o SELECT real já exclui 'adiada' (testado acima), uma rodada só com
+    // órfã + adiada — nunca vendo a adiada — fecha sozinha assim que não resta
+    // jogo jogável entre as que O SELECT devolve.
+    const client = montarClient({
+      abertas: [orfaoXtecnico("m1")],
+    })
+    const r = await varrerOrfaosDaRodada(client as never, TORNEIO, 1, {
+      somenteSeRodadaCompleta: true,
+    })
+    expect(r.marcadas).toBe(1)
   })
 })

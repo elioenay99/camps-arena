@@ -17,6 +17,10 @@ export function LiveStatusBadge({
   const live = useLiveMatch(matchId)
   const status = live ? live.status : initial
   const emAndamento = status === "em_andamento"
+  // Partida adiada (add-partida-adiada): cor de "pendente" distinta de
+  // Aberta (muted) e Em andamento (primary) — mesmo âmbar já usado no badge de
+  // pendência do histórico (MatchHistoryList.tsx).
+  const adiada = status === "adiada"
 
   return (
     <>
@@ -26,7 +30,9 @@ export function LiveStatusBadge({
           "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium",
           emAndamento
             ? "border-primary/30 bg-primary/10 text-primary"
-            : "border-border bg-muted/40 text-muted-foreground"
+            : adiada
+              ? "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+              : "border-border bg-muted/40 text-muted-foreground"
         )}
       >
         {emAndamento ? (

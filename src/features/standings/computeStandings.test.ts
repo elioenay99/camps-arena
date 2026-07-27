@@ -74,6 +74,7 @@ describe("computeStandings — acumulação", () => {
     const r = computeStandings(CBF, [
       partida("a", "b", 9, 0, "agendada"),
       partida("a", "b", 9, 0, "em_andamento"),
+      partida("a", "b", 9, 0, "adiada"), // add-partida-adiada: também não pontua
       partida("a", null, 9, 0),
       partida(null, "b", 0, 9),
       partida("a", "b", 1, 0), // única elegível
