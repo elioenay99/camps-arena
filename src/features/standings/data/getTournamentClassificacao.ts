@@ -741,10 +741,21 @@ export const getTournamentClassificacao = cache(async function getTournamentClas
   const linhasFaseGrupos =
     grupos.length > 0 ? rankearAgregadoGrupos(grupos.map((g) => g.linhas)) : undefined
 
-  // Rodada ATIVA derivada: menor rodada entre as partidas não-encerradas com
-  // rodada preenchida (competitivo). null se não há aberta com rodada.
+  // Rodada ATIVA derivada: menor rodada entre as partidas não-encerradas E
+  // não-adiadas com rodada preenchida (competitivo). Uma partida `adiada`
+  // (add-partida-adiada) NÃO prende a rodada ativa nas rodadas seguintes —
+  // é exatamente a promessa da feature ("a rodada segue em frente... não
+  // bloqueia... a visão da rodada seguinte"); sem essa exclusão, o botão
+  // "Fechar rodada" (gated a `atual.rodada === rodadaAtiva` em
+  // RoundPager.tsx) ficaria preso para sempre na rodada da partida adiada,
+  // mesmo com todas as rodadas seguintes prontas para fechar. `partidasAbertas`
+  // (acima) continua incluindo a adiada normalmente — só a rodada ATIVA muda.
+  // null se não há aberta com rodada.
   const rodadasAbertas = linhasPartidas
-    .filter((p) => p.status !== "encerrada" && typeof p.rodada === "number")
+    .filter(
+      (p) =>
+        p.status !== "encerrada" && p.status !== "adiada" && typeof p.rodada === "number"
+    )
     .map((p) => p.rodada as number)
   const rodadaAtiva = rodadasAbertas.length > 0 ? Math.min(...rodadasAbertas) : null
 

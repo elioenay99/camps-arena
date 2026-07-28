@@ -472,6 +472,38 @@ describe("getTournamentClassificacao", () => {
     expect(r?.partidasAbertas.map((p) => p.rodada)).toEqual([1, 2, 3, null])
   })
 
+  it("rodadaAtiva pula rodada cuja única partida aberta está 'adiada' (add-partida-adiada)", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "liga" },
+      partidas: [
+        // Rodada 1: só a adiada — NÃO deve prender rodadaAtiva aqui.
+        { ...partidaEncerrada(ana, beto, 0, 0), status: "adiada", rodada: 1 },
+        // Rodada 2: aberta de verdade — rodadaAtiva deve apontar pra cá.
+        { ...partidaEncerrada(beto, ana, 0, 0), status: "agendada", rodada: 2 },
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.rodadaAtiva).toBe(2)
+    // A adiada continua listada em partidasAbertas (só sai do cálculo de rodadaAtiva).
+    expect(r?.partidasAbertas.map((p) => p.status)).toContain("adiada")
+  })
+
+  it("rodadaAtiva null quando só resta partida adiada (todas as outras encerradas)", async () => {
+    const ana = { id: "u1", nome: "Ana" }
+    const beto = { id: "u2", nome: "Beto" }
+    montarClient({
+      torneio: { ...TORNEIO, formato: "liga" },
+      partidas: [
+        { ...partidaEncerrada(ana, beto, 0, 0), status: "adiada", rodada: 1 },
+        partidaEncerrada(beto, ana, 1, 0, "2026-06-05T00:00:00Z"), // rodada implícita null, mas encerrada
+      ],
+    })
+    const r = await getTournamentClassificacao(TORNEIO.id)
+    expect(r?.rodadaAtiva).toBeNull()
+  })
+
   it("rodada chega às projeções de histórico e abertas (insumo do rótulo)", async () => {
     const ana = { id: "u1", nome: "Ana" }
     const beto = { id: "u2", nome: "Beto" }
